@@ -668,7 +668,7 @@ export function registerResultTool(pi: ExtensionAPI): void {
 			"(byte-identical, complete — no screen scraping); mid-flight calls return an interim snapshot. " +
 			"For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. " +
 			"A gone pane still answers with its last-known metadata; its session file stays readable and resumable. " +
-			"`wait: true` blocks until done/failed/blocked/gone (through the queue); `wait: <ms>` returns the current state on expiry.",
+			"Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
 		promptSnippet: "Pull an agent's result (exact final message for pi children)",
 		promptGuidelines: [
 			"Use herdr_get_agent_result to fetch a spawned agent's result — it returns the exact final assistant message, not a screen scrape.",
@@ -679,12 +679,6 @@ export function registerResultTool(pi: ExtensionAPI): void {
 				description:
 					"Spawn handle (the name herdr_spawn_agent returned) or pane id.",
 			}),
-			wait: Type.Optional(
-				Type.Union([Type.Boolean(), Type.Integer()], {
-					description:
-						"true = block until done/failed/blocked/gone; ms = current state on expiry; omit = single-shot snapshot.",
-				}),
-			),
 			lines: Type.Optional(
 				Type.Integer({
 					description:
@@ -694,7 +688,7 @@ export function registerResultTool(pi: ExtensionAPI): void {
 		}),
 		async execute(_id, p, signal) {
 			const r = await getAgentResult(
-				{ target: p.target, wait: p.wait, lines: p.lines },
+				{ target: p.target, lines: p.lines },
 				{ signal },
 			);
 			if (!r.ok) return fail(r);

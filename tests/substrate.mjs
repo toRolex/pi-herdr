@@ -935,8 +935,8 @@ console.log("\n[10] Registration — surface convergence");
 	);
 	const get = tools.find((t) => t.name === "herdr_get_agent_result");
 	assert(
-		!!get.parameters.properties.wait && !!get.parameters.properties.target,
-		"schema: target + optional bounded wait",
+		!!get.parameters.properties.target && !get.parameters.properties.wait,
+		"schema: target, and no wait (single-shot; the engine's wait stays internal)",
 	);
 }
 
