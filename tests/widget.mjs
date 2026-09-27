@@ -373,5 +373,33 @@ console.log("\n[3] fleetWidgetOnce: sink sees the model, empty clears once");
 	eq(deliveredSeen.length, 1, "clear stays cleared (no repeated setWidget)");
 }
 
+// ---------------------------------------------------------------------------
+console.log("\n[4] narrow terminal: no line exceeds the given width");
+{
+	const narrowModel = wg.buildWidgetModel(
+		[
+			{ name: "scout-auth", spawnedAt: 0, kind: "pi", submitted: true, sawWorking: true },
+			{ name: "reviewer-db", spawnedAt: 0, kind: "pi", submitted: true, sawWorking: true },
+		],
+		[
+			{ status: "blocked", detail: "ask_user" },
+			{ status: "active", detail: "bash 7m" },
+		],
+		10_000,
+		new Map(),
+	);
+	narrowModel.rows[0].blockedPreview = "Which schema, A or B?";
+	for (const width of [32, 20, 80]) {
+		const lines = wg.renderWidgetLines(narrowModel, width).map(visible);
+		assert(lines.length >= 4, `width ${width} still renders a box`);
+		for (const line of lines) {
+			assert(
+				line.length <= width,
+				`width ${width}: line is ${line.length} cols (${JSON.stringify(line)})`,
+			);
+		}
+	}
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

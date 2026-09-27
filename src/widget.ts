@@ -152,8 +152,8 @@ export function buildWidgetModel(
 			if (record.interruptedAt !== undefined) stateAgeMs = now - record.interruptedAt;
 			else if (record.watch?.problemSince !== undefined)
 				stateAgeMs = now - record.watch.problemSince;
-			else if (!record.paneId) stateAgeMs = now - record.spawnedAt;
-			else stateAgeMs = now - entry.since;
+			else if (record.paneId) stateAgeMs = now - entry.since;
+			else stateAgeMs = now - record.spawnedAt;
 		}
 
 		rows.push({
@@ -196,7 +196,23 @@ const PLAIN: WidgetStyle = {
 	inverse: (s) => s,
 };
 
-const visibleLen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, "").length;
+const ESC = String.fromCharCode(0x1b);
+function visibleLen(s: string): number {
+	let n = 0;
+	for (let i = 0; i < s.length; i++) {
+		if (s[i] !== ESC || s[i + 1] !== "[") {
+			n++;
+			continue;
+		}
+		const end = s.indexOf("m", i + 2);
+		if (end < 0) {
+			n++;
+			continue;
+		}
+		i = end;
+	}
+	return n;
+}
 
 function fit(s: string, n: number): string {
 	return s.length <= n ? s : `${s.slice(0, Math.max(1, n - 1))}…`;
@@ -233,23 +249,25 @@ export function renderWidgetLines(
 	// maxL + maxM + maxA + 5 wide between the bars, +2 with them.
 	const natural = maxL + maxM + maxA + 7;
 	const headerMin = counts.length + 18; // `─ Subagents ─ N active · M open ─`
-	let F = Math.min(Math.max(20, width), Math.max(natural, headerMin));
-	if (F < headerMin) F = headerMin; // absurdly narrow — hard-fit below
+	// Hug content, keep the header shape when the terminal allows it, and
+	// never exceed `width` — raising F to headerMin on a narrow pane is what
+	// overflows pi's strict line-width check.
+	const F = Math.min(width, Math.max(natural, Math.min(headerMin, width)));
 
 	// Shrink the name column first, then the state column (ages stay honest).
 	let LW = maxL;
 	let MW = maxM;
 	const budget = F - 7 - maxA; // LW + MW ≤ this keeps a row at width F
-	if (LW + MW > budget) LW = Math.max(8, budget - MW);
-	if (LW + MW > budget) MW = Math.max(6, budget - LW);
+	if (LW + MW > budget) LW = Math.max(1, budget - MW);
+	if (LW + MW > budget) MW = Math.max(1, budget - LW);
 
 	const bar = style.border("│");
 	const lines: string[] = [];
 	const callouts: string[] = [];
 
 	// header: ╭─ Subagents ────── N active · M open ─╮
-	const dashes = F - counts.length - 16; // ≥ 2 given F ≥ headerMin
-	const headContent = `─ Subagents ${"─".repeat(dashes - 1)} ${counts} ─`;
+	const dashes = Math.max(1, F - counts.length - 16);
+	const headContent = `─ Subagents ${"─".repeat(Math.max(0, dashes - 1))} ${counts} ─`;
 	lines.push(style.border("╭") + style.border(hardFit(headContent, F - 2)) + style.border("╮"));
 
 	for (const c of cells) {
@@ -263,7 +281,7 @@ export function renderWidgetLines(
 		if (c.callout) callouts.push(calloutLine(c.name, c.age, c.preview, width, style));
 	}
 
-	const footContent = "─".repeat(Math.max(1, F - 2));
+	const footContent = hardFit("─".repeat(Math.max(1, F - 2)), Math.max(0, F - 2));
 	lines.push(style.border("╰") + style.border(footContent) + style.border("╯"));
 	// The blocked callout sits beneath the whole table — the widget's one
 	// loud alarm (kept v0.5 amendment; the box is the quiet ambient view).
@@ -285,10 +303,14 @@ function calloutLine(
 	width: number,
 	style: WidgetStyle,
 ): string {
-	const head = ` ⚠ ${fit(name, Math.max(8, width / 3))} BLOCKED `;
-	let line = style.inverse(head) + ` ${age} `;
+	const prefix = " ⚠ ";
+	const suffix = " BLOCKED ";
+	const agePart = ` ${age} `;
+	const nameBudget = Math.max(1, width - prefix.length - suffix.length - agePart.length);
+	const head = `${prefix}${fit(name, nameBudget)}${suffix}`;
+	let line = `${style.inverse(head)}${agePart}`;
 	if (preview) {
-		const budget = width - visibleLen(head) - age.length - 6;
+		const budget = width - visibleLen(head) - agePart.length - 2;
 		if (budget >= 8) line += style.dim(`"${fit(preview, budget)}"`);
 	}
 	return line;
