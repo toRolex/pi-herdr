@@ -508,6 +508,32 @@ assert(
 	!spawnAgentTool?.parameters?.properties?.argv,
 	"herdr_spawn_agent exposes no raw argv (dropped custom-argv surface)",
 );
+assert(
+	!spawnAgentTool?.parameters?.properties?.wait,
+	"herdr_spawn_agent schema has no wait (tool layer never blocks)",
+);
+assert(
+	!spawnAgentTool.description.includes("wait: true"),
+	"herdr_spawn_agent description does not offer a blocking wait",
+);
+assert(
+	spawnAgentTool.description.includes("Always background"),
+	"herdr_spawn_agent description says it always returns immediately",
+);
+const resultTool = tools.find((t) => t.name === "herdr_get_agent_result");
+assert(!!resultTool, "herdr_get_agent_result registered");
+assert(
+	!resultTool?.parameters?.properties?.wait,
+	"herdr_get_agent_result schema has no wait (single-shot, never blocks)",
+);
+assert(
+	!resultTool.description.includes("wait: true"),
+	"herdr_get_agent_result description does not offer a blocking wait",
+);
+assert(
+	resultTool.description.includes("never blocks"),
+	"herdr_get_agent_result description says a call never blocks",
+);
 
 // ---------------------------------------------------------------------------
 console.log(

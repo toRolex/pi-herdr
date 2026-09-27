@@ -78,6 +78,11 @@ interface StartInput {
 	agentArgs?: string[]; // extra flags appended to the agent CLI (e.g. ["-ne","-e","./src/index.ts"])
 	cwd?: string;
 	split?: "right" | "down";
+	/** Pane to split. Absent = `--current`. */
+	splitFrom?: string;
+	ratio?: number;
+	/** Use this pane as-is (a tab just created it). Skips the split. */
+	existingPane?: string;
 	tabId?: string;
 	workspaceId?: string;
 	env?: Record<string, string>;
@@ -143,13 +148,19 @@ export async function startHerdrAgent(
 	if (bad) return bad;
 
 	// 1. create the pane (`agent start` needs an existing pane at a shell prompt).
+	// A freshly created group tab already has one; reuse it instead of splitting
+	// the orchestrator's pane.
+	if (input.existingPane) {
+		return attachAgent(input, kind, input.existingPane);
+	}
 	const splitArgs = [
 		"pane",
 		"split",
-		"--current",
+		input.splitFrom ?? "--current",
 		"--direction",
 		input.split ?? "right",
 	];
+	if (input.ratio !== undefined) splitArgs.push("--ratio", String(input.ratio));
 	if (input.cwd) splitArgs.push("--cwd", input.cwd);
 	if (input.env)
 		for (const [k, v] of Object.entries(input.env))
@@ -164,10 +175,16 @@ export async function startHerdrAgent(
 	if (!paneId) {
 		return err("PANE_GONE", "herdr pane split returned no pane id", splitR.data);
 	}
+	return attachAgent(input, kind, paneId);
+}
 
-	// 2. attach the agent to the pane by kind. `agent start --kind` can fail
-	//    fast with `agent_pane_busy` while the freshly-split shell reaches its
-	//    prompt, so retry briefly.
+/** `agent start --kind` on an existing pane. Retries `agent_pane_busy` while
+ * the shell reaches its prompt. */
+async function attachAgent(
+	input: StartInput,
+	kind: string,
+	paneId: string,
+): Promise<Result<{ agent: Record<string, unknown> }>> {
 	const startArgs = [
 		"agent",
 		"start",
@@ -177,8 +194,6 @@ export async function startHerdrAgent(
 		"--pane",
 		paneId,
 	];
-	// `agent start ... -- <agent-args>`: pass native agent flags (e.g. pi's
-	// `-e ./src/index.ts`) so a spawned agent can load a local extension.
 	if (input.agentArgs?.length) startArgs.push("--", ...input.agentArgs);
 	const deadline = Date.now() + 6_000;
 	let startR: Result<{ agent?: Record<string, unknown> }>;

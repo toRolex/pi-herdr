@@ -68,13 +68,15 @@ const DESCRIPTION =
 	"2000 chars are written to `<session>.task.md` and delivered as a one-line reference. Raw CLI flags " +
 	"ride `agent_args` (spawn level, appended after the definition's `args:` — last-wins). Stance (v0.6): " +
 	"autonomous by default (auto-exit on settle; pane closes, session retained), `interactive: true` or " +
-	"`auto_exit: false` keeps the pane open. Background by default; `wait: true` blocks until " +
-	"done-or-blocked, `wait: <ms>` returns the current state on expiry. At max_parallel_agents the " +
-	"spawn is accepted queued (no pane until a slot frees; wait waits through the queue). " +
+	"`auto_exit: false` keeps the pane open. Always background: returns immediately; queued spawns " +
+	"return status 'queued'. At max_parallel_agents the spawn is accepted queued (no pane until a " +
+	"slot frees). " +
 	"`isolated: true` runs the agent in a fresh auto-created herdr-side git worktree " +
 	"(worktree stays after the agent — remove it yourself with `herdr worktree remove` or git). " +
 	"Gates, checked in order before any side effect: kill-switch, spawn depth, parallel cap. " +
-	"No layout parameters — panes split right in the current tab.";
+	"Layout: the current tab is an equal-width grid, at most 3 columns by 2 rows. Omit `group` " +
+	"to place the agent on the orchestrator's tab; pass `group` to gather related agents on their " +
+	"own tab (a new group name opens a new tab; a full grid of 6 opens another tab of the same group).";
 
 /** The inline `agent: {…}` definition schema — shared by spawn_agent and save_agent. */
 const AGENT_DEF_SCHEMA = Type.Object({
@@ -211,10 +213,10 @@ export function registerAgents(pi: ExtensionAPI): void {
 					description: "Spawn into a fresh auto-created herdr-side git worktree.",
 				}),
 			),
-			wait: Type.Optional(
-				Type.Union([Type.Boolean(), Type.Integer()], {
+			group: Type.Optional(
+				Type.String({
 					description:
-						"true = block until done-or-blocked; ms = return current state on expiry; omit = background (default).",
+						"Task category. Same group shares one tab (a new name opens a new tab). Omit to stay on the orchestrator's tab. Empty is treated as omitted.",
 				}),
 			),
 		}),
@@ -238,7 +240,7 @@ export function registerAgents(pi: ExtensionAPI): void {
 					agent_args: p.agent_args,
 					cwd: p.cwd,
 					isolated: p.isolated,
-					wait: p.wait,
+					group: p.group,
 				},
 				{
 					signal,
