@@ -943,28 +943,9 @@ export async function startRecordNow(
 	});
 
 	// 3. pane (herdr's native kind axis; version-branched launcher)
-	const childEnv: Record<string, string> = {
-		PI_HERDR_SPAWN_DEPTH: String(record.depth),
-	};
-	if (record.orchestratorPane) {
-		childEnv.PI_HERDR_ORCHESTRATOR_PANE = record.orchestratorPane;
-	}
-	if (record.sessionPath) {
-		childEnv.PI_HERDR_SESSION = record.sessionPath;
-		childEnv.PI_HERDR_NAME = record.name;
-		childEnv.PI_HERDR_AGENT = record.type ?? "";
-		childEnv.PI_HERDR_AUTO_EXIT = record.stance === "autonomous" ? "1" : "0";
-		childEnv.PI_HERDR_DENIED_TOOLS = (record.deniedTools ?? []).join(",");
-		if (record.activityPath)
-			childEnv.PI_HERDR_ACTIVITY_FILE = record.activityPath;
-		// idle re-arm window (issue 06): after a human takeover, settle + this
-		// much quiet → the child auto-delivers (rearm-labeled) and closes.
-		childEnv.PI_HERDR_IDLE_REARM_MS = String(
-			Math.max(0, (deps.load ?? defaultLoad)().idle_rearm_minutes) * 60_000,
-		);
-	}
+	const childEnv = childEnvFor(record, deps);
 	const start = deps.start ?? startHerdrAgent;
-	const placed = await placeOnGrid(record, deps);
+	const placed = await placeOnGrid(record, deps, childEnv);
 	if (placed) {
 		const run = deps.herdr ?? herdr;
 		for (const command of placed.commands) {
@@ -1044,9 +1025,33 @@ export async function startRecordNow(
 
 /** Best-effort grid placement. A herdr failure returns undefined and the
  * launcher falls back to splitting the current pane rightward. */
+function childEnvFor(record: SpawnRecord, deps: SpawnDeps): Record<string, string> {
+	const env: Record<string, string> = {
+		PI_HERDR_SPAWN_DEPTH: String(record.depth),
+	};
+	if (record.orchestratorPane) env.PI_HERDR_ORCHESTRATOR_PANE = record.orchestratorPane;
+	if (record.sessionPath) {
+		env.PI_HERDR_SESSION = record.sessionPath;
+		env.PI_HERDR_NAME = record.name;
+		env.PI_HERDR_AGENT = record.type ?? "";
+		env.PI_HERDR_AUTO_EXIT = record.stance === "autonomous" ? "1" : "0";
+		env.PI_HERDR_DENIED_TOOLS = (record.deniedTools ?? []).join(",");
+		if (record.activityPath) env.PI_HERDR_ACTIVITY_FILE = record.activityPath;
+		env.PI_HERDR_IDLE_REARM_MS = String(
+			Math.max(0, (deps.load ?? defaultLoad)().idle_rearm_minutes) * 60_000,
+		);
+	}
+	return env;
+}
+
+function envArgs(env: Record<string, string>): string[] {
+	return Object.entries(env).flatMap(([k, v]) => ["--env", `${k}=${v}`]);
+}
+
 async function placeOnGrid(
 	record: SpawnRecord,
 	deps: SpawnDeps,
+	childEnv: Record<string, string>,
 ): Promise<{
 	paneId?: string;
 	reusePane?: string;
@@ -1083,7 +1088,10 @@ async function placeOnGrid(
 		const room = named.find((t) => occupants(t.tab_id as string, panes).length < 6);
 		if (room?.tab_id) tabId = room.tab_id;
 		else {
-			const made = await run<{ tab?: { tab_id?: string; pane_id?: string } }>(
+			const made = await run<{
+				tab?: { tab_id?: string; pane_id?: string };
+				root_pane?: { pane_id?: string; tab_id?: string };
+			}>(
 				[
 					"tab",
 					"create",
@@ -1091,12 +1099,15 @@ async function placeOnGrid(
 					"--label",
 					group,
 					"--no-focus",
+					...envArgs(childEnv),
 				],
 				{ signal: deps.signal },
 			);
-			if (!made.ok || !made.data?.tab?.tab_id) return undefined;
-			tabId = made.data.tab.tab_id;
-			const shellId = made.data.tab.pane_id ?? (await shellOn(run, tabId, deps));
+			if (!made.ok) return undefined;
+			const created = made.data?.root_pane ?? made.data?.tab;
+			if (!created?.tab_id) return undefined;
+			tabId = created.tab_id;
+			const shellId = created.pane_id ?? (await shellOn(run, tabId, deps));
 			if (shellId) {
 				return {
 					reusePane: shellId,

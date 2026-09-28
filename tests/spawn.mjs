@@ -503,6 +503,7 @@ function makeDeps(opts = {}) {
 			childExtension: "D:/ext/child.ts",
 			env: opts.env ?? {},
 			autodrain: false,
+			herdr: opts.herdr,
 		},
 	};
 }
@@ -836,9 +837,59 @@ console.log(
 		h3.deps,
 	);
 	assert(r3.ok && h3.calls.submit.length === 2, "NOT_STARTED is retried once");
+	// A submit that reached the pane and then timed out is NOT a lost prompt.
+	// Re-sending it makes the child read the second input as a human takeover
+	// and disable auto-exit, so the completion sidecar is never written.
+	const h4 = makeDeps();
+	h4.deps.submit = async (paneId, text) => {
+		h4.calls.submit.push({ paneId, text });
+		return { ok: false, error: { code: "TIMEOUT", message: "herdr timed out" } };
+	};
+	const r4 = await spawn.spawnAgent(
+		{ prompt: "long task", type: "Plan", name: "long" },
+		h4.deps,
+	);
+	assert(r4.ok, `a timed-out submit still returns the spawned agent (got ${JSON.stringify(r4)})`);
+	assert(h4.calls.submit.length === 1, "a non-NOT_STARTED submit failure is not re-sent");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\n[15b] A new group tab stamps the child env on its shell");
+{
+	reset();
+	const calls = [];
+	const h = makeDeps({
+		herdr: async (args) => {
+			calls.push(args);
+			if (args[0] === "pane" && args[1] === "current") {
+				return { ok: true, data: { pane: { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1" } } };
+			}
+			if (args[0] === "pane" && args[1] === "list") {
+				return { ok: true, data: { panes: [{ pane_id: "w1:p1", tab_id: "w1:t1" }] } };
+			}
+			if (args[0] === "tab" && args[1] === "list") {
+				return { ok: true, data: { tabs: [{ tab_id: "w1:t1", label: "1" }] } };
+			}
+			if (args[0] === "tab" && args[1] === "create") {
+				return { ok: true, data: { root_pane: { pane_id: "w1:p2", tab_id: "w1:t2" }, type: "tab_created" } };
+			}
+			return { ok: false, error: { code: "VALIDATION_ERROR", message: args.join(" ") } };
+		},
+	});
+	const r = await spawn.spawnAgent(
+		{ prompt: "review", type: "Plan", name: "reviewer", group: "review" },
+		h.deps,
+	);
+	assert(r.ok, `grouped spawn ok (${r.ok ? "" : r.error.message})`);
+	const created = calls.find((a) => a[0] === "tab" && a[1] === "create") ?? [];
+	assert(created.includes("--env"), `tab create carries --env (got ${created.join(" ")})`);
+	assert(
+		created.some((a) => a.startsWith("PI_HERDR_AUTO_EXIT=")),
+		"the new tab's shell gets PI_HERDR_AUTO_EXIT",
+	);
+	assert(h.calls.start[0].existingPane === "w1:p2", "the agent attaches to the tab's root pane");
+}
+
 console.log("\n[16] Tool registration surface");
 {
 	reset();
