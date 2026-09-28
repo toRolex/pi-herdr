@@ -28,7 +28,7 @@
 // declared (`agent_done`) or re-armed (idle re-arm, labeled).
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { fleetList } from "./herdr.js";
+import { fleetList, herdr } from "./herdr.js";
 import type { NormalizedAgent, Result } from "./env.js";
 import {
 	getSettingsPaths,
@@ -85,6 +85,8 @@ export interface DeliveryDeps {
 	/** A pre-fetched fleet observation (shared with the watchdog so one tick
 	 * costs one `agent list`). When set, `list` is not called. */
 	fleet?: Result<NormalizedAgent[]>;
+	/** Close a pane the child failed to close itself — default: `herdr pane close`. */
+	close?: (paneId: string) => Promise<unknown>;
 }
 
 // ---- push composition ---------------------------------------------------------
@@ -289,10 +291,51 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 			continue;
 		}
 		record.blockedNotified = false; // fresh episodes re-wake
-		// Live idle/done WITHOUT a sidecar is not terminal for pi children
-		// (interactive stance sits idle; only the sidecar, the sentinel, or a
-		// gone resolution deliver). Non-pi children have no substrate — pull
-		// and coarse statuses only (pi-only push ruling).
+
+		// An autonomous pi child that settled cleanly but never wrote a sidecar
+		// (its shell was started without PI_HERDR_AUTO_EXIT) would otherwise sit
+		// idle forever. Deliver what the session already holds and close the pane.
+		// Interactive stance is excluded: it is meant to stay open.
+		if (
+			isPi &&
+			record.sessionPath &&
+			record.stance === "autonomous" &&
+			!record.takenOver &&
+			(live === "idle" || live === "done")
+		) {
+			const extracted = (deps.extract ?? extractSessionResult)(record.sessionPath);
+			const stop = (extracted?.message as { stopReason?: unknown } | undefined)?.stopReason;
+			if (extracted && (stop === "stop" || stop === "error")) {
+				const mined = minedAssistantError(extracted.message);
+				deliverTerminal(
+					deps,
+					record,
+					mined ? "error" : "done",
+					mined
+						? {
+								content: errorContent(record, mined.errorMessage, extracted, false),
+								details: { name: record.name, kind: "error", error: mined, message: extracted.message, sessionPath: record.sessionPath },
+								wake: terminalWake(notifications(deps)),
+							}
+						: {
+								content: doneContent(record, extracted, false),
+								details: { name: record.name, kind: "done", result: extracted.text, message: extracted.message, sessionPath: record.sessionPath },
+								wake: terminalWake(notifications(deps)),
+							},
+				);
+				await closePane(deps, record.paneId);
+			}
+		}
+	}
+}
+
+async function closePane(deps: DeliveryDeps, paneId: string | undefined): Promise<void> {
+	if (!paneId) return;
+	const close = deps.close ?? ((id: string) => herdr(["pane", "close", id], { timeoutMs: 10_000 }));
+	try {
+		await close(paneId);
+	} catch {
+		/* best-effort — the result was already delivered */
 	}
 }
 
@@ -432,6 +475,8 @@ export interface WatchdogDeps {
 	readSidecar?: (sessionPath: string) => ReadSidecarResult;
 	/** Activity-sidecar read — default: readActivityFile (src/status.ts). */
 	readActivity?: (activityPath?: string) => ActivityRead;
+	/** Session-JSONL extraction — default: extractSessionResult. */
+	extract?: (sessionPath: string) => ExtractedResult | null;
 	/** The steer sink — default: pi.sendMessage into THIS session. */
 	push?: (msg: SteeredMessage) => void;
 	now?: () => number;
@@ -497,7 +542,13 @@ export async function watchdogOnce(deps: WatchdogDeps = {}): Promise<void> {
 				?.agentStatus;
 			let problem = false;
 
-			if (!present && !sidecarOk) {
+			const settled = record.sessionPath
+				? (deps.extract ?? extractSessionResult)(record.sessionPath)
+				: null;
+			const stop = (settled?.message as { stopReason?: unknown } | undefined)?.stopReason;
+			const finished = stop === "stop" || stop === "error";
+
+			if (!present && !sidecarOk && !finished) {
 				stalled = true;
 				reason = "the pane vanished without a completion sidecar";
 			} else if (

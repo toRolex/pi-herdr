@@ -576,6 +576,20 @@ console.log("\n[3] Watchdog — stall pings, stance suppression, aged-valid");
 			"stall entry pings the orchestrator (wake)");
 	}
 
+	// a vanished pane whose session already holds a finished message is not a stall
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-stall-done-"));
+		const sess = join(dir, "s.jsonl");
+		writeFileSync(sess, JSON.stringify({
+			type: "message",
+			message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] },
+		}) + "\n");
+		const { record, pushes } = tick({ record: wrec({ sessionPath: sess }), panes: [] });
+		assert(record.watch?.stalled !== true && pushes.length === 0,
+			"a finished session is a completion, not a stall, even without a sidecar");
+		rmSync(dir, { recursive: true, force: true });
+	}
+
 	// one ping per episode; recovery pings once
 	{
 		const r = wrec();

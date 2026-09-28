@@ -501,6 +501,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			push: (m) => pushes.push(m),
 			now: () => clock,
 			goneGraceMs: opts.goneGraceMs ?? 10_000,
+			close: opts.close,
 		};
 		return {
 			deps,
@@ -806,6 +807,28 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes.length === 0,
 			"live idle WITHOUT a sidecar is not terminal (interactive children sit idle) — pull stays the route",
 		);
+		rmSync(dir, { recursive: true, force: true });
+	}
+
+	// --- autonomous child settled but never wrote a sidecar ----------------
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-stuck-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("the review")]);
+		const r = rec("stuck", { sessionPath: sess });
+		const closed = [];
+		const w = world([r], {
+			fleet: [{ paneId: r.paneId, status: "idle" }],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
+		await w.tick();
+		assert(
+			w.pushes.length === 1 && w.pushes[0].content.includes("the review"),
+			"an autonomous child that settled without a sidecar still delivers its result",
+		);
+		assert(closed[0] === r.paneId, "and its pane is closed");
 		rmSync(dir, { recursive: true, force: true });
 	}
 
