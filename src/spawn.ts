@@ -193,7 +193,7 @@ export function uniqueHandle(base: string, taken: ReadonlySet<string>): string {
 
 // ---- stance (v0.6 issue 03 fields, issue 04 semantics) -----------------------
 
-/** Whether a child pane closes itself when its work settles. */
+/** Whether the child exits pi when its work settles. The parent closes the pane. */
 export type Stance = "autonomous" | "interactive";
 
 /**
@@ -575,7 +575,7 @@ export interface SpawnRecord {
 	activityPath?: string;
 	/** The exact composed agent argv handed to `agent start --` (post-injection). */
 	launchPlan?: string[];
-	/** Whether the pane closes itself on settle. */
+	/** Whether the child exits pi on settle. The parent closes the pane. */
 	stance: Stance;
 	/** How the child session begins (issue 09 consumes; rides the plan here). */
 	session_mode?: SessionMode;
@@ -1323,7 +1323,7 @@ export interface SpawnResultData {
 	sessionPath?: string;
 	/** Activity sidecar path — reserved for the status projection (07). */
 	activityPath?: string;
-	/** Whether the pane closes itself on settle. */
+	/** Whether the child exits pi on settle. The parent closes the pane. */
 	stance: Stance;
 	/** How the child session begins (stands; consumed by 09's seeding). */
 	session_mode?: SessionMode;

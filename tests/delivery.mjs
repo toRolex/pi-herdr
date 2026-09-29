@@ -501,7 +501,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			push: (m) => pushes.push(m),
 			now: () => clock,
 			goneGraceMs: opts.goneGraceMs ?? 10_000,
-			close: opts.close,
+			// Default no-ops so a settle never calls the real herdr CLI.
+			close: opts.close ?? (async () => {}),
+			readTail: opts.readTail ?? (async () => ""),
 		};
 		return {
 			deps,
@@ -518,7 +520,13 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("The scan found 3 issues. All fixed.")]);
 		const r = rec("scout", { sessionPath: sess });
-		const w = world([r], { fleet: [{ paneId: r.paneId, status: "working" }] });
+		const closed = [];
+		const w = world([r], {
+			fleet: [{ paneId: r.paneId, status: "working" }],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
 		await w.tick();
 		assert(
@@ -527,6 +535,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				w.pushes[0].content.includes('Agent "scout" finished'),
 			"sidecar done → the FULL final message is the push (the letter, not a doorbell)",
 		);
+		assert(closed[0] === r.paneId, "autonomous done sidecar closes the pane after the result is pushed");
 		assert(
 			w.pushes[0].wake === true,
 			"notifications normal → the push wakes (triggerTurn via sink flags)",
@@ -537,8 +546,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		);
 		await w.tick();
 		assert(
-			w.pushes.length === 1,
-			"exactly ONE push per terminal event (inline waits + pulls never double it)",
+			w.pushes.length === 1 && closed.length === 1,
+			"exactly ONE push and ONE close per terminal event (inline waits + pulls never double it)",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -546,13 +555,38 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-"));
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("re-armed result")]);
-		const r = rec("scout", { sessionPath: sess });
-		const w = world([r]);
+		const r = rec("scout", { sessionPath: sess, takenOver: true });
+		const closed = [];
+		const w = world([r], {
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
 		await w.tick();
 		assert(
 			w.pushes[0]?.content.startsWith("auto-delivered after user steer: "),
 			"rearm sidecar → honestly labeled auto-delivery",
+		);
+		assert(closed.length === 0, "rearm sidecar does not close the pane (a human took over)");
+		rmSync(dir, { recursive: true, force: true });
+	}
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-rearm-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("quiet rearm")]);
+		const r = rec("scout", { sessionPath: sess });
+		const closed = [];
+		const w = world([r], {
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
+		await w.tick();
+		assert(
+			w.pushes.length === 1 && closed.length === 0 && r.takenOver !== true,
+			"rearm:true alone keeps the pane open, even when the record was never marked taken over",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -561,7 +595,12 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("", { stopReason: "error" })]);
 		const r = rec("scout", { sessionPath: sess });
-		const w = world([r]);
+		const closed = [];
+		const w = world([r], {
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
 		writeFileSync(
 			`${sess}.exit`,
 			JSON.stringify({ type: "error", errorMessage: "provider overloaded", stopReason: "error" }),
@@ -571,9 +610,30 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes[0]?.content.includes('Agent "scout" FAILED: provider overloaded'),
 			"error sidecar → typed failure reaches the parent",
 		);
+		assert(closed[0] === r.paneId, "autonomous error sidecar closes the pane after the failure is delivered");
 		assert(
 			w.pushes[0]?.details.error?.errorMessage === "provider overloaded",
 			"error details carry the mined failure",
+		);
+		rmSync(dir, { recursive: true, force: true });
+	}
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-close-fail-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("delivered anyway")]);
+		const r = rec("scout", { sessionPath: sess });
+		const w = world([r], {
+			close: async () => {
+				throw new Error("pane close failed");
+			},
+		});
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		await w.tick();
+		assert(
+			w.pushes.length === 1 &&
+				w.pushes[0].content.includes("delivered anyway") &&
+				r.delivery?.kind === "done",
+			"a failed pane close does not swallow the delivered result",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -788,11 +848,138 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 	}
 	{
 		const claude = rec("cc", { kind: "claude" });
-		const w = world([claude], { fleet: [{ paneId: claude.paneId, status: "done" }] });
+		const closed = [];
+		const w = world([claude], {
+			fleet: [{ paneId: claude.paneId, status: "idle" }],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+			readTail: async () => "review: 能合入",
+		});
 		await w.tick();
 		assert(
-			w.pushes.length === 0 && claude.delivery === undefined,
-			"non-pi kinds never completion-push (pi-only push; pull + statuses for them)",
+			w.pushes.length === 1 &&
+				w.pushes[0].content.includes("review: 能合入") &&
+				w.pushes[0].content.includes('Agent "cc" finished'),
+			"an autonomous non-pi child that settled delivers its pane tail",
+		);
+		assert(closed[0] === claude.paneId, "and its pane is closed");
+		await w.tick();
+		assert(w.pushes.length === 1 && closed.length === 1, "one push and one close");
+	}
+	{
+		const claude = rec("cc", { kind: "claude", sawWorking: false });
+		const closed = [];
+		const w = world([claude], {
+			fleet: [{ paneId: claude.paneId, status: "idle" }],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+			readTail: async () => "should not be read",
+		});
+		await w.tick();
+		assert(
+			w.pushes.length === 0 && closed.length === 0 && claude.delivery === undefined,
+			"an autonomous non-pi child that is idle before any working turn stays open (prompt may not be in yet)",
+		);
+	}
+	{
+		const claude = rec("cc", { kind: "claude", sawWorking: false });
+		const closed = [];
+		const w = world([claude], {
+			fleet: [{ paneId: claude.paneId, status: "done" }],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+			readTail: async () => "fleet said done",
+		});
+		await w.tick();
+		assert(
+			w.pushes.length === 1 && closed[0] === claude.paneId,
+			"fleet done is enough evidence for a session-less child, even without a seen working turn",
+		);
+	}
+	{
+		const claude = rec("cc", { kind: "claude" });
+		const closed = [];
+		let reads = 0;
+		const w = world([claude], {
+			fleet: [{ paneId: claude.paneId, status: "idle" }],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+			readTail: async () => {
+				reads += 1;
+				if (reads === 1) throw new Error("agent read failed");
+				return "review: 能合入";
+			},
+		});
+		await w.tick().catch(() => {});
+		assert(
+			w.pushes.length === 0 && closed.length === 0 && claude.delivery === undefined,
+			"a failed pane-tail read delivers nothing and leaves the record unmarked",
+		);
+		await w.tick();
+		assert(
+			w.pushes.length === 1 &&
+				closed.length === 1 &&
+				w.pushes[0].content.includes("review: 能合入"),
+			"the next tick retries the tail read, then delivers and closes once",
+		);
+	}
+	{
+		const claude = rec("cc", { kind: "claude" });
+		const closed = [];
+		let reads = 0;
+		const w = world([claude], {
+			fleet: [{ paneId: claude.paneId, status: "idle" }],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+			readTail: async () => {
+				reads += 1;
+				return reads === 1 ? "   " : "late output";
+			},
+		});
+		await w.tick();
+		assert(
+			w.pushes.length === 0 && closed.length === 0 && claude.delivery === undefined,
+			"an empty pane tail is not a done result and does not close the pane",
+		);
+		await w.tick();
+		assert(
+			w.pushes.length === 1 && closed.length === 1,
+			"a later tick with a real tail delivers and closes once",
+		);
+	}
+	{
+		const claude = rec("cc", { kind: "claude", stance: "interactive" });
+		const closed = [];
+		const w = world([claude], {
+			fleet: [{ paneId: claude.paneId, status: "idle" }],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
+		await w.tick();
+		assert(
+			w.pushes.length === 0 && closed.length === 0,
+			"an interactive non-pi child that is idle stays open",
+		);
+	}
+	{
+		const claude = rec("cc", { kind: "claude", workflow: "wf_x" });
+		const closed = [];
+		const w = world([claude], {
+			fleet: [{ paneId: claude.paneId, status: "done" }],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
+		await w.tick();
+		assert(
+			w.pushes.length === 0 && closed.length === 0 && claude.delivery === undefined,
+			"a workflow non-pi child is not closed by the per-child settle path",
 		);
 	}
 	{
@@ -806,6 +993,45 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		assert(
 			w.pushes.length === 0,
 			"live idle WITHOUT a sidecar is not terminal (interactive children sit idle) — pull stays the route",
+		);
+		rmSync(dir, { recursive: true, force: true });
+	}
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-int-sc-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("interactive finished")]);
+		const r = rec("scout", { sessionPath: sess, stance: "interactive" });
+		const closed = [];
+		const w = world([r], {
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		await w.tick();
+		assert(
+			w.pushes.length === 1 && w.pushes[0].content.includes("interactive finished"),
+			"interactive done sidecar still delivers",
+		);
+		assert(closed.length === 0, "interactive done sidecar does not close the pane");
+		rmSync(dir, { recursive: true, force: true });
+	}
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-to-sc-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("taken over result")]);
+		const r = rec("scout", { sessionPath: sess, takenOver: true });
+		const closed = [];
+		const w = world([r], {
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		await w.tick();
+		assert(
+			w.pushes.length === 1 && closed.length === 0,
+			"a taken-over pane is not closed when its sidecar lands",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -840,12 +1066,19 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		writeSession(sess, [assistantMsg("child work")]);
 		writeFileSync(sf.sidecarPathFor(sess), '{"type":"done"}');
 		const child = rec("wfa", { sessionPath: sess, workflow: "wf_abc123" });
-		const w = world([child], { fleet: [] });
+		const closed = [];
+		const w = world([child], {
+			fleet: [],
+			close: async (paneId) => {
+				closed.push(paneId);
+			},
+		});
 		await w.tick();
 		assert(
 			w.pushes.length === 0 && child.delivery?.kind === "done",
 			"a workflow child's terminal sidecar MARKS the record (row prunes) without a per-child push",
 		);
+		assert(closed.length === 0, "a workflow child's done sidecar does not close its pane");
 		// ...and the error sidecar is equally silent
 		const dir2 = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-wf2-"));
 		const sess2 = join(dir2, "s.jsonl");

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Autonomous children that write a completion sidecar now have their herdr pane closed by the parent after the result is delivered. Interactive children, taken-over panes, rearm sidecars, and workflow children stay open. The session file is still retained.
+- Autonomous children of any kind that the fleet reports idle or done are delivered and closed too. Kinds without a session file deliver the pane tail, and only after a working turn was seen or the fleet says `done` — an idle pane whose prompt never landed stays open, and an empty or unreadable tail is retried rather than delivered as done. Interactive, taken-over, and workflow children stay open.
+
 ### Added
 
 - **Scripted workflows: the vm runtime + host seam (v0.6 issue 12).**

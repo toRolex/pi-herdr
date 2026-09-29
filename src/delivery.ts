@@ -29,7 +29,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { fleetList, herdr } from "./herdr.js";
-import type { NormalizedAgent, Result } from "./env.js";
+import { extractText, type NormalizedAgent, type Result } from "./env.js";
 import {
 	getSettingsPaths,
 	loadSettings,
@@ -85,8 +85,13 @@ export interface DeliveryDeps {
 	/** A pre-fetched fleet observation (shared with the watchdog so one tick
 	 * costs one `agent list`). When set, `list` is not called. */
 	fleet?: Result<NormalizedAgent[]>;
-	/** Close a pane the child failed to close itself — default: `herdr pane close`. */
+	/** Close a herdr pane — default: `herdr pane close`. The child only
+	 * exits pi (`ctx.shutdown`); this is what removes the pane. */
 	close?: (paneId: string) => Promise<unknown>;
+	/** Pane-tail read for kinds with no session file — default: `herdr agent read`.
+	 * Throws (or rejects) when the read itself failed; an empty string is a pane
+	 * that was read and held nothing. */
+	readTail?: (paneId: string) => Promise<string>;
 }
 
 // ---- push composition ---------------------------------------------------------
@@ -132,6 +137,27 @@ function errorContent(
 
 function goneContent(record: SpawnRecord): string {
 	return `Agent "${record.name}" is gone (no live pane; it died or its pane was closed without completing).${sessionNote(record)}`;
+}
+
+function tailContent(record: SpawnRecord, text: string): string {
+	return `Agent "${record.name}" finished — pane output:\n\n${text.trim()}`;
+}
+
+/** Read the pane tail. A failed read throws so the caller can retry the tick;
+ * an empty string means the pane was read and held nothing. */
+async function readPaneTail(deps: DeliveryDeps, paneId: string | undefined): Promise<string> {
+	if (!paneId) return "";
+	const read =
+		deps.readTail ??
+		(async (id: string) => {
+			const r = await herdr<unknown>(
+				["agent", "read", id, "--source", "recent", "--lines", "200", "--format", "text"],
+				{ timeoutMs: 15_000, textOk: true },
+			);
+			if (!r.ok) throw new Error(r.error.message);
+			return extractText(r.data);
+		});
+	return await read(paneId);
 }
 
 // ---- the delivery pass --------------------------------------------------------
@@ -195,7 +221,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 		if (isPi && record.sessionPath) {
 			const sidecar = (deps.readSidecar ?? readExitSidecar)(record.sessionPath);
 			if (sidecar.state === "ok") {
-				deliverSidecar(record, sidecar.sidecar, deps);
+				await deliverSidecar(record, sidecar.sidecar, deps);
 				continue;
 			}
 		}
@@ -270,9 +296,12 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 			continue;
 		}
 
-		// present again — grace resets
+		// present again — grace resets. A live working turn is the evidence
+		// the prompt landed; spawn stamps the same flag, but only when
+		// something asks it for a status.
 		record.goneAt = undefined;
 		record.lastStatus = live;
+		if (live === "working") record.sawWorking = true;
 
 		// --- blocked always wakes (unless a human has the pane); the wake is
 		// per blocked episode, not per tick.
@@ -292,37 +321,47 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 		}
 		record.blockedNotified = false; // fresh episodes re-wake
 
-		// An autonomous pi child that settled cleanly but never wrote a sidecar
-		// (its shell was started without PI_HERDR_AUTO_EXIT) would otherwise sit
-		// idle forever. Deliver what the session already holds and close the pane.
-		// Interactive stance is excluded: it is meant to stay open.
-		if (
-			isPi &&
-			record.sessionPath &&
-			record.stance === "autonomous" &&
-			!record.takenOver &&
-			(live === "idle" || live === "done")
-		) {
-			const extracted = (deps.extract ?? extractSessionResult)(record.sessionPath);
-			const stop = (extracted?.message as { stopReason?: unknown } | undefined)?.stopReason;
-			if (extracted && (stop === "stop" || stop === "error")) {
-				const mined = minedAssistantError(extracted.message);
-				deliverTerminal(
-					deps,
-					record,
-					mined ? "error" : "done",
-					mined
-						? {
-								content: errorContent(record, mined.errorMessage, extracted, false),
-								details: { name: record.name, kind: "error", error: mined, message: extracted.message, sessionPath: record.sessionPath },
-								wake: terminalWake(notifications(deps)),
-							}
-						: {
-								content: doneContent(record, extracted, false),
-								details: { name: record.name, kind: "done", result: extracted.text, message: extracted.message, sessionPath: record.sessionPath },
-								wake: terminalWake(notifications(deps)),
-							},
-				);
+		// Fleet reports idle or done. Pi children with a session deliver the
+		// JSONL. Every other kind has no sidecar, so the pane tail is the
+		// letter — but only after a working turn was seen, or the fleet
+		// says `done`. `submitted` is stamped even when the prompt never
+		// landed, and a pre-submit pane is already idle. Then close the
+		// pane. Interactive, takeover, and workflow children stay open.
+		if (shouldCloseSettled(record, live)) {
+			if (isPi && record.sessionPath) {
+				const extracted = (deps.extract ?? extractSessionResult)(record.sessionPath);
+				const stop = (extracted?.message as { stopReason?: unknown } | undefined)?.stopReason;
+				if (extracted && (stop === "stop" || stop === "error")) {
+					const mined = minedAssistantError(extracted.message);
+					deliverTerminal(
+						deps,
+						record,
+						mined ? "error" : "done",
+						mined
+							? {
+									content: errorContent(record, mined.errorMessage, extracted, false),
+									details: { name: record.name, kind: "error", error: mined, message: extracted.message, sessionPath: record.sessionPath },
+									wake: terminalWake(notifications(deps)),
+								}
+							: {
+									content: doneContent(record, extracted, false),
+									details: { name: record.name, kind: "done", result: extracted.text, message: extracted.message, sessionPath: record.sessionPath },
+									wake: terminalWake(notifications(deps)),
+								},
+					);
+					await closePane(deps, record.paneId);
+				}
+			} else if (record.sawWorking || live === "done") {
+				// Read before marking. A failed read throws out of this tick
+				// (the loop swallows it) and the record stays unmarked, so
+				// the next tick retries. An empty tail is not a result.
+				const text = await readPaneTail(deps, record.paneId);
+				if (!text.trim()) continue;
+				deliverTerminal(deps, record, "done", {
+					content: tailContent(record, text),
+					details: { name: record.name, kind: "done", result: text },
+					wake: terminalWake(notifications(deps)),
+				});
 				await closePane(deps, record.paneId);
 			}
 		}
@@ -339,11 +378,34 @@ async function closePane(deps: DeliveryDeps, paneId: string | undefined): Promis
 	}
 }
 
-function deliverSidecar(
+/** Autonomous, not taken over, not a workflow child. Those panes stay open. */
+function ownsPane(record: SpawnRecord): boolean {
+	return record.stance === "autonomous" && !record.takenOver && !record.workflow;
+}
+
+/**
+ * Fleet says the child settled, and this record is one we close. Not enough
+ * on its own for a session-less child: the prompt may not be in the pane yet.
+ */
+function shouldCloseSettled(record: SpawnRecord, live: string | undefined): boolean {
+	return ownsPane(record) && (live === "idle" || live === "done");
+}
+
+/**
+ * Autonomous children exit pi and leave the herdr pane behind. Close it
+ * after the result is already steered. Interactive stance, a taken-over
+ * pane, a rearm sidecar (the human is still there), and workflow children
+ * stay open — the run closes its own panes on abort.
+ */
+function shouldCloseAfterSidecar(record: SpawnRecord, rearm: boolean): boolean {
+	return ownsPane(record) && !rearm;
+}
+
+async function deliverSidecar(
 	record: SpawnRecord,
 	sidecar: { type: "done"; rearm?: true } | { type: "error"; errorMessage: string; stopReason: string; rearm?: true },
 	deps: DeliveryDeps,
-): void {
+): Promise<void> {
 	const notes = notifications(deps);
 	const extracted = record.sessionPath
 		? (deps.extract ?? extractSessionResult)(record.sessionPath)
@@ -367,25 +429,28 @@ function deliverSidecar(
 				wake: terminalWake(notes),
 			},
 		);
-		return;
-	}
-	deliverTerminal(
-		deps,
-		record,
-		"error",
-		{
-			content: errorContent(record, sidecar.errorMessage, extracted, rearm),
-			details: {
-				name: record.name,
-				kind: "error",
-				...(rearm ? { rearm: true } : {}),
-				error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
-				...(extracted ? { message: extracted.message } : {}),
-				...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
+	} else {
+		deliverTerminal(
+			deps,
+			record,
+			"error",
+			{
+				content: errorContent(record, sidecar.errorMessage, extracted, rearm),
+				details: {
+					name: record.name,
+					kind: "error",
+					...(rearm ? { rearm: true } : {}),
+					error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
+					...(extracted ? { message: extracted.message } : {}),
+					...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
+				},
+				wake: terminalWake(notes),
 			},
-			wake: terminalWake(notes),
-		},
-	);
+		);
+	}
+	if (shouldCloseAfterSidecar(record, rearm)) {
+		await closePane(deps, record.paneId);
+	}
 }
 
 // ---- small helpers ------------------------------------------------------------

@@ -15,7 +15,9 @@
 //   - auto-exit on `agent_settled` for autonomous-stance children —
 //     `agent_settled`, NOT `agent_end`, is the definitive idle signal (pi may
 //     auto-retry/compact/continue after agent_end; mapping matches
-//     src/selfreport.ts). Interactive children never auto-close.
+//     src/selfreport.ts). `ctx.shutdown()` exits this pi process only; the
+//     parent (`delivery.ts`) closes the herdr pane. Interactive children
+//     never auto-exit.
 //   - the identity/tools strip (`[scout] — 12 tools · 4 denied (Ctrl+H)`)
 //     above the child's editor — a human walking into the pane sees what
 //     they're in; Ctrl+H expands the full tool list. (The prior art used
@@ -54,8 +56,9 @@ export const ENV_DENIED_TOOLS = "PI_HERDR_DENIED_TOOLS";
 export const ENV_ACTIVITY_FILE = "PI_HERDR_ACTIVITY_FILE";
 /** Idle re-arm window in ms (v0.6 issue 06), stamped by the parent from the
  * `idle_rearm_minutes` setting. After a human takeover: settle + this much
- * quiet → the final message auto-delivers (rearm-labeled) and the pane
- * closes. Unset = the 15-minute default. */
+ * quiet → the final message auto-delivers (rearm-labeled) and this pi
+ * exits. The herdr pane stays — a rearm sidecar means a human took over.
+ * Unset = the 15-minute default. */
 export const ENV_IDLE_REARM_MS = "PI_HERDR_IDLE_REARM_MS";
 
 /** A minimal shape of the agent messages this extension inspects. */
@@ -67,12 +70,12 @@ export interface AgentMessageLike {
 }
 
 /**
- * Whether a settled run should close an autonomous child. Manual input does
+ * Whether a settled run should exit this pi process. Manual input does
  * not strand the stance: the decision is whether the latest settled run
  * completed normally. `stopReason: "aborted"` stays OPEN (a human interrupted
  * — leave the pane for inspection or another prompt); `stopReason: "error"`
  * still exits (paired with the error sidecar so the parent learns it was a
- * failure, not a clean completion).
+ * failure, not a clean completion). Exiting pi does not close the herdr pane.
  */
 export function shouldAutoExitOnSettle(
 	messages: AgentMessageLike[] | undefined,
@@ -394,7 +397,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		parameters: Type.Object({}),
 		async execute(_id, _params, _signal, _onUpdate, ctx) {
 			writeSidecar({ type: "done" });
-			ctx.shutdown();
+			ctx.shutdown(); // exits this pi; the parent closes the pane
 			return {
 				content: [
 					{ type: "text", text: "Completion recorded; this session is closing." },
@@ -506,7 +509,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			rearmTimer = setTimeout(() => {
 				rearmTimer = null;
 				writeSidecar(buildCompletionSidecar(latestMessages), true);
-				ctx.shutdown();
+				ctx.shutdown(); // exits this pi; a rearm sidecar leaves the pane open
 			}, idleRearmMs());
 			rearmTimer.unref?.();
 			return;
@@ -519,7 +522,8 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		}
 		const failed = findLatestAssistantError(latestMessages);
 		if (!failed) {
-			// Clean completion: the definitive settle. Sidecar + exit.
+			// Clean completion: the definitive settle. Sidecar, then exit pi.
+			// The parent closes the herdr pane after it reads the sidecar.
 			cancelErrorExit();
 			writeSidecar(buildCompletionSidecar(latestMessages));
 			ctx.shutdown();
@@ -532,7 +536,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		errorExitTimer = setTimeout(() => {
 			errorExitTimer = null;
 			writeSidecar(buildCompletionSidecar(latestMessages));
-			ctx.shutdown();
+			ctx.shutdown(); // exits this pi; the parent closes the pane
 		}, errorExitGraceMs());
 		errorExitTimer.unref?.();
 	});
