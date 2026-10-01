@@ -482,6 +482,8 @@ console.log("\n[4] Workflow rows (issue 14): run-stamped children hidden, one ro
 	});
 	eq(cleared.length, 1, "no rows + no runs clears the widget");
 	eq(cleared[0], undefined, "clear passes undefined");
+}
+
 console.log("\n[4] narrow terminal: no line exceeds the given width");
 {
 	const narrowModel = wg.buildWidgetModel(
@@ -507,6 +509,20 @@ console.log("\n[4] narrow terminal: no line exceeds the given width");
 			);
 		}
 	}
+	// with a real SGR style (the shapes pi themes emit), the narrow callout
+	// keeps the alarm word, the age, and closes the inverse (no style bleed)
+	const styled = {
+		dim: (s) => `\x1b[2m${s}\x1b[22m`,
+		border: (s) => `\x1b[38;5;245m${s}\x1b[39m`,
+		inverse: (s) => `\x1b[7m${s}\x1b[27m`,
+	};
+	const styledLines = wg.renderWidgetLines(narrowModel, 20, styled);
+	const styledCallout = styledLines.find((l) => l.includes("BLOCKED"));
+	assert(styledCallout !== undefined, "width 20 (SGR): the BLOCKED callout still renders");
+	assert(
+		styledCallout.includes("\x1b[27m"),
+		"width 20 (SGR): the inverse style is closed (no style bleed)",
+	);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

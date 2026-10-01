@@ -221,23 +221,7 @@ const PLAIN: WidgetStyle = {
 	inverse: (s) => s,
 };
 
-const ESC = String.fromCharCode(0x1b);
-function visibleLen(s: string): number {
-	let n = 0;
-	for (let i = 0; i < s.length; i++) {
-		if (s[i] !== ESC || s[i + 1] !== "[") {
-			n++;
-			continue;
-		}
-		const end = s.indexOf("m", i + 2);
-		if (end < 0) {
-			n++;
-			continue;
-		}
-		i = end;
-	}
-	return n;
-}
+const visibleLen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, "").length;
 
 function fit(s: string, n: number): string {
 	return s.length <= n ? s : `${s.slice(0, Math.max(1, n - 1))}…`;

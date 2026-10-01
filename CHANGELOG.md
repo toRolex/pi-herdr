@@ -19,10 +19,11 @@ grid-layout line is preserved on `local/equal-width-grid`.
 
 Re-applied on top of v0.6.0:
 
-- **Widget narrow-pane hardening** — ANSI-aware `visibleLen` scanner and the
-  blocked-callout budget rewrite (name fitted to the real remaining width so
-  the alarm line never overflows or truncates its suffix on narrow terminals;
-  the F11 width cap itself is upstream's).
+- **Widget narrow-pane callout hardening** — the BLOCKED callout line now
+  budgets the name against the real remaining width, so on narrow terminals
+  the alarm word and the age survive and the inverse style is closed instead
+  of being cut by the final hard-fit truncation (the F11 width cap itself is
+  upstream's; `visibleLen` stays upstream's regex).
 - **`herdr_get_agent_result` never blocks at the tool layer** — single-shot,
   one call one snapshot; the `wait` parameter is gone from the tool surface
   (the core keep-waiting implementation remains for internal callers).
