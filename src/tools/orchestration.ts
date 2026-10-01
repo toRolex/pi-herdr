@@ -62,7 +62,8 @@ function okText(text: string, details: unknown): ToolReturn {
 
 // ---- agent start: the single launch path ----------------------------------
 // herdr >= 0.9.0 `agent start <name> --kind <kind> --pane <id> [-- <agentArgs>]`:
-// split a pane from the current one, then attach the agent by kind — on every
+// split a pane (caller-chosen — the golden-spiral layout in src/spawn.ts),
+// then attach the agent by kind — on every
 // OS (0.9.0 fixed the Windows shim launch + flaky process-tree detection;
 // validated e2e on Windows by tests/win-start.mjs). herdr resolves the kind
 // to its CLI itself, so there is no local argv/preset machinery. tab/workspace
@@ -78,11 +79,10 @@ interface StartInput {
 	agentArgs?: string[]; // extra flags appended to the agent CLI (e.g. ["-ne","-e","./src/index.ts"])
 	cwd?: string;
 	split?: "right" | "down";
-	/** Pane to split. Absent = `--current`. */
+	/** Explicit pane to split (golden-spiral layout); absent → `--current`. */
 	splitFrom?: string;
+	/** Split ratio — the EXISTING pane's share (verified herdr 0.9.1). */
 	ratio?: number;
-	/** Use this pane as-is (a tab just created it). Skips the split. */
-	existingPane?: string;
 	tabId?: string;
 	workspaceId?: string;
 	env?: Record<string, string>;
@@ -128,8 +128,9 @@ function extractPaneId(d: unknown): string | undefined {
 }
 
 /**
- * The one launch path: validate the kind, split a pane from the current one,
- * then attach the agent with `agent start --kind` (retrying briefly while the
+ * The one launch path: validate the kind, split a pane (the caller picks the
+ * target — the golden-spiral layout in src/spawn.ts), then attach the agent
+ * with `agent start --kind` (retrying briefly while the
  * freshly-split shell reaches its prompt — `agent_pane_busy`).
  */
 export async function startHerdrAgent(
@@ -148,19 +149,16 @@ export async function startHerdrAgent(
 	if (bad) return bad;
 
 	// 1. create the pane (`agent start` needs an existing pane at a shell prompt).
-	// A freshly created group tab already has one; reuse it instead of splitting
-	// the orchestrator's pane.
-	if (input.existingPane) {
-		return attachAgent(input, kind, input.existingPane);
-	}
-	const splitArgs = [
-		"pane",
-		"split",
-		input.splitFrom ?? "--current",
-		"--direction",
-		input.split ?? "right",
-	];
-	if (input.ratio !== undefined) splitArgs.push("--ratio", String(input.ratio));
+	//    Golden-spiral layout: the caller (src/spawn.ts) picks the target — the
+	//    spawner's pane for spawn #1, the previous child's for #2+, alternating
+	//    right/down. No explicit pane → `--current` (verified: resolves via the
+	//    caller's HERDR_PANE_ID, not the focused pane). `--ratio` favors the
+	//    EXISTING pane, so the source always keeps the larger share.
+	const splitArgs = ["pane", "split"];
+	if (input.splitFrom) splitArgs.push(input.splitFrom);
+	else splitArgs.push("--current");
+	splitArgs.push("--direction", input.split ?? "right");
+	splitArgs.push("--ratio", String(input.ratio ?? 0.6));
 	if (input.cwd) splitArgs.push("--cwd", input.cwd);
 	if (input.env)
 		for (const [k, v] of Object.entries(input.env))
@@ -175,16 +173,10 @@ export async function startHerdrAgent(
 	if (!paneId) {
 		return err("PANE_GONE", "herdr pane split returned no pane id", splitR.data);
 	}
-	return attachAgent(input, kind, paneId);
-}
 
-/** `agent start --kind` on an existing pane. Retries `agent_pane_busy` while
- * the shell reaches its prompt. */
-async function attachAgent(
-	input: StartInput,
-	kind: string,
-	paneId: string,
-): Promise<Result<{ agent: Record<string, unknown> }>> {
+	// 2. attach the agent to the pane by kind. `agent start --kind` can fail
+	//    fast with `agent_pane_busy` while the freshly-split shell reaches its
+	//    prompt, so retry briefly.
 	const startArgs = [
 		"agent",
 		"start",
@@ -194,6 +186,8 @@ async function attachAgent(
 		"--pane",
 		paneId,
 	];
+	// `agent start ... -- <agent-args>`: pass native agent flags (e.g. pi's
+	// `-e ./src/index.ts`) so a spawned agent can load a local extension.
 	if (input.agentArgs?.length) startArgs.push("--", ...input.agentArgs);
 	const deadline = Date.now() + 6_000;
 	let startR: Result<{ agent?: Record<string, unknown> }>;

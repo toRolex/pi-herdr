@@ -15,9 +15,7 @@
 //   - auto-exit on `agent_settled` for autonomous-stance children —
 //     `agent_settled`, NOT `agent_end`, is the definitive idle signal (pi may
 //     auto-retry/compact/continue after agent_end; mapping matches
-//     src/selfreport.ts). `ctx.shutdown()` exits this pi process only; the
-//     parent (`delivery.ts`) closes the herdr pane. Interactive children
-//     never auto-exit.
+//     src/selfreport.ts). Interactive children never auto-close.
 //   - the identity/tools strip (`[scout] — 12 tools · 4 denied (Ctrl+H)`)
 //     above the child's editor — a human walking into the pane sees what
 //     they're in; Ctrl+H expands the full tool list. (The prior art used
@@ -29,15 +27,16 @@
 // Without PI_HERDR_SESSION this extension is a no-op, so loading it in a
 // non-child pi (or an adopted session) is harmless.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import {
 	clearSteerWatermark,
 	inputMatchesSteer,
 	readSteerWatermark,
 	takeoverPathFor,
 } from "./sessionfile.js";
+import { compileJsonSchema, type CompiledSchema } from "./workflow/json-schema.js";
 import type { ActivitySnapshot } from "./status.js";
 
 /** Session file path — presence marks this pi as a herdr-spawned child. */
@@ -56,10 +55,91 @@ export const ENV_DENIED_TOOLS = "PI_HERDR_DENIED_TOOLS";
 export const ENV_ACTIVITY_FILE = "PI_HERDR_ACTIVITY_FILE";
 /** Idle re-arm window in ms (v0.6 issue 06), stamped by the parent from the
  * `idle_rearm_minutes` setting. After a human takeover: settle + this much
- * quiet → the final message auto-delivers (rearm-labeled) and this pi
- * exits. The herdr pane stays — a rearm sidecar means a human took over.
- * Unset = the 15-minute default. */
+ * quiet → the final message auto-delivers (rearm-labeled) and the pane
+ * closes. Unset = the 15-minute default. */
 export const ENV_IDLE_REARM_MS = "PI_HERDR_IDLE_REARM_MS";
+
+/** Schema file for a structured-output child (issue 14): the workflow host
+ * writes the compiled JSON Schema to the workflow scratch dir and stamps this
+ * env var with its path — a path, not inline JSON (Windows env-block limits).
+ * Set only for `agent(prompt, { schema })` children of a workflow run. */
+export const ENV_SCHEMA = "PI_HERDR_SCHEMA";
+
+/** What the child produced, filled in as StructuredOutput is called.
+ * PORTED from upstream `structured-output.ts` (MIT) — the capture box the
+ * host reads via the completion sidecar. */
+export interface StructuredCapture {
+	/** The last payload that validated, canonical JSON. Absent until one does. */
+	json?: string;
+	/** Why the most recent attempt was rejected, for the error text. */
+	lastError?: string;
+	/** Whether the tool was called at all — "never tried" reads differently. */
+	called: boolean;
+}
+
+export function createStructuredCapture(): StructuredCapture {
+	return { called: false };
+}
+
+/** Claude Code's tool name, kept verbatim — a ported prompt that mentions
+ * `StructuredOutput` is still telling the truth. */
+export const STRUCTURED_OUTPUT_TOOL_NAME = "StructuredOutput";
+
+/**
+ * The synthetic tool behind `agent(prompt, { schema })` — PORTED from
+ * upstream `structured-output.ts` (MIT), adapted to pi-herdr's env channel
+ * (the schema arrives as a file path, not in-process state).
+ *
+ * pi has no forced toolChoice, so this is pressure, not guarantee: the
+ * caller's schema IS the parameters (providers that can constrain sampling
+ * hold the payload to it), the description demands the call, and an
+ * off-schema payload is answered with `isError` so the model self-corrects
+ * inside the same run. The host-side re-check (applySchema) is the actual
+ * guarantee, and the host's one resume prompt is the backstop.
+ */
+export function createStructuredOutputTool(
+	compiled: CompiledSchema,
+	capture: StructuredCapture,
+): ToolDefinition {
+	return {
+		name: STRUCTURED_OUTPUT_TOOL_NAME,
+		label: "Structured Output",
+		description:
+			"Report your final answer. Call this exactly once, with the complete result, and put everything the " +
+			"caller needs inside the arguments — text written outside this call is discarded. If a call is " +
+			"rejected for not matching the schema, fix the reported fields and call it again.",
+		promptSnippet: "Report your final answer as structured data",
+		promptGuidelines: [
+			"Your final answer MUST be reported by calling StructuredOutput. Prose outside that call is discarded.",
+		],
+		// The caller's schema is the tool's input schema, verbatim — that is
+		// what makes the provider fill the fields. pi types this as typebox's
+		// TSchema, which v1 defines as an open interface, so a plain JSON
+		// Schema satisfies it at runtime; the cast is shape-level only.
+		parameters: compiled.schema as never,
+		async execute(_id, params) {
+			capture.called = true;
+			const verdict = compiled.check(params);
+			if (verdict !== true) {
+				capture.lastError = verdict;
+				// isError puts the reason in front of the model as a tool result,
+				// so it can correct itself inside this same run.
+				return {
+					content: [{
+						type: "text",
+						text: `StructuredOutput did not match the required schema:\n${verdict}\nCall it again with a corrected value.`,
+					}],
+					isError: true,
+					details: {},
+				};
+			}
+			// Last valid call wins: a model that calls twice meant the second one.
+			capture.json = JSON.stringify(params);
+			capture.lastError = undefined;
+			return { content: [{ type: "text", text: "Recorded." }], details: {} };
+		},
+	};
+}
 
 /** A minimal shape of the agent messages this extension inspects. */
 export interface AgentMessageLike {
@@ -70,12 +150,12 @@ export interface AgentMessageLike {
 }
 
 /**
- * Whether a settled run should exit this pi process. Manual input does
+ * Whether a settled run should close an autonomous child. Manual input does
  * not strand the stance: the decision is whether the latest settled run
  * completed normally. `stopReason: "aborted"` stays OPEN (a human interrupted
  * — leave the pane for inspection or another prompt); `stopReason: "error"`
  * still exits (paired with the error sidecar so the parent learns it was a
- * failure, not a clean completion). Exiting pi does not close the herdr pane.
+ * failure, not a clean completion).
  */
 export function shouldAutoExitOnSettle(
 	messages: AgentMessageLike[] | undefined,
@@ -316,6 +396,26 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	const denied = parseDeniedTools(process.env[ENV_DENIED_TOOLS]);
 	const label = agentType || childName;
 
+	// Structured output (issue 14): when the workflow host stamped a schema
+	// file, register the StructuredOutput tool and let its validated payload
+	// ride the completion sidecar. A missing/unreadable/bad file skips
+	// silently — the host-side applySchema re-check still guards the contract.
+	const schemaPath = process.env[ENV_SCHEMA];
+	let structured: StructuredCapture | undefined;
+	if (schemaPath) {
+		let compiled: CompiledSchema | undefined;
+		try {
+			const compilation = compileJsonSchema(JSON.parse(readFileSync(schemaPath, "utf8")));
+			if (compilation.ok) compiled = compilation.compiled;
+		} catch {
+			/* skip — the host-side check is the guarantee */
+		}
+		if (compiled) {
+			structured = createStructuredCapture();
+			pi.registerTool(createStructuredOutputTool(compiled, structured));
+		}
+	}
+
 	// Activity recorder (issue 07) — independent of the rest of the
 	// extension's lifecycle logic, so the sidecar stays truthful even when
 	// takeover/error-grace branches early-return below.
@@ -348,9 +448,19 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		rearm = false,
 	): void {
 		try {
+			// A schema'd child's captured payload rides the done sidecar (issue
+			// 14) — it IS the delivered result, ahead of the assistant text.
+			const structuredField =
+				payload.type === "done" && structured?.json !== undefined
+					? { structured: structured.json }
+					: {};
 			writeFileSync(
 				sidecarPath,
-				JSON.stringify(rearm ? { ...payload, rearm: true } : payload),
+				JSON.stringify(
+					rearm
+						? { ...payload, ...structuredField, rearm: true }
+						: { ...payload, ...structuredField },
+				),
 			);
 		} catch {
 			/* best-effort */
@@ -397,7 +507,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		parameters: Type.Object({}),
 		async execute(_id, _params, _signal, _onUpdate, ctx) {
 			writeSidecar({ type: "done" });
-			ctx.shutdown(); // exits this pi; the parent closes the pane
+			ctx.shutdown();
 			return {
 				content: [
 					{ type: "text", text: "Completion recorded; this session is closing." },
@@ -509,7 +619,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			rearmTimer = setTimeout(() => {
 				rearmTimer = null;
 				writeSidecar(buildCompletionSidecar(latestMessages), true);
-				ctx.shutdown(); // exits this pi; a rearm sidecar leaves the pane open
+				ctx.shutdown();
 			}, idleRearmMs());
 			rearmTimer.unref?.();
 			return;
@@ -522,8 +632,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		}
 		const failed = findLatestAssistantError(latestMessages);
 		if (!failed) {
-			// Clean completion: the definitive settle. Sidecar, then exit pi.
-			// The parent closes the herdr pane after it reads the sidecar.
+			// Clean completion: the definitive settle. Sidecar + exit.
 			cancelErrorExit();
 			writeSidecar(buildCompletionSidecar(latestMessages));
 			ctx.shutdown();
@@ -536,7 +645,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		errorExitTimer = setTimeout(() => {
 			errorExitTimer = null;
 			writeSidecar(buildCompletionSidecar(latestMessages));
-			ctx.shutdown(); // exits this pi; the parent closes the pane
+			ctx.shutdown();
 		}, errorExitGraceMs());
 		errorExitTimer.unref?.();
 	});

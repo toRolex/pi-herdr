@@ -148,8 +148,11 @@ assert(
 	"no turn_end footer hook (footer is probe-diagnostics)",
 );
 assert(
+	// session_start consumers: footer probe verdict + fleet widget (which also
+	// carries the workflow card — F9, one slot), plus self-report when running
+	// inside a herdr pane.
 	events.session_start?.length === (selfReportActive ? 3 : 2),
-	"session_start: probe verdict (footer) + widget UI capture (+self-report in-pane)",
+	"session_start: probe verdict (footer) + fleet widget slot (+self-report in-pane)",
 );
 assert(
 	commands.some((c) => c.name === "subagents"),
@@ -507,32 +510,6 @@ assert(
 assert(
 	!spawnAgentTool?.parameters?.properties?.argv,
 	"herdr_spawn_agent exposes no raw argv (dropped custom-argv surface)",
-);
-assert(
-	!spawnAgentTool?.parameters?.properties?.wait,
-	"herdr_spawn_agent schema has no wait (tool layer never blocks)",
-);
-assert(
-	!spawnAgentTool.description.includes("wait: true"),
-	"herdr_spawn_agent description does not offer a blocking wait",
-);
-assert(
-	spawnAgentTool.description.includes("Always background"),
-	"herdr_spawn_agent description says it always returns immediately",
-);
-const resultTool = tools.find((t) => t.name === "herdr_get_agent_result");
-assert(!!resultTool, "herdr_get_agent_result registered");
-assert(
-	!resultTool?.parameters?.properties?.wait,
-	"herdr_get_agent_result schema has no wait (single-shot, never blocks)",
-);
-assert(
-	!resultTool.description.includes("wait: true"),
-	"herdr_get_agent_result description does not offer a blocking wait",
-);
-assert(
-	resultTool.description.includes("never blocks"),
-	"herdr_get_agent_result description says a call never blocks",
 );
 
 // ---------------------------------------------------------------------------

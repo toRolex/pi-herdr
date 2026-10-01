@@ -52,16 +52,9 @@ import {
 } from "./status.js";
 import { fleetWidgetOnce } from "./widget.js";
 import { spawnRecords, type DeliveryKind, type SpawnRecord } from "./spawn.js";
+import { type SteeredMessage, makeDeliverySink, terminalWake } from "./push.js";
 
 // ---- types -----------------------------------------------------------------
-
-/** One steered message (tests capture these through the injected sink). */
-export interface SteeredMessage {
-	content: string;
-	details: Record<string, unknown>;
-	/** true → wake the orchestrator now; false → next natural turn. */
-	wake: boolean;
-}
 
 /** Injectable seams (offline red-green; defaults hit herdr + disk). */
 export interface DeliveryDeps {
@@ -85,9 +78,9 @@ export interface DeliveryDeps {
 	/** A pre-fetched fleet observation (shared with the watchdog so one tick
 	 * costs one `agent list`). When set, `list` is not called. */
 	fleet?: Result<NormalizedAgent[]>;
-	/** Close a herdr pane — default: `herdr pane close`. The child only
-	 * exits pi (`ctx.shutdown`); this is what removes the pane. */
-	close?: (paneId: string) => Promise<unknown>;
+	/** Best-effort pane close after a terminal delivery (manual e2e F2) —
+	 * default: `herdr pane close` (the session is retained). */
+	closePane?: (paneId: string) => Promise<unknown>;
 	/** Pane-tail read for kinds with no session file — default: `herdr agent read`.
 	 * Throws (or rejects) when the read itself failed; an empty string is a pane
 	 * that was read and held nothing. */
@@ -103,11 +96,38 @@ function sessionNote(record: SpawnRecord): string {
 		: "";
 }
 
-/** The wake flags for a terminal push under the notifications setting. */
-export function terminalWake(
-	notes: HerdrSettings["notifications"],
-): SteeredMessage["wake"] {
-	return notes !== "quiet"; // normal → wake; quiet → next turn; none → never reaches a push
+function tailContent(record: SpawnRecord, text: string): string {
+	return `Agent "${record.name}" finished — pane output:\n\n${text.trim()}`;
+}
+
+/** Read the pane tail. A failed read throws so the caller can retry the tick;
+ * an empty string means the pane was read and held nothing. */
+async function readPaneTail(deps: DeliveryDeps, paneId: string | undefined): Promise<string> {
+	if (!paneId) return "";
+	const read =
+		deps.readTail ??
+		(async (id: string) => {
+			const r = await herdr<unknown>(
+				["agent", "read", id, "--source", "recent", "--lines", "200", "--format", "text"],
+				{ timeoutMs: 15_000, textOk: true },
+			);
+				if (!r.ok) throw new Error(r.error.message);
+				return extractText(r.data);
+			});
+	return read(paneId);
+}
+
+/** Autonomous, not taken over, not a workflow child. Those panes stay open. */
+function ownsPane(record: SpawnRecord): boolean {
+	return record.stance === "autonomous" && !record.takenOver && !record.workflow;
+}
+
+/**
+ * Fleet says the child settled, and this record is one we close. Not enough
+ * on its own for a session-less child: the prompt may not be in the pane yet.
+ */
+function shouldCloseSettled(record: SpawnRecord, live: string | undefined): boolean {
+	return ownsPane(record) && (live === "idle" || live === "done");
 }
 
 function doneContent(
@@ -139,27 +159,6 @@ function goneContent(record: SpawnRecord): string {
 	return `Agent "${record.name}" is gone (no live pane; it died or its pane was closed without completing).${sessionNote(record)}`;
 }
 
-function tailContent(record: SpawnRecord, text: string): string {
-	return `Agent "${record.name}" finished — pane output:\n\n${text.trim()}`;
-}
-
-/** Read the pane tail. A failed read throws so the caller can retry the tick;
- * an empty string means the pane was read and held nothing. */
-async function readPaneTail(deps: DeliveryDeps, paneId: string | undefined): Promise<string> {
-	if (!paneId) return "";
-	const read =
-		deps.readTail ??
-		(async (id: string) => {
-			const r = await herdr<unknown>(
-				["agent", "read", id, "--source", "recent", "--lines", "200", "--format", "text"],
-				{ timeoutMs: 15_000, textOk: true },
-			);
-			if (!r.ok) throw new Error(r.error.message);
-			return extractText(r.data);
-		});
-	return await read(paneId);
-}
-
 // ---- the delivery pass --------------------------------------------------------
 
 /**
@@ -183,6 +182,14 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 	for (const a of fleet.data) {
 		if (a.paneId && a.agentStatus) statusByPane.set(a.paneId, a.agentStatus);
 	}
+	// Actively live = mid-work or waiting on input — a pane in this state is
+	// never closed under a terminal delivery (guard; also the auto-exit race:
+	// the retry sweep holds until the fleet stops listing the pane).
+	const paneLive = (paneId: string | undefined): boolean => {
+		if (!paneId) return false;
+		const s = statusByPane.get(paneId);
+		return s === "working" || s === "blocked";
+	};
 
 	for (const record of records) {
 		// --- takeover marker → quiet note, once. Sent regardless of the
@@ -201,7 +208,16 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 			}
 		}
 
-		if (record.delivery) continue; // terminal already steered — one push per event
+		if (record.delivery) {
+			// Terminal already steered — one push per event. A pane close skipped
+			// by the live-agent guard (the auto-exit race) retries here: once the
+			// fleet stops listing the pane, the leftover empty pane still closes
+			// (manual e2e F2 — the promise must not lose the race).
+			if (record.paneClosePending && record.paneId && !paneLive(record.paneId)) {
+				attemptPaneClose(deps, record);
+			}
+			continue;
+		}
 
 		// --- never started (a queued record failed in the drain loop, after
 		// the spawn tool had already returned "queued")
@@ -221,7 +237,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 		if (isPi && record.sessionPath) {
 			const sidecar = (deps.readSidecar ?? readExitSidecar)(record.sessionPath);
 			if (sidecar.state === "ok") {
-				await deliverSidecar(record, sidecar.sidecar, deps);
+				deliverSidecar(record, sidecar.sidecar, deps, paneLive(record.paneId));
 				continue;
 			}
 		}
@@ -322,11 +338,14 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 		record.blockedNotified = false; // fresh episodes re-wake
 
 		// Fleet reports idle or done. Pi children with a session deliver the
-		// JSONL. Every other kind has no sidecar, so the pane tail is the
-		// letter — but only after a working turn was seen, or the fleet
-		// says `done`. `submitted` is stamped even when the prompt never
-		// landed, and a pre-submit pane is already idle. Then close the
-		// pane. Interactive, takeover, and workflow children stay open.
+		// JSONL — including the no-sidecar case: an autonomous child whose
+		// shell never got PI_HERDR_AUTO_EXIT would otherwise sit idle forever,
+		// so what the session already holds is delivered and the pane closes.
+		// Every other kind has no sidecar, so the pane tail is the letter —
+		// but only after a working turn was seen, or the fleet says `done`.
+		// `submitted` is stamped even when the prompt never landed, and a
+		// pre-submit pane is already idle. Then close the pane. Interactive,
+		// takeover, and workflow children stay open.
 		if (shouldCloseSettled(record, live)) {
 			if (isPi && record.sessionPath) {
 				const extracted = (deps.extract ?? extractSessionResult)(record.sessionPath);
@@ -349,7 +368,8 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 									wake: terminalWake(notifications(deps)),
 								},
 					);
-					await closePane(deps, record.paneId);
+				} else {
+					continue; // still mid-run, or nothing deliverable yet
 				}
 			} else if (record.sawWorking || live === "done") {
 				// Read before marking. A failed read throws out of this tick
@@ -362,50 +382,17 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 					details: { name: record.name, kind: "done", result: text },
 					wake: terminalWake(notifications(deps)),
 				});
-				await closePane(deps, record.paneId);
 			}
 		}
 	}
 }
 
-async function closePane(deps: DeliveryDeps, paneId: string | undefined): Promise<void> {
-	if (!paneId) return;
-	const close = deps.close ?? ((id: string) => herdr(["pane", "close", id], { timeoutMs: 10_000 }));
-	try {
-		await close(paneId);
-	} catch {
-		/* best-effort — the result was already delivered */
-	}
-}
-
-/** Autonomous, not taken over, not a workflow child. Those panes stay open. */
-function ownsPane(record: SpawnRecord): boolean {
-	return record.stance === "autonomous" && !record.takenOver && !record.workflow;
-}
-
-/**
- * Fleet says the child settled, and this record is one we close. Not enough
- * on its own for a session-less child: the prompt may not be in the pane yet.
- */
-function shouldCloseSettled(record: SpawnRecord, live: string | undefined): boolean {
-	return ownsPane(record) && (live === "idle" || live === "done");
-}
-
-/**
- * Autonomous children exit pi and leave the herdr pane behind. Close it
- * after the result is already steered. Interactive stance, a taken-over
- * pane, a rearm sidecar (the human is still there), and workflow children
- * stay open — the run closes its own panes on abort.
- */
-function shouldCloseAfterSidecar(record: SpawnRecord, rearm: boolean): boolean {
-	return ownsPane(record) && !rearm;
-}
-
-async function deliverSidecar(
+function deliverSidecar(
 	record: SpawnRecord,
 	sidecar: { type: "done"; rearm?: true } | { type: "error"; errorMessage: string; stopReason: string; rearm?: true },
 	deps: DeliveryDeps,
-): Promise<void> {
+	paneLive = false,
+): void {
 	const notes = notifications(deps);
 	const extracted = record.sessionPath
 		? (deps.extract ?? extractSessionResult)(record.sessionPath)
@@ -428,29 +415,28 @@ async function deliverSidecar(
 				},
 				wake: terminalWake(notes),
 			},
+			paneLive,
 		);
-	} else {
-		deliverTerminal(
-			deps,
-			record,
-			"error",
-			{
-				content: errorContent(record, sidecar.errorMessage, extracted, rearm),
-				details: {
-					name: record.name,
-					kind: "error",
-					...(rearm ? { rearm: true } : {}),
-					error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
-					...(extracted ? { message: extracted.message } : {}),
-					...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
-				},
-				wake: terminalWake(notes),
+		return;
+	}
+	deliverTerminal(
+		deps,
+		record,
+		"error",
+		{
+			content: errorContent(record, sidecar.errorMessage, extracted, rearm),
+			details: {
+				name: record.name,
+				kind: "error",
+				...(rearm ? { rearm: true } : {}),
+				error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
+				...(extracted ? { message: extracted.message } : {}),
+				...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 			},
-		);
-	}
-	if (shouldCloseAfterSidecar(record, rearm)) {
-		await closePane(deps, record.paneId);
-	}
+			wake: terminalWake(notes),
+		},
+		paneLive,
+	);
 }
 
 // ---- small helpers ------------------------------------------------------------
@@ -459,49 +445,70 @@ function markTerminal(record: SpawnRecord, kind: DeliveryKind, now: () => number
 	record.delivery = { kind, at: now() };
 }
 
+// ---- the pane-close promise (manual e2e F2) ----------------------------------
+
+/** Injectable-seam default: the herdr CLI, same shape as the workflow host's
+ * abort close (best-effort, bounded budget). */
+const defaultClosePane = (paneId: string): Promise<unknown> =>
+	herdr(["pane", "close", paneId], { timeoutMs: 10_000 });
+
+/** Fire the close once and clear the pending flag — never retried after a
+ * failed attempt (best-effort, like the kill-all path). */
+function attemptPaneClose(deps: DeliveryDeps, record: SpawnRecord): void {
+	record.paneClosePending = false;
+	if (!record.paneId) return;
+	void (deps.closePane ?? defaultClosePane)(record.paneId).catch(() => {});
+}
+
+/**
+ * The documented promise, kept at the single choke point (manual e2e F2): a
+ * terminally delivered child's pane closes — the child has exited on every
+ * terminal route (the sidecar IS its exit declaration; sentinel/gone mean the
+ * fleet no longer lists it), so the leftover empty pane goes too. Sessions are
+ * never deleted (issue 04 ruling), so closing loses nothing. Guards: no pane
+ * (queued/never-started), a pane the fleet still reports actively live
+ * (working/blocked — defensive; held as pending and retried on later ticks,
+ * because a dying auto-exit can still be listed when its sidecar lands), and
+ * a taken-over pane that has not re-arm-delivered (the human is driving; only
+ * the re-arm delivery closes it).
+ */
+function closeRecordPane(
+	deps: DeliveryDeps,
+	record: SpawnRecord,
+	rearm: boolean,
+	paneLive: boolean,
+): void {
+	if (!record.paneId) return;
+	if (record.takenOver && !rearm) return;
+	if (paneLive) {
+		record.paneClosePending = true;
+		return;
+	}
+	attemptPaneClose(deps, record);
+}
+
 /**
  * Mark a record's terminal event, then steer it — UNLESS the record belongs to
  * a workflow run (v0.6 issue 12): the RUN reports for its children, so the
  * per-child push is suppressed while the delivery mark (row leaves the fleet,
- * one event per record) still happens. Takeover notes and blocked wakes are
- * NOT routed through here — a blocked workflow child still wakes the
- * orchestrator, whose answer via herdr_message_agent resumes it.
+ * one event per record) still happens. The pane-close promise is fleet-wide
+ * (manual e2e F2/F10): a settled child's pane closes at its terminal mark,
+ * workflow children included — the run's abort close remains as the in-flight
+ * backstop, and a best-effort double close is harmless. Takeover notes and
+ * blocked wakes are NOT routed through here — a blocked workflow child still
+ * wakes the orchestrator, whose answer via herdr_message_agent resumes it.
  */
 function deliverTerminal(
 	deps: DeliveryDeps,
 	record: SpawnRecord,
 	kind: DeliveryKind,
 	msg: SteeredMessage,
+	paneLive = false,
 ): void {
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
+	closeRecordPane(deps, record, msg.details.rearm === true, paneLive);
 	if (record.workflow) return;
 	pushTerminal(deps, msg, notifications(deps));
-}
-
-/**
- * Build the steer sink for a session: pi.sendMessage with delivery's exact
- * envelope (`herdr-delivery`, wake → steer/nextTurn flags). ONE factory so
- * every consumer (the delivery loop, the workflow run's completion report)
- * cannot drift apart.
- */
-export function makeDeliverySink(pi: ExtensionAPI): (msg: SteeredMessage) => void {
-	return (msg: SteeredMessage): void => {
-		try {
-			pi.sendMessage(
-				{
-					customType: "herdr-delivery",
-					content: msg.content,
-					display: true,
-					details: msg.details,
-				},
-				msg.wake
-					? { triggerTurn: true, deliverAs: "steer" }
-					: { triggerTurn: false, deliverAs: "nextTurn" },
-			);
-		} catch {
-			/* best-effort — delivery must never break its caller */
-		}
-	};
 }
 
 function notifications(deps: DeliveryDeps): HerdrSettings["notifications"] {

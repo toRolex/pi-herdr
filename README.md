@@ -12,9 +12,9 @@ works, wait for it to finish, and harvest its response — all from your pi
 session. Each spawned agent is an independent CLI process you can watch, attach
 to, and intervene in while pi coordinates them.
 
-The v0.6 surface is deliberately small: **one surface, ten tools today**
-(spawn, save, result, message, list, run_workflow, and the pane quartet),
-converging to **twelve** as the remaining v0.6 tickets land. Everything
+The v0.6 surface is deliberately small: **one surface, twelve tools**
+(spawn, save, result, message, interrupt, resume, list, run_workflow, and
+the pane quartet). Everything
 else — layout, tab/workspace CRUD, worktrees, fleet introspection — is
 machinery you never have to switch to: the herdr UI stays the human's surface
 for that.
@@ -230,8 +230,7 @@ output without spawning an agent for it.
 
 ## Tools
 
-`pi-herdr` exposes **one surface of ten tools** (twelve when the remaining v0.6
-tickets land). Every agent-surface tool accepts `target` as a **pane id**
+`pi-herdr` exposes **one surface of twelve tools**. Every agent-surface tool accepts `target` as a **pane id**
 (`w1:p3`), **agent name**, or **label**.
 
 ### The agent registry
@@ -241,7 +240,10 @@ definitions from accepted spawns this session) > **project** (`.pi/agents/*.md`)
 > **global** (`~/.pi/agent/agents/*.md`) > **built-in** (`general-purpose`,
 `Explore`, `Plan`). First-hit-wins per name, so a project file shadows a
 global one and a session definition shadows both. The file layers are
-read-at-use: a freshly saved `.md` resolves without a reload.
+read-at-use: a freshly saved `.md` resolves without a reload. A spawn that
+names neither `type` nor `agent` — a bare prompt — resolves the built-in
+`general-purpose` through this same chain (a project `general-purpose.md`
+still shadows it).
 
 An agent file is YAML-ish frontmatter plus the system prompt as the body:
 
@@ -282,7 +284,7 @@ selects how the child session begins (see [Session modes](#session-modes)).
 
 | Tool | What it does |
 | --- | --- |
-| `herdr_spawn_agent` | Spawn a background agent in a herdr pane, submit the task prompt, return `{name, paneId, status, sessionPath, stance, model, thinking, session_mode}`. Registry `type` (`general-purpose` / `Explore` / `Plan`, plus `.md`-registry and session-inline definitions) xor an inline `agent: {…}` definition. `model`/`thinking` resolve down the five-level routing chain — spawn param > frontmatter > `models.agents.<name>` > `models.default` > this session's model — exact authenticated `provider/model-id` only, enforce-or-error naming the offending level. `fork: true` boots a pi child with this conversation as context, truncated before your last user message (see [Session modes](#session-modes)). Gates (kill-switch → depth → parallel cap, over-cap = queued), `isolated: true` worktrees, `wait` to block for the result. Prompts over 2000 chars ride `<session>.task.md` beside the child's session file, delivered as a one-line reference. Every pi child runs on a parent-owned session file in pi's default sessions dir (`herdr/<name>` in `/resume`) with the injected child extension (`agent_done`, identity strip, typed completion sidecars); stance: autonomous (auto-exit on settle — pane closes, session retained) by default, `interactive: true` keeps the pane open. |
+| `herdr_spawn_agent` | Spawn a background agent in a herdr pane, submit the task prompt, return `{name, paneId, status, sessionPath, stance, model, thinking, session_mode}`. Prompt-only spawn works: omitting both specifier fields defaults to the built-in `general-purpose` type (pi kind, autonomous stance). Otherwise a registry `type` (`general-purpose` / `Explore` / `Plan`, plus `.md`-registry and session-inline definitions) or an inline `agent: {…}` definition — never both. `model`/`thinking` resolve down the five-level routing chain — spawn param > frontmatter > `models.agents.<name>` > `models.default` > this session's model — exact authenticated `provider/model-id` only, enforce-or-error naming the offending level. `fork: true` boots a pi child with this conversation as context, truncated before your last user message (see [Session modes](#session-modes)). Gates (kill-switch → depth → parallel cap, over-cap = queued), `isolated: true` worktrees, `wait` to block for the result. Prompts over 2000 chars ride `<session>.task.md` beside the child's session file, delivered as a one-line reference. Every pi child runs on a parent-owned session file in pi's default sessions dir (`herdr/<name>` in `/resume`) with the injected child extension (`agent_done`, identity strip, typed completion sidecars); stance: autonomous (auto-exit on settle — pane closes, session retained) by default, `interactive: true` keeps the pane open. |
 | `herdr_save_agent` | Persist an inline `agent` definition or an existing registry `type` to a `.md` file in the project (`.pi/agents/`, default) or global registry — spawn it by `type` in any session afterwards. Ungated (delete the file to undo); refuses to overwrite an existing file unless `overwrite: true`. |
 
 An inline `agent` definition takes: `name`, `description`, `kind` (default: the
@@ -410,12 +412,29 @@ the retained session. A failed `agent()` resolves to `null` — scripts
 `.filter(Boolean)`; an un-awaited one fails the run. The workflow's children
 report to the run, not the session: the run sends exactly one aggregated
 completion push, and a blocked child still wakes you (answer it with
-`herdr_message_agent` and the run continues). The tool takes an inline
-`script` or a `scriptPath` (scratch copy reported back — edit it and re-run);
-saved names + the resume journal arrive with the next workflows ticket.
-Stopping a run = the kill-all menu action; `workflows_enabled: false`
-removes the tool from the surface (evaluated at load) and refuses new runs
-after a mid-session toggle.
+`herdr_message_agent` and the run continues). Source comes from an inline
+`script`, a `scriptPath`, or a saved `name` — `<name>.js` looked up in
+`.pi/workflows/` → `.agents/workflows/` → the agent dir's `workflows/`, first
+hit wins, and the `export const meta = { name, description }` literal (a
+validation rule, pre-parsed before anything runs) is what marks a file as a
+workflow. Every run journals each settled `agent()` call beside its scratch
+script as `<run id>.workflow.jsonl`; re-running with `resumeFromRunId` replays
+the unchanged prefix from that journal — an edited suffix pays only the delta,
+a journaled failure ends the prefix (resuming retries from the failure), and a
+run that used `agent({ resume })` is never replayed. Same session only.
+While the run is going, a live progress card renders above the editor —
+workflow name, `N/M agents · elapsed`, the phase tree with per-agent rows
+(✔/⟳, label, type, state, tool calls, duration), and `log()` lines beneath —
+and the fleet table shows ONE row for the run instead of a row per child (the
+run reports for them). A schema'd call — `agent(prompt, { schema })` —
+registers a `StructuredOutput` tool in the child and delivers the validated
+payload as the answer (pressure, not guarantee — the runtime re-checks, and
+one retry prompt is sent if the child never called the tool). `budget.spent()`
+returns the run's real output-token usage where the children's session files
+report it, honest `Infinity` when one is unrecoverable; `total` is always
+`null`. Stopping a run = the /subagents “Stop workflow run” action (kill-all
+stops runs too); `workflows_enabled: false` removes the tool from the surface
+(evaluated at load) and refuses new runs after a mid-session toggle.
 
 ### Fleet introspection
 
@@ -638,10 +657,16 @@ The workflow runtime is ported from
 `src/workflow/meta.ts` are near-verbatim ports of its `src/workflow/` core —
 the vm worker bootstrap, the determinism jail, the caps table, the
 un-awaited-launch ruling, and the `meta` pre-parse — with pi-herdr trims
-marked in each file's header (no separate concurrency pool, journal/control/
-schema deferred to the following tickets). The host seam, run lifecycle, and
-tool surface are pi-herdr's own. One borrowed error message (the
-un-awaited-launch ruling) is kept verbatim upstream by design.
+marked in each file's header (no separate concurrency pool, run control
+deferred post-v0.6). Issue 13 added `src/workflow/journal.ts`
+(the resume journal and prefix replay) and `src/workflow/saved.ts` (saved-workflow
+discovery), ported on the same terms. Issue 14 added `src/workflow/progress.ts`
+(the progress model), `src/workflow/json-schema.ts` (schema validation), and
+the child-side `StructuredOutput` tool (ported from its `structured-output.ts`);
+the card arrangement follows its `workflow-card.ts`, trimmed. The host seam,
+run lifecycle, card module, and tool surface are pi-herdr's own. One borrowed
+error message (the un-awaited-launch ruling) is kept verbatim upstream by
+design.
 
 ## License
 

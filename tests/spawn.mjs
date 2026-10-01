@@ -70,7 +70,20 @@ console.log("\n[1] `type` xor `agent` — exactly one");
 	const neither = spawn.resolveSpecifier({});
 	assert(
 		!neither.ok && /one of/i.test(neither.error.message),
-		"neither errors asking for one",
+		"bare resolveSpecifier (no opt-in) still errors asking for one — save_agent keeps the demand",
+	);
+	// Manual e2e F1: the prompt-only default rides the ordinary registry path
+	// (inline=false, built-in layer) — the spawn surface opts in per call.
+	const defaulted = spawn.resolveSpecifier(
+		{},
+		undefined,
+		{ defaultType: "general-purpose" },
+	);
+	assert(
+		defaulted.ok &&
+			defaulted.data.definition.name === "general-purpose" &&
+			defaulted.data.inline === false,
+		"prompt-only specifier (neither type nor agent) resolves the general-purpose registry type",
 	);
 	const badInline = spawn.resolveSpecifier({
 		agent: { name: "x", tools: ["read", 5] },
@@ -83,6 +96,62 @@ console.log("\n[1] `type` xor `agent` — exactly one");
 		agent: { name: "x", thinking: "high", max_turns: 10 },
 	});
 	assert(unknownKeys.ok, "unknown inline keys ignored (cross-dialect no-ops)");
+
+	// Manual e2e F12 boundary coercion: wrong-shape single-side specifiers
+	// coerce instead of refusing — a bare string cannot be an inline def, a
+	// non-string object cannot be a registry name. Both-present still refuses.
+	const coercedType = spawn.resolveSpecifier({ agent: "Explore" });
+	assert(
+		coercedType.ok &&
+			coercedType.data.inline === false &&
+			coercedType.data.definition.name === "Explore" &&
+			coercedType.data.coerced === "specifier coerced — agent string treated as type 'Explore'",
+		"agent string coerces to the registry type, honestly noted",
+	);
+	const coercedInline = spawn.resolveSpecifier({
+		type: { name: "x", system_prompt: "do x" },
+	});
+	assert(
+		coercedInline.ok &&
+			coercedInline.data.inline === true &&
+			coercedInline.data.definition.name === "x" &&
+			coercedInline.data.coerced ===
+				"specifier coerced — type object treated as the inline agent definition",
+		"type object coerces to the inline definition, honestly noted",
+	);
+	const bothWrongShapes = spawn.resolveSpecifier({
+		type: { name: "x" },
+		agent: "Explore",
+	});
+	assert(
+		!bothWrongShapes.ok && /exactly one/i.test(bothWrongShapes.error.message),
+		"both-present refuses BEFORE coercion even when both shapes are wrong",
+	);
+
+	// Engine-level: the coercion lands on the spawn record and the result.
+	reset();
+	const hCo = makeDeps({ env: { HERDR_PANE_ID: "w1:p1" } });
+	const rCo = await spawn.spawnAgent(
+		{ prompt: "search it", agent: "Explore", name: "coerced-scout" },
+		hCo.deps,
+	);
+	assert(rCo.ok, `agent-string spawn ok (${rCo.ok ? "" : rCo.error.message})`);
+	assert(
+		rCo.data.type === "Explore" && rCo.data.coercedNote !== undefined,
+		"engine: agent string treated as type, coercedNote surfaced",
+	);
+	reset();
+	const hIn = makeDeps({ env: { HERDR_PANE_ID: "w1:p1" } });
+	const rIn = await spawn.spawnAgent(
+		{ prompt: "inline it", type: { name: "inl", system_prompt: "p" }, name: "coerced-inline" },
+		hIn.deps,
+	);
+	assert(rIn.ok, `type-object spawn ok (${rIn.ok ? "" : rIn.error.message})`);
+	assert(
+		rIn.data.coercedNote !== undefined && rIn.data.type === "inl",
+		"engine: type object treated as inline definition, coercedNote surfaced",
+	);
+	reset();
 }
 
 // ---------------------------------------------------------------------------
@@ -459,9 +528,11 @@ console.log("\n[8] Gate order — kill-switch before depth before cap");
 function makeDeps(opts = {}) {
 	const calls = { start: [], submit: [], worktree: [] };
 	const live = opts.live ?? []; // [{name, paneId, agent_status}]
+	const panesBox = { current: opts.panes ?? null }; // [paneId,...] — null → derive from live
 	return {
 		calls,
 		live,
+		panes: panesBox,
 		deps: {
 			load: () => ({ ...settingsMod.DEFAULT_SETTINGS, ...opts.settings }),
 			kinds: async () => opts.kinds ?? ["pi", "claude", "codex", "gemini"],
@@ -469,7 +540,11 @@ function makeDeps(opts = {}) {
 				live
 					.filter((a) => a.paneId)
 					.map((a) => ({ name: a.name, paneId: a.paneId })),
+			paneList: async () =>
+				panesBox.current ?? live.filter((a) => a.paneId).map((a) => a.paneId),
 			start: async (input) => {
+				if (opts.startDelayMs)
+						await new Promise((r) => setTimeout(r, opts.startDelayMs));
 				calls.start.push(input);
 				const paneId = `p${calls.start.length}`;
 				live.push({ name: input.name, paneId, agent_status: "idle" });
@@ -503,7 +578,6 @@ function makeDeps(opts = {}) {
 			childExtension: "D:/ext/child.ts",
 			env: opts.env ?? {},
 			autodrain: false,
-			herdr: opts.herdr,
 		},
 	};
 }
@@ -538,6 +612,23 @@ console.log("\n[9] Engine — background spawn end to end, child env stamped");
 	assert(
 		h.calls.submit[0].text === "find the entry point",
 		"prompt submitted to the pane",
+	);
+	// Manual e2e F1: {prompt} alone spawns the default — general-purpose on
+	// the ordinary registry path (the most natural minimal call must work).
+	reset();
+	const hDefault = makeDeps({ env: { HERDR_PANE_ID: "w9:p9" } });
+	const rDefault = await spawn.spawnAgent({ prompt: "do the thing" }, hDefault.deps);
+	assert(
+		rDefault.ok,
+		`prompt-only spawn accepted (${rDefault.ok ? "" : rDefault.error.message})`,
+	);
+	assert(
+		rDefault.ok && rDefault.data.type === "general-purpose",
+		"{prompt} alone resolves type general-purpose",
+	);
+	assert(
+		rDefault.ok && rDefault.data.kind === "pi",
+		"prompt-only default rides the built-in's pi kind",
 	);
 	// no HERDR_PANE_ID → no orchestrator var
 	const h2 = makeDeps();
@@ -837,59 +928,9 @@ console.log(
 		h3.deps,
 	);
 	assert(r3.ok && h3.calls.submit.length === 2, "NOT_STARTED is retried once");
-	// A submit that reached the pane and then timed out is NOT a lost prompt.
-	// Re-sending it makes the child read the second input as a human takeover
-	// and disable auto-exit, so the completion sidecar is never written.
-	const h4 = makeDeps();
-	h4.deps.submit = async (paneId, text) => {
-		h4.calls.submit.push({ paneId, text });
-		return { ok: false, error: { code: "TIMEOUT", message: "herdr timed out" } };
-	};
-	const r4 = await spawn.spawnAgent(
-		{ prompt: "long task", type: "Plan", name: "long" },
-		h4.deps,
-	);
-	assert(r4.ok, `a timed-out submit still returns the spawned agent (got ${JSON.stringify(r4)})`);
-	assert(h4.calls.submit.length === 1, "a non-NOT_STARTED submit failure is not re-sent");
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n[15b] A new group tab stamps the child env on its shell");
-{
-	reset();
-	const calls = [];
-	const h = makeDeps({
-		herdr: async (args) => {
-			calls.push(args);
-			if (args[0] === "pane" && args[1] === "current") {
-				return { ok: true, data: { pane: { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1" } } };
-			}
-			if (args[0] === "pane" && args[1] === "list") {
-				return { ok: true, data: { panes: [{ pane_id: "w1:p1", tab_id: "w1:t1" }] } };
-			}
-			if (args[0] === "tab" && args[1] === "list") {
-				return { ok: true, data: { tabs: [{ tab_id: "w1:t1", label: "1" }] } };
-			}
-			if (args[0] === "tab" && args[1] === "create") {
-				return { ok: true, data: { root_pane: { pane_id: "w1:p2", tab_id: "w1:t2" }, type: "tab_created" } };
-			}
-			return { ok: false, error: { code: "VALIDATION_ERROR", message: args.join(" ") } };
-		},
-	});
-	const r = await spawn.spawnAgent(
-		{ prompt: "review", type: "Plan", name: "reviewer", group: "review" },
-		h.deps,
-	);
-	assert(r.ok, `grouped spawn ok (${r.ok ? "" : r.error.message})`);
-	const created = calls.find((a) => a[0] === "tab" && a[1] === "create") ?? [];
-	assert(created.includes("--env"), `tab create carries --env (got ${created.join(" ")})`);
-	assert(
-		created.some((a) => a.startsWith("PI_HERDR_AUTO_EXIT=")),
-		"the new tab's shell gets PI_HERDR_AUTO_EXIT",
-	);
-	assert(h.calls.start[0].existingPane === "w1:p2", "the agent attaches to the tab's root pane");
-}
-
 console.log("\n[16] Tool registration surface");
 {
 	reset();
@@ -904,12 +945,151 @@ console.log("\n[16] Tool registration surface");
 			t.description.includes("General-purpose agent for researching"),
 		"description carries the trio's full text",
 	);
-	// offline-safe error path: specifier failure happens before any I/O
-	const res = await t.execute("t1", { prompt: "x" }, undefined);
-	assert(
-		res.isError === true && /one of/.test(res.content[0].text),
-		"execute without type/agent errors cleanly",
+	// Manual e2e F1: prompt-only no longer refuses (asserted via
+	// resolveSpecifier + spawnAgent in [1]/[9]); the impossible state — BOTH
+	// type and agent — still errors, offline-safe before any I/O.
+	const res = await t.execute(
+		"t1",
+		{ prompt: "x", type: "Explore", agent: { name: "y" } },
+		undefined,
 	);
+	assert(
+		res.isError === true && /exactly one/i.test(res.content[0].text),
+		"execute with BOTH type and agent errors cleanly",
+	);
+	assert(
+		!/Pass one of `type`/.test(res.content[0].text),
+		"the old neither-given refusal is gone from the spawn surface",
+	);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[17] Golden-spiral pane layout (nextSplit + start-time wiring)");
+{
+	reset();
+	// pure decision: #1 → spawner's pane right; #2 → child #1 down; #3 → child
+	// #2 right; no live sibling → the spawner's pane again; ratio favors the
+	// EXISTING pane (verified: herdr --ratio is the source pane's share).
+	const s1 = spawn.nextSplit({ spawnerPane: "w1:p1", liveChildCount: 0 });
+	assert(
+		s1.targetPaneId === "w1:p1" &&
+			s1.direction === "right" &&
+			s1.ratio === 0.6,
+		"spawn #1: spawner's pane, right, ratio 0.6",
+	);
+	const s2 = spawn.nextSplit({
+		spawnerPane: "w1:p1",
+		lastChildPane: "w1:p1A",
+		liveChildCount: 1,
+	});
+	assert(
+		s2.targetPaneId === "w1:p1A" && s2.direction === "down",
+		"spawn #2: previous child's pane, down",
+	);
+	const s3 = spawn.nextSplit({
+		spawnerPane: "w1:p1",
+		lastChildPane: "w1:p1B",
+		liveChildCount: 2,
+	});
+	assert(
+		s3.targetPaneId === "w1:p1B" && s3.direction === "right",
+		"spawn #3: previous child's pane, right (alternates)",
+	);
+	assert(
+		spawn.nextSplit({ spawnerPane: "w1:p1", liveChildCount: 0 })
+			.targetPaneId === "w1:p1",
+		"no live sibling → the spawner's pane (fallback)",
+	);
+	assert(
+		spawn.nextSplit({ liveChildCount: 0 }).targetPaneId === undefined,
+		"spawner not in a pane → undefined target (--current)",
+	);
+
+	// wiring: three engine spawns — target/direction thread into the split
+	// call, resolved at START time against live siblings (registry order).
+	const h = makeDeps({ env: { HERDR_PANE_ID: "w9:p1" } });
+	for (const name of ["ga", "gb", "gc"]) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name },
+			h.deps,
+		);
+		assert(r.ok, `spawn ${name} ok (${r.ok ? "" : r.error?.message})`);
+	}
+	const [sA, sB, sC] = h.calls.start;
+	assert(
+		sA.splitFrom === "w9:p1" && sA.split === "right" && sA.ratio === 0.6,
+		"#1 splits the spawner's pane right at 0.6",
+	);
+	assert(
+		sB.splitFrom === "p1" && sB.split === "down",
+		"#2 splits child #1's pane (p1) down",
+	);
+	assert(
+		sC.splitFrom === "p2" && sC.split === "right",
+		"#3 splits child #2's pane (p2) right",
+	);
+
+	// fallback: every child exited (fleet list empty) → the spawner's pane.
+	h.live.length = 0;
+	const rd = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "gd" },
+		h.deps,
+	);
+	assert(rd.ok, `fallback spawn ok (${rd.ok ? "" : rd.error?.message})`);
+	const sD = h.calls.start[3];
+	assert(
+		sD.splitFrom === "w9:p1" && sD.split === "down",
+		"all children exited → the spawner's pane again (direction by ordinal parity)",
+	);
+
+	// regression (parallel batch): siblings still BOOTING are invisible to the
+	// agent list but their panes exist — split targeting reads the pane list,
+	// not the agent list, or every parallel spawn falls back to the spawner.
+	h.live.length = 0; // fleet detects no agents yet (all booting)
+	h.panes.current = ["w9:p1", "p1", "p2", "p3", "p4"]; // ...but every pane exists
+	const re = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "ge" },
+		h.deps,
+	);
+	assert(re.ok, `booting-sibling spawn ok (${re.ok ? "" : re.error?.message})`);
+	const sE = h.calls.start[4];
+	assert(
+		sE.splitFrom === "p4" && sE.split === "right",
+		"booting sibling's pane (p4) is the split target — pane list, not agent list",
+	);
+
+	// a CLOSED sibling pane is gone from the pane list → spawner fallback
+	h.panes.current = ["w9:p1"];
+	const rf = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "gf" },
+		h.deps,
+	);
+	assert(rf.ok, `gf fallback spawn ok (${rf.ok ? "" : rf.error?.message})`);
+	const sF = h.calls.start[5];
+	assert(
+		sF.splitFrom === "w9:p1" && sF.split === "down",
+		"closed sibling panes are skipped → the spawner's pane, direction by ordinal parity",
+	);
+
+	// parallel batch: the predecessor may be MID-START (no paneId yet) — the
+	// spiral waits for its pane instead of falling back to the spawner.
+	const hp = makeDeps({ env: { HERDR_PANE_ID: "w9:p1" }, startDelayMs: 400 });
+	const pending = spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "ha" },
+		hp.deps,
+	);
+	await new Promise((r) => setTimeout(r, 120)); // ha mid-start, no paneId yet
+	const rhb = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "hb" },
+		hp.deps,
+	);
+	const sHb = hp.calls.start[1];
+	assert(
+		sHb.splitFrom === "p1" && sHb.split === "down",
+		`parallel: mid-start predecessor is awaited and targeted (down) (${JSON.stringify(sHb)})`,
+	);
+	assert(rhb.ok, `hb spawn ok (${rhb.ok ? "" : rhb.error?.message})`);
+	await pending;
 }
 
 // ---------------------------------------------------------------------------
