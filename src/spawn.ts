@@ -107,6 +107,7 @@ import { createWorktreeArgs, extractWorktree } from "./tools/worktrees.js";
 
 export type SpawnStatus =
 	| "queued"
+	| "starting"
 	| "working"
 	| "idle"
 	| "done"
@@ -1284,7 +1285,14 @@ export interface SpawnParams {
 	 * 14: the workflow host passes PI_HERDR_SCHEMA). Single-value scalars per
 	 * the env-contract discipline; merged after the built-ins. */
 	extraEnv?: Record<string, string>;
+	/** Internal callers only (not a tool parameter). `true` blocks until
+	 * done/blocked/gone; a number returns the current state on expiry.
+	 * `detach` wins: the tool layer never waits. */
 	wait?: boolean | number;
+	/** Return at accept time (`starting` or `queued`) and run pane start in
+	 * the background. Does not promise the child has booted. Ignores `wait`.
+	 * The tool layer sets this; internal callers omit it and keep `wait`. */
+	detach?: boolean;
 }
 
 export interface SpawnResultData {
@@ -1524,6 +1532,50 @@ export async function spawnAgent(
 		definition: definitionSnapshot,
 	};
 	spawnRegistry.set(handle, record);
+
+	// Tool layer (ticket #2): accepted now, start later. `wait` is ignored
+	// so a stale caller cannot re-block. Status is queued or starting —
+	// neither promises the child has booted.
+	if (params.detach) {
+		if (gates.decision === "queue") {
+			ensureDrainLoop(deps);
+			return {
+				ok: true,
+				data: {
+					name: handle,
+					status: "queued",
+					kind: merged.kind,
+					type: record.type,
+					depth: record.depth,
+					queued: true,
+					stance: record.stance,
+					...substrateResultFields(record, routing, coercedNote),
+				},
+			};
+		}
+		void startRecordNow(record, deps).then(
+			(startR) => {
+				if (!startR.ok && !record.startError) {
+					record.startError = startR.error.message;
+				}
+			},
+			() => {
+				if (!record.startError) record.startError = "start failed";
+			},
+		);
+		return {
+			ok: true,
+			data: {
+				name: handle,
+				status: "starting",
+				kind: merged.kind,
+				type: record.type,
+				depth: record.depth,
+				stance: record.stance,
+				...substrateResultFields(record, routing, coercedNote),
+			},
+		};
+	}
 
 	// 8a. over cap → queued, no pane; the drain loop starts it when a slot
 	// frees. A wait still applies: it polls through the queue until terminal

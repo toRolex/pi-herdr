@@ -70,9 +70,11 @@ const DESCRIPTION =
 	"2000 chars are written to `<session>.task.md` and delivered as a one-line reference. Raw CLI flags " +
 	"ride `agent_args` (spawn level, appended after the definition's `args:` — last-wins). Stance (v0.6): " +
 	"autonomous by default (auto-exit on settle; pane closes, session retained), `interactive: true` or " +
-	"`auto_exit: false` keeps the pane open. Background by default; `wait: true` blocks until " +
-	"done-or-blocked, `wait: <ms>` returns the current state on expiry. At max_parallel_agents the " +
-	"spawn is accepted queued (no pane until a slot frees; wait waits through the queue). " +
+	"`auto_exit: false` keeps the pane open. Always returns immediately: accepted as `starting` " +
+	"(the child is not promised to have booted), or `queued` when the fleet is at max_parallel_agents " +
+	"(no pane until a slot frees). There is no wait parameter — a caller-supplied wait is ignored and " +
+	"cannot block this call. The result arrives later by push-on-completion (the notifications setting) " +
+	"or by herdr_get_agent_result. " +
 	"`isolated: true` runs the agent in a fresh auto-created herdr-side git worktree " +
 	"(worktree stays after the agent — remove it yourself with `herdr worktree remove` or git). " +
 	"Gates, checked in order before any side effect: kill-switch, spawn depth, parallel cap. " +
@@ -150,6 +152,43 @@ const AGENT_DEF_SCHEMA = Type.Object({
 	),
 });
 
+/** The call the tool's execute makes. Exported so tests drive the same
+ * path (detach, wait stripped) without a pi session. */
+export function spawnFromTool(
+	p: {
+		prompt: string;
+		fork?: boolean;
+		type?: string;
+		agent?: unknown;
+		name?: string;
+		kind?: string;
+		model?: string;
+		thinking?: string;
+		agent_args?: string[];
+		cwd?: string;
+		isolated?: boolean;
+	},
+	deps: Parameters<typeof spawnAgent>[1],
+): ReturnType<typeof spawnAgent> {
+	return spawnAgent(
+		{
+			prompt: p.prompt,
+			fork: p.fork,
+			type: p.type,
+			agent: p.agent,
+			name: p.name,
+			kind: p.kind,
+			model: p.model,
+			thinking: p.thinking,
+			agent_args: p.agent_args,
+			cwd: p.cwd,
+			isolated: p.isolated,
+			detach: true,
+		},
+		deps,
+	);
+}
+
 export function registerAgents(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "herdr_spawn_agent",
@@ -214,12 +253,6 @@ export function registerAgents(pi: ExtensionAPI): void {
 					description: "Spawn into a fresh auto-created herdr-side git worktree.",
 				}),
 			),
-			wait: Type.Optional(
-				Type.Union([Type.Boolean(), Type.Integer()], {
-					description:
-						"true = block until done-or-blocked; ms = return current state on expiry; omit = background (default).",
-				}),
-			),
 		}),
 		async execute(
 			_id,
@@ -228,22 +261,7 @@ export function registerAgents(pi: ExtensionAPI): void {
 			_onUpdate,
 			ctx: ExtensionContext | undefined,
 		) {
-			const r = await spawnAgent(
-				{
-					prompt: p.prompt,
-					fork: p.fork,
-					type: p.type,
-					agent: p.agent,
-					name: p.name,
-					kind: p.kind,
-					model: p.model,
-					thinking: p.thinking,
-					agent_args: p.agent_args,
-					cwd: p.cwd,
-					isolated: p.isolated,
-					wait: p.wait,
-				},
-				{
+			const r = await spawnFromTool(p, {
 					signal,
 					// Routing level 5 (parent session's model) + exact-model
 					// validation come from THIS session's pi context.
@@ -259,19 +277,16 @@ export function registerAgents(pi: ExtensionAPI): void {
 			);
 			if (!r.ok) return fail(r.error.message, r.error.code, r.error.details);
 			const d = r.data;
-			const where = d.paneId ? `pane ${d.paneId}` : "no pane yet (queued)";
 			const type = d.type ? ` (type ${d.type})` : "";
-			const session = d.sessionPath ? ` Session file: ${d.sessionPath}.` : "";
 			const stance = ` Stance: ${d.stance}.`;
-			const worktree = d.worktreePath
-				? ` Isolated worktree: ${d.worktreePath}`
-				: "";
 			// Manual e2e F12: a fired specifier coercion is surfaced, not silent —
 			// the caller should know the shape it passed was not taken literally.
 			const coerced = d.coercedNote ? ` Note: ${d.coercedNote}.` : "";
+			// starting/queued are accept-time facts. Do not report a pane id or
+			// session path here — those would claim the child has booted.
 			const text = d.queued
-				? `Spawn accepted as QUEUED: "${d.name}"${type} — fleet is at max_parallel_agents; the pane starts when a slot frees.${stance}${coerced}`
-				: `Spawned ${d.kind} agent "${d.name}"${type} in ${where}; status: ${d.status}.${stance}${session}${worktree}${coerced}`;
+				? `Spawn accepted as QUEUED: "${d.name}"${type} — fleet is at max_parallel_agents; the pane starts when a slot frees. The child is not started yet.${stance}${coerced}`
+				: `Spawn accepted as STARTING: "${d.name}"${type} (${d.kind}). The child is not promised to have booted; status: ${d.status}.${stance}${coerced}`;
 			return {
 				content: [{ type: "text", text }],
 				details: d,

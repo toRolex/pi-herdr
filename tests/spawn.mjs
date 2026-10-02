@@ -961,6 +961,78 @@ console.log("\n[16] Tool registration surface");
 		!/Pass one of `type`/.test(res.content[0].text),
 		"the old neither-given refusal is gone from the spawn surface",
 	);
+
+	// ticket #2: wait is gone from the tool schema and the description.
+	const props = t.parameters?.properties ?? t.parameters?.schema?.properties;
+	assert(props && !("wait" in props), "spawn tool schema has no wait parameter");
+	assert(
+		!/wait:\s*true|blocks until|wait: <ms>/i.test(t.description),
+		"spawn tool description does not claim the call blocks",
+	);
+	assert(
+		/accepted|queued|starting/i.test(t.description) &&
+			/does not promise|not promise|no promise/i.test(t.description),
+		"description states accepted/queued/starting and does not promise the child has started",
+	);
+
+	// ticket #2: the tool returns before a still-running child finishes.
+	// The injected start hangs until the test releases it, so a blocking
+	// tool call would never resolve.
+	reset();
+	const hung = makeDeps();
+	let releaseStart;
+	hung.deps.start = () =>
+		new Promise((resolve) => {
+			releaseStart = () =>
+				resolve({ ok: true, data: { agent: { pane_id: "p-hung" } } });
+		});
+	const pending = agentsTool.spawnFromTool(
+		{ prompt: "keep running", type: "Plan", name: "long-child", wait: true },
+		hung.deps,
+	);
+	const raced = await Promise.race([
+		pending.then((r) => ({ settled: true, r })),
+		new Promise((resolve) => setTimeout(() => resolve({ settled: false }), 50)),
+	]);
+	assert(
+		raced.settled === true &&
+			raced.r.ok &&
+			raced.r.data.status === "starting" &&
+			raced.r.data.queued !== true &&
+			raced.r.data.paneId === undefined &&
+			raced.r.data.waited !== true,
+		"tool spawn returns starting before the child pane exists, even if the caller passed wait:true",
+	);
+	assert(
+		hung.calls.start.length === 0 &&
+			spawn.spawnRecords().get("long-child")?.paneId === undefined,
+		"returning starting does not mean the child has booted",
+	);
+	releaseStart();
+	await pending;
+
+	reset();
+	const capped = makeDeps({ settings: { max_parallel_agents: 1 } });
+	const first = await agentsTool.spawnFromTool(
+		{ prompt: "x", type: "Plan", name: "holds-slot" },
+		capped.deps,
+	);
+	assert(first.ok && first.data.status === "starting", "under cap: accepted as starting");
+	// occupy the slot the way the drain counts it: a live registry pane
+	const held = spawn.spawnRecords().get("holds-slot");
+	held.paneId = "p-held";
+	capped.live.push({ name: "holds-slot", paneId: "p-held", agent_status: "working" });
+	const second = await agentsTool.spawnFromTool(
+		{ prompt: "y", type: "Plan", name: "overflow", wait: true },
+		capped.deps,
+	);
+	assert(
+		second.ok &&
+			second.data.status === "queued" &&
+			second.data.queued === true &&
+			second.data.waited !== true,
+		"over cap: queued immediately, wait:true does not block through the queue",
+	);
 }
 
 // ---------------------------------------------------------------------------
