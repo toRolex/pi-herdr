@@ -78,8 +78,13 @@ const DESCRIPTION =
 	"`isolated: true` runs the agent in a fresh auto-created herdr-side git worktree " +
 	"(worktree stays after the agent — remove it yourself with `herdr worktree remove` or git). " +
 	"Gates, checked in order before any side effect: kill-switch, spawn depth, parallel cap. " +
-	"No layout parameters — panes split in an alternating right/down spiral " +
-		"from the previous pane; the spawner keeps the larger share.";
+	"Layout follows the `layout_mode` setting, read when the pane is created: `grid` " +
+		"(the default) fills an equal-width 3×2 and opens another tab for the 7th live occupant; " +
+		"`spiral` is the golden spiral — alternating right/down, the existing pane keeps the larger share. " +
+		"Omit `group` to land on the orchestrator's tab; pass `group` to gather related agents on a tab " +
+		"titled with that name (a full page of 6 opens another tab of the same group, and the next " +
+		"member of the group fills the earliest page that still has room). Changing `layout_mode` never " +
+		"moves a pane that already exists.";
 
 /** The inline `agent: {…}` definition schema — shared by spawn_agent and save_agent. */
 const AGENT_DEF_SCHEMA = Type.Object({
@@ -167,6 +172,7 @@ export function spawnFromTool(
 		agent_args?: string[];
 		cwd?: string;
 		isolated?: boolean;
+		group?: string;
 	},
 	deps: Parameters<typeof spawnAgent>[1],
 ): ReturnType<typeof spawnAgent> {
@@ -183,6 +189,7 @@ export function spawnFromTool(
 			agent_args: p.agent_args,
 			cwd: p.cwd,
 			isolated: p.isolated,
+			group: p.group,
 			detach: true,
 		},
 		deps,
@@ -251,6 +258,12 @@ export function registerAgents(pi: ExtensionAPI): void {
 			isolated: Type.Optional(
 				Type.Boolean({
 					description: "Spawn into a fresh auto-created herdr-side git worktree.",
+				}),
+			),
+			group: Type.Optional(
+				Type.String({
+					description:
+						"Task category. The same group shares one tab (a new name opens a new tab; a full grid of 6 opens another tab of the same group, and later members fill the earliest page with room). Omit to stay on the orchestrator's tab. Empty is treated as omitted. Honored when layout_mode is grid.",
 				}),
 			),
 		}),

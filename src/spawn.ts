@@ -17,11 +17,14 @@
 //   - children carry PI_HERDR_SPAWN_DEPTH (incremented) and
 //     PI_HERDR_ORCHESTRATOR_PANE (ticket 11: the spawning pane's
 //     HERDR_PANE_ID — set only when this session itself runs in a pane).
-//   - no layout params (charter item 2): panes split in an alternating
-//     right/down spiral from the previous pane; the spawner keeps the larger
-//     share (ratio 0.6);
-//     layout/tab/worktree tools are off the model surface entirely (v0.6
-//     surface cut) — the worktree MACHINERY stays for `isolated`.
+//   - layout is chosen at START by the `layout_mode` setting (default grid).
+//     grid: an equal-width 3×2 on the orchestrator's tab, or on the tab
+//     named by `group`; the 7th live occupant opens another tab. spiral:
+//     alternating right/down from the previous pane, the spawner keeps the
+//     larger share (ratio 0.6). Changing the setting never moves a pane
+//     that already exists. layout/tab/worktree tools stay off the model
+//     surface (v0.6 surface cut) — the worktree MACHINERY stays for
+//     `isolated`.
 //
 // Ticket 11's pi-only scope ruling: `kind` is an unopinionated passthrough
 // onto herdr's native `agent start --kind` axis. A non-pi child is text in a
@@ -29,6 +32,7 @@
 // capability table below (verified in wayfinder/research/capability-matrix.md).
 
 import { getAgentKinds } from "./config.js";
+import { planGridPlacement, splitFor, type GridCell } from "./grid.js";
 import { herdr } from "./herdr.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -716,6 +720,16 @@ export interface SpawnRecord {
 	 * so per-child terminal pushes are suppressed and issue 14's card rehomes
 	 * the rows. */
 	workflow?: string;
+	/** Task category. Same non-empty value shares a tab titled with it. */
+	group?: string;
+	/** Grid cell reserved at START, before the pane exists. Concurrent grid
+	 * starts read this so they do not both take the same hole. */
+	gridClaim?: { tabId: string; at: GridCell };
+	/** Grid cell this pane landed on. Absent until the pane exists, and
+	 * absent entirely under spiral. */
+	gridAt?: GridCell;
+	/** Tab the pane was placed on (grid only). */
+	gridTab?: string;
 	/** Message-less resume (issue 10): the boot IS the handoff — the
 	 * original prompt must NOT be resubmitted. Rides the record so the
 	 * queue drain's startRecordNow stays silent too. */
@@ -780,6 +794,9 @@ export interface SpawnDeps {
 	/** Pane creation — default: startHerdrAgent (the single `agent start
 	 * --kind` launch path). */
 	start?: typeof startHerdrAgent;
+	/** herdr CLI — default: the real binary. Grid placement queries panes
+	 * and tabs through this; tests inject a stub. */
+	herdr?: typeof herdr;
 	/** Boot gate — default: waitForStatus(["idle"]) (event + poll). */
 	boot?: (
 		paneId: string,
@@ -1092,25 +1109,49 @@ export async function startRecordNow(
 		Object.assign(childEnv, record.extraEnv);
 	}
 	const start = deps.start ?? startHerdrAgent;
-	// Golden-spiral layout, resolved at START time (not accept time): a queued
-	// spawn that drains later uses whatever is live then; an exited sibling's
-	// pane can't be split from. Spawn #1 splits the spawner's pane, #2+ the
-	// previous child's, alternating right → down.
-	const splitPlan = await nextSplitFor(record, deps);
+	// Layout is decided at START, never at accept: a queued spawn that drains
+	// later sees whatever is live then, and a setting change only affects the
+	// next start. spiral is the golden spiral (unchanged). grid is the
+	// equal-width planner. A grid plan that cannot be observed falls back to
+	// splitting the current pane rightward — a start still happens.
+	const mode = (deps.load ?? defaultLoad)().layout_mode;
+	const placed = mode === "spiral" ? undefined : await placeOnGrid(record, deps);
+	if (placed) {
+		record.gridClaim = { tabId: placed.tabId, at: placed.at };
+		const run = deps.herdr ?? herdr;
+		for (const command of placed.commands) {
+			const ran = await run(command.args, { signal });
+			if (!ran.ok) break;
+		}
+	}
+	const splitPlan = placed ? undefined : await nextSplitFor(record, deps);
 	const startR = await start({
 		name: record.name,
 		agent: record.kind,
 		agentArgs: record.launchPlan,
 		cwd,
 		env: childEnv,
-		split: splitPlan.direction,
-		splitFrom: splitPlan.targetPaneId,
-		ratio: splitPlan.ratio,
 		signal,
+		...(placed?.reusePane
+			? { existingPane: placed.reusePane, focus: false }
+			: {
+					split: placed?.direction ?? splitPlan?.direction,
+					splitFrom: placed?.paneId ?? splitPlan?.targetPaneId,
+					ratio: placed?.ratio ?? splitPlan?.ratio,
+					focus: placed ? false : undefined,
+			}),
 	});
-	if (!startR.ok) return startR;
+	if (!startR.ok) {
+		record.gridClaim = undefined;
+		return startR;
+	}
 	record.paneId = normalizeAgent(startR.data.agent).paneId;
 	record.startedAt = Date.now();
+	if (placed) {
+		record.gridAt = placed.at;
+		record.gridTab = placed.tabId;
+		record.gridClaim = undefined;
+	}
 	if (!record.paneId) {
 		return spawnErr(
 			"AGENT_START_FAILED",
@@ -1156,6 +1197,221 @@ export async function startRecordNow(
 		);
 	}
 	return { ok: true, data: { paneId: record.paneId } };
+}
+
+interface GridPlacement {
+	paneId?: string;
+	reusePane?: string;
+	direction: "right" | "down";
+	ratio: number;
+	at: GridCell;
+	tabId: string;
+	commands: { args: string[] }[];
+}
+
+interface ListedPane {
+	pane_id?: string;
+	tab_id?: string;
+}
+
+/** One grid plan at a time. Two STARTS that both read an empty tab would
+ * otherwise reserve the same cell; the lock covers the read-and-claim,
+ * not the herdr commands that follow. */
+let gridLock: Promise<void> = Promise.resolve();
+
+function withGridLock<T>(fn: () => Promise<T>): Promise<T> {
+	const previous = gridLock;
+	let release: () => void = () => {};
+	gridLock = new Promise((resolve) => {
+		release = resolve;
+	});
+	return previous.then(fn, fn).finally(release);
+}
+
+/** Best-effort grid placement. A herdr failure returns undefined and the
+ * launcher falls back to the golden spiral, so a start still happens. */
+async function placeOnGrid(
+	record: SpawnRecord,
+	deps: SpawnDeps,
+): Promise<GridPlacement | undefined> {
+	return withGridLock(() => planGridSeat(record, deps));
+}
+
+async function planGridSeat(
+	record: SpawnRecord,
+	deps: SpawnDeps,
+): Promise<GridPlacement | undefined> {
+	const run = deps.herdr ?? herdr;
+	const current = await run<{
+		pane?: { pane_id?: string; tab_id?: string; workspace_id?: string };
+	}>(["pane", "current"], { signal: deps.signal });
+	if (!current.ok) return undefined;
+	const here = current.data?.pane;
+	if (!here?.pane_id || !here.tab_id) return undefined;
+
+	const listed = await run<{ panes?: ListedPane[] }>(["pane", "list"], {
+		signal: deps.signal,
+	});
+	if (!listed.ok) return undefined;
+	const panes = listed.data?.panes ?? [];
+
+	let tabId = here.tab_id;
+	const group = record.group;
+	if (group) {
+		const tabs = await run<{ tabs?: { tab_id?: string; label?: string }[] }>(
+			["tab", "list"],
+			{ signal: deps.signal },
+		);
+		if (!tabs.ok) return undefined;
+		const named = (tabs.data?.tabs ?? []).filter(
+			(t) => t.label === group && t.tab_id,
+		);
+		const room = named.find(
+			(t) => seatsOn(t.tab_id as string, panes).length < 6,
+		);
+		if (room?.tab_id) tabId = room.tab_id;
+		else {
+			const made = await run<{
+				tab?: { tab_id?: string; root_pane?: string; pane_id?: string };
+			}>(
+				[
+					"tab",
+					"create",
+					...(here.workspace_id ? ["--workspace", here.workspace_id] : []),
+					"--label",
+					group,
+					"--no-focus",
+					...envFlags(record),
+				],
+				{ signal: deps.signal },
+			);
+			if (!made.ok || !made.data?.tab?.tab_id) return undefined;
+			tabId = made.data.tab.tab_id;
+			const shellId =
+				made.data.tab.root_pane ??
+				made.data.tab.pane_id ??
+				(await shellOn(run, tabId, deps));
+				if (shellId) {
+				const seat: GridPlacement = {
+					reusePane: shellId,
+					direction: "right",
+					ratio: 0.5,
+					at: { row: 1, col: 1 },
+					tabId,
+					commands: [],
+				};
+				record.gridClaim = { tabId, at: seat.at };
+				return seat;
+			}
+		}
+	}
+
+	const live = seatsOn(tabId, panes);
+	const liveIds = new Set(live.map((p) => p.pane_id));
+	const claimed = [...spawnRegistry.values()].filter(
+		(r) => r !== record && r.gridClaim?.tabId === tabId,
+	);
+	const seated = [...spawnRegistry.values()].filter(
+		(r) =>
+			r !== record &&
+			r.gridTab === tabId &&
+			r.paneId &&
+			r.gridAt &&
+			liveIds.has(r.paneId),
+	);
+	const holes = [...spawnRegistry.values()]
+		.filter(
+			(r) =>
+				r.gridTab === tabId &&
+				r.gridAt &&
+				(!r.paneId || !liveIds.has(r.paneId)) &&
+				!claimed.some((c) => cellKey(c.gridClaim?.at) === cellKey(r.gridAt)),
+		)
+		.map((r) => r.gridAt as GridCell);
+	const onOrchestrator = tabId === here.tab_id && !group;
+	const occupied = [
+		...(onOrchestrator ? [{ id: "main", role: "main" as const }] : []),
+		...seated.map((r) => ({
+			id: r.name,
+			role: "agent" as const,
+			at: r.gridAt,
+		})),
+		...claimed.map((r) => ({
+			id: r.name,
+			role: "agent" as const,
+			at: r.gridClaim?.at,
+		})),
+	];
+	const plan = planGridPlacement({
+		occupied,
+		incoming: { id: record.name, role: "agent" },
+		tabId,
+		holes,
+	});
+	const known = [
+		...(onOrchestrator
+			? [{ id: here.pane_id, at: { row: 1 as const, col: 1 as const } }]
+			: []),
+		...seated.map((r) => ({
+			id: r.paneId as string,
+			at: r.gridAt as GridCell,
+		})),
+	];
+	const split = splitFor(plan, record.name, known);
+	if (!split) return undefined;
+	if (!split.paneId && tabId !== here.tab_id) {
+		const anchor = live[0]?.pane_id;
+		if (anchor) split.paneId = anchor;
+	}
+	record.gridClaim = { tabId: split.tabId, at: split.at };
+	return split;
+}
+
+/** Child env stamped onto a tab the grid creates, because `agent start`
+ * has no `--env` of its own — the shell inherits the tab's. */
+function envFlags(record: SpawnRecord): string[] {
+	const flags: string[] = [];
+	const stamp = (k: string, v: string | undefined) => {
+		if (v !== undefined) flags.push("--env", `${k}=${v}`);
+	};
+	stamp("PI_HERDR_SPAWN_DEPTH", String(record.depth));
+	stamp("PI_HERDR_ORCHESTRATOR_PANE", record.orchestratorPane);
+	if (record.sessionPath) {
+		stamp("PI_HERDR_SESSION", record.sessionPath);
+		stamp("PI_HERDR_NAME", record.name);
+		stamp("PI_HERDR_AGENT", record.type ?? "");
+		stamp(
+			"PI_HERDR_AUTO_EXIT",
+			record.stance === "autonomous" ? "1" : "0",
+		);
+		stamp("PI_HERDR_DENIED_TOOLS", (record.deniedTools ?? []).join(","));
+		stamp("PI_HERDR_ACTIVITY_FILE", record.activityPath);
+	}
+	for (const [k, v] of Object.entries(record.extraEnv ?? {})) stamp(k, v);
+	return flags;
+}
+
+function cellKey(cell: GridCell | undefined): string {
+	return cell ? `${cell.row}:${cell.col}` : "";
+}
+
+async function shellOn(
+	run: typeof herdr,
+	tabId: string,
+	deps: SpawnDeps,
+): Promise<string | undefined> {
+	const again = await run<{ panes?: ListedPane[] }>(["pane", "list"], {
+		signal: deps.signal,
+	});
+	if (!again.ok) return undefined;
+	return seatsOn(tabId, again.data?.panes ?? [])[0]?.pane_id;
+}
+
+function seatsOn(tabId: string, panes: ListedPane[]): { pane_id: string }[] {
+	return panes.filter(
+		(p): p is ListedPane & { pane_id: string } =>
+			p.tab_id === tabId && typeof p.pane_id === "string",
+	);
 }
 
 async function submitRecordPrompt(
@@ -1293,6 +1549,8 @@ export interface SpawnParams {
 	 * the background. Does not promise the child has booted. Ignores `wait`.
 	 * The tool layer sets this; internal callers omit it and keep `wait`. */
 	detach?: boolean;
+	/** Task category. Same non-empty value shares a tab. Empty is omitted. */
+	group?: string;
 }
 
 export interface SpawnResultData {
@@ -1528,6 +1786,7 @@ export async function spawnAgent(
 		session_mode: merged.session_mode,
 		routing,
 		deniedTools: merged.exclude_tools,
+		group: params.group?.trim() || undefined,
 		...(params.extraEnv !== undefined ? { extraEnv: params.extraEnv } : {}),
 		definition: definitionSnapshot,
 	};
