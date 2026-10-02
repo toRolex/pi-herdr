@@ -81,8 +81,12 @@ interface StartInput {
 	split?: "right" | "down";
 	/** Explicit pane to split (golden-spiral layout); absent → `--current`. */
 	splitFrom?: string;
-	/** Split ratio — the EXISTING pane's share (verified herdr 0.9.1). */
+	/** Split ratio — the EXISTING pane's share (verified herdr 0.9.1).
+	 * Grid splits pass 0.5 so the two columns come out equal. */
 	ratio?: number;
+	/** Attach the agent to this pane instead of splitting a new one. Used
+	 * when a freshly created group tab already has a shell pane. */
+	existingPane?: string;
 	tabId?: string;
 	workspaceId?: string;
 	env?: Record<string, string>;
@@ -148,30 +152,39 @@ export async function startHerdrAgent(
 	const bad = kindError(kind, await getAgentKinds());
 	if (bad) return bad;
 
-	// 1. create the pane (`agent start` needs an existing pane at a shell prompt).
-	//    Golden-spiral layout: the caller (src/spawn.ts) picks the target — the
-	//    spawner's pane for spawn #1, the previous child's for #2+, alternating
-	//    right/down. No explicit pane → `--current` (verified: resolves via the
-	//    caller's HERDR_PANE_ID, not the focused pane). `--ratio` favors the
-	//    EXISTING pane, so the source always keeps the larger share.
-	const splitArgs = ["pane", "split"];
-	if (input.splitFrom) splitArgs.push(input.splitFrom);
-	else splitArgs.push("--current");
-	splitArgs.push("--direction", input.split ?? "right");
-	splitArgs.push("--ratio", String(input.ratio ?? 0.6));
-	if (input.cwd) splitArgs.push("--cwd", input.cwd);
-	if (input.env)
-		for (const [k, v] of Object.entries(input.env))
-			splitArgs.push("--env", `${k}=${v}`);
-	if (input.focus) splitArgs.push("--focus");
-	const splitR = await herdr<unknown>(splitArgs, {
-		timeoutMs: 20_000,
-		signal: input.signal,
-	});
-	if (!splitR.ok) return splitR;
-	const paneId = extractPaneId(splitR.data);
+	// 1. the pane the agent attaches to. A caller that already has a shell
+	//    (a tab just created for a group) skips the split. Otherwise the
+	//    caller picks the split: golden-spiral (src/spawn.ts) splits the
+	//    spawner's pane for spawn #1 and the previous child's for #2+,
+	//    alternating right/down; grid splits toward the assigned cell at 0.5.
+	//    No explicit pane → `--current` (verified: resolves via the caller's
+	//    HERDR_PANE_ID, not the focused pane). `--ratio` favors the EXISTING
+	//    pane, so a spiral source keeps the larger share.
+	let paneId = input.existingPane;
 	if (!paneId) {
-		return err("PANE_GONE", "herdr pane split returned no pane id", splitR.data);
+		const splitArgs = ["pane", "split"];
+		if (input.splitFrom) splitArgs.push(input.splitFrom);
+		else splitArgs.push("--current");
+		splitArgs.push("--direction", input.split ?? "right");
+		splitArgs.push("--ratio", String(input.ratio ?? 0.6));
+		if (input.cwd) splitArgs.push("--cwd", input.cwd);
+		if (input.env)
+			for (const [k, v] of Object.entries(input.env))
+				splitArgs.push("--env", `${k}=${v}`);
+		if (input.focus) splitArgs.push("--focus");
+		const splitR = await herdr<unknown>(splitArgs, {
+			timeoutMs: 20_000,
+			signal: input.signal,
+		});
+		if (!splitR.ok) return splitR;
+		paneId = extractPaneId(splitR.data);
+		if (!paneId) {
+			return err(
+				"PANE_GONE",
+				"herdr pane split returned no pane id",
+				splitR.data,
+			);
+		}
 	}
 
 	// 2. attach the agent to the pane by kind. `agent start --kind` can fail

@@ -582,6 +582,75 @@ function makeDeps(opts = {}) {
 	};
 }
 
+// Grid harness: a fake herdr that answers pane/tab queries and records the
+// commands placeOnGrid runs before the pane is created. `start` still lands
+// in calls.start, so assertions read the launch the engine actually asked for.
+function makeGridDeps(opts = {}) {
+	const base = makeDeps(opts);
+	const settings = base.deps.load();
+	base.deps.load = () => settings;
+	const world = {
+		panes: [{ pane_id: "w9:p1", tab_id: "t-main" }],
+		tabs: [{ tab_id: "t-main", label: "main" }],
+		next: 1,
+	};
+	const commands = [];
+	base.deps.herdr = async (args) => {
+		commands.push(args);
+		const [noun, verb] = args;
+		if (noun === "pane" && verb === "current") {
+			return {
+				ok: true,
+				data: {
+					pane: {
+						pane_id: "w9:p1",
+						tab_id: "t-main",
+						workspace_id: "ws",
+					},
+				},
+			};
+		}
+		if (noun === "pane" && verb === "list") {
+			return { ok: true, data: { panes: world.panes.map((p) => ({ ...p })) } };
+		}
+		if (noun === "tab" && verb === "list") {
+			return { ok: true, data: { tabs: world.tabs.map((t) => ({ ...t })) } };
+		}
+		if (noun === "tab" && verb === "create") {
+			const label = args[args.indexOf("--label") + 1];
+			const tab_id = `t-${world.next++}`;
+			const pane_id = `shell-${tab_id}`;
+			world.tabs.push({ tab_id, label });
+			world.panes.push({ pane_id, tab_id });
+			return {
+				ok: true,
+				data: { tab: { tab_id, root_pane: pane_id } },
+			};
+		}
+		return { ok: true, data: {} };
+	};
+	const innerStart = base.deps.start;
+	base.deps.start = async (input) => {
+		const r = await innerStart(input);
+		if (r.ok) {
+			const paneId = r.data.agent.pane_id;
+			const from = input.existingPane ?? input.splitFrom;
+			const tab =
+				world.panes.find((p) => p.pane_id === from)?.tab_id ?? "t-main";
+			world.panes.push({ pane_id: paneId, tab_id: tab });
+			if (input.existingPane) {
+				world.panes = world.panes.filter(
+					(p) => p.pane_id !== input.existingPane,
+				);
+			}
+		}
+		return r;
+	};
+	base.commands = commands;
+	base.world = world;
+	return base;
+}
+
 // ---------------------------------------------------------------------------
 console.log("\n[9] Engine — background spawn end to end, child env stamped");
 {
@@ -1007,7 +1076,12 @@ console.log("\n[17] Golden-spiral pane layout (nextSplit + start-time wiring)");
 
 	// wiring: three engine spawns — target/direction thread into the split
 	// call, resolved at START time against live siblings (registry order).
-	const h = makeDeps({ env: { HERDR_PANE_ID: "w9:p1" } });
+	// The default layout is now grid; this section pins spiral so the
+	// golden-spiral contract stays the thing under test.
+	const h = makeDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { layout_mode: "spiral" },
+	});
 	for (const name of ["ga", "gb", "gc"]) {
 		const r = await spawn.spawnAgent(
 			{ prompt: "x", type: "Explore", name },
@@ -1073,7 +1147,11 @@ console.log("\n[17] Golden-spiral pane layout (nextSplit + start-time wiring)");
 
 	// parallel batch: the predecessor may be MID-START (no paneId yet) — the
 	// spiral waits for its pane instead of falling back to the spawner.
-	const hp = makeDeps({ env: { HERDR_PANE_ID: "w9:p1" }, startDelayMs: 400 });
+	const hp = makeDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		startDelayMs: 400,
+		settings: { layout_mode: "spiral" },
+	});
 	const pending = spawn.spawnAgent(
 		{ prompt: "x", type: "Explore", name: "ha" },
 		hp.deps,
@@ -1090,6 +1168,193 @@ console.log("\n[17] Golden-spiral pane layout (nextSplit + start-time wiring)");
 	);
 	assert(rhb.ok, `hb spawn ok (${rhb.ok ? "" : rhb.error?.message})`);
 	await pending;
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[18] layout_mode is read at START: grid by default, spiral when set");
+{
+	reset();
+	// Missing setting → grid. The first agent splits the orchestrator's pane
+	// to the right at half (equal columns), not the spiral's 0.6.
+	const hg = makeGridDeps({ env: { HERDR_PANE_ID: "w9:p1" } });
+	const g1 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "ga" },
+		hg.deps,
+	);
+	assert(g1.ok, `grid spawn ok (${g1.ok ? "" : g1.error?.message})`);
+	const gs = hg.calls.start[0];
+	assert(
+		gs.split === "right" && gs.splitFrom === "w9:p1" && gs.ratio === 0.5,
+		`default layout is grid: first agent is the right half of the main pane (${JSON.stringify({ split: gs.split, from: gs.splitFrom, ratio: gs.ratio })})`,
+	);
+
+	// Explicit spiral keeps the golden-spiral contract (ratio 0.6, alternating).
+	reset();
+	const hs = makeDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { layout_mode: "spiral" },
+	});
+	for (const name of ["sa", "sb"]) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name },
+			hs.deps,
+		);
+		assert(r.ok, `spiral ${name} ok`);
+	}
+	assert(
+		hs.calls.start[0].ratio === 0.6 && hs.calls.start[0].split === "right",
+		"explicit spiral: spawn #1 still splits right at 0.6",
+	);
+	assert(
+		hs.calls.start[1].split === "down" && hs.calls.start[1].splitFrom === "p1",
+		"explicit spiral: spawn #2 still splits the previous child down",
+	);
+}
+
+console.log(
+	"\n[19] grid group: same group shares a tab; the 7th live occupant opens another",
+);
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+	});
+	const placed = [];
+	for (let i = 1; i <= 7; i++) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name: `g${i}`, group: "coding" },
+			h.deps,
+		);
+		assert(r.ok, `group spawn g${i} ok (${r.ok ? "" : r.error?.message})`);
+		if (!r.ok || !h.calls.start[i - 1]) break;
+		const rec = spawn.spawnRecords().get(`g${i}`);
+		placed.push({
+			tab: rec?.gridTab,
+			at: rec?.gridAt,
+			reuse: h.calls.start[i - 1].existingPane,
+			split: h.calls.start[i - 1].split,
+		});
+	}
+	const firstTab = placed[0].tab;
+	assert(
+		firstTab && firstTab !== "t-main" && placed.slice(0, 6).every((p) => p.tab === firstTab),
+		`the first six of a group share one tab that is not the main tab (${JSON.stringify(placed.map((p) => p.tab))})`,
+	);
+	assert(
+		placed[6].tab && placed[6].tab !== firstTab,
+		`the 7th live occupant of the group opens another tab (${placed[6].tab})`,
+	);
+	assert(
+		placed[0].reuse && !placed[0].split,
+		"a brand-new group tab reuses the tab's shell pane instead of splitting",
+	);
+	const created = h.commands.find((c) => c[0] === "tab" && c[1] === "create");
+	assert(
+		created?.includes("--env") &&
+			created.some((a) => a.startsWith("PI_HERDR_SESSION=")),
+		"the new group tab is created with the child's env, since agent start cannot stamp it",
+	);
+
+	// An 8th member of the same group fills the earliest page that still has
+	// room — the new page — rather than opening a third or joining the main tab.
+	const r8 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "g8", group: "coding" },
+		h.deps,
+	);
+	assert(r8.ok, "8th group member ok");
+	const rec8 = spawn.spawnRecords().get("g8");
+	assert(
+		rec8?.gridTab === placed[6].tab,
+		`the 8th joins the group's second tab (${rec8?.gridTab} vs ${placed[6].tab})`,
+	);
+
+	// A spawn with no group stays on the orchestrator's tab.
+	const plain = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "loose" },
+		h.deps,
+	);
+	assert(plain.ok, "ungrouped spawn ok");
+	assert(
+		spawn.spawnRecords().get("loose")?.gridTab === "t-main",
+		"no group → the orchestrator's tab",
+	);
+
+	// Switching the setting does not move panes already placed. The next
+	// START is the only one that changes shape.
+	const live = h.deps.load();
+	live.layout_mode = "spiral";
+	const before = spawn.spawnRecords().get("g1")?.gridAt;
+	const switched = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "spiraled" },
+		h.deps,
+	);
+	assert(switched.ok, "post-switch spawn ok");
+	const sw = h.calls.start.at(-1);
+	assert(
+		sw.ratio === 0.6 && sw.split && !sw.existingPane,
+		`the spawn after the switch uses spiral (${JSON.stringify({ ratio: sw.ratio, split: sw.split })})`,
+	);
+	assert(
+		JSON.stringify(spawn.spawnRecords().get("g1")?.gridAt) ===
+			JSON.stringify(before),
+		"panes placed before the switch stay where they were",
+	);
+}
+
+console.log(
+	"\n[20] concurrent grid starts do not take the same hole",
+);
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+		startDelayMs: 300,
+	});
+	const pending = ["c1", "c2", "c3"].map((name) =>
+		spawn.spawnAgent({ prompt: "x", type: "Explore", name }, h.deps),
+	);
+	const results = await Promise.all(pending);
+	assert(results.every((r) => r.ok), "three concurrent grid spawns all start");
+	const cells = ["c1", "c2", "c3"].map((name) => {
+		const at = spawn.spawnRecords().get(name)?.gridAt;
+		return at ? `${at.row}:${at.col}` : "none";
+	});
+	assert(
+		new Set(cells).size === 3,
+		`each concurrent start lands on its own cell (${cells.join(", ")})`,
+	);
+}
+
+console.log("\n[21] a closed pane's cell is reused inside its own tab");
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+	});
+	for (const name of ["k1", "k2"]) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name, group: "coding" },
+			h.deps,
+		);
+		assert(r.ok, `${name} placed`);
+	}
+	const gone = spawn.spawnRecords().get("k2");
+	const hole = `${gone.gridAt.row}:${gone.gridAt.col}`;
+	h.world.panes = h.world.panes.filter((p) => p.pane_id !== gone.paneId);
+	const r3 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "k3", group: "coding" },
+		h.deps,
+	);
+	assert(r3.ok, "k3 placed");
+	const at = spawn.spawnRecords().get("k3").gridAt;
+	assert(
+		`${at.row}:${at.col}` === hole &&
+			spawn.spawnRecords().get("k3").gridTab === gone.gridTab,
+		`the newcomer takes the closed cell on the same tab (${hole})`,
+	);
 }
 
 // ---------------------------------------------------------------------------
