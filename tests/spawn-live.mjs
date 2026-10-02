@@ -81,10 +81,21 @@ const check = (c, m) => {
 	console.log((c ? "  ✓ " : "  ✗ ") + m);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Wait only on the inspection surface, never on spawn.
+async function inspectStarted(name, budget = 180_000) {
+ const deadline = Date.now() + budget;
+ while (Date.now() < deadline) {
+  const r = await getResult.execute("live-started", { target: name }, undefined);
+  if (r.details?.paneId || r.isError) return r.details ?? {};
+  await sleep(250);
+ }
+ throw new Error(`child ${name} never acquired a pane`);
+}
 
 try {
 	console.log("[live] herdr_spawn_agent — built-in Explore, real path");
 	const name = `spawnlive-${Date.now()}`;
+	const began = Date.now();
 	const res = await spawnTool.execute(
 		"live-spawn",
 		{
@@ -94,21 +105,31 @@ try {
 			type: "general-purpose",
 			name,
 			prompt:
-				"Use the bash tool to run exactly: echo $PI_HERDR_SPAWN_DEPTH — then reply with only its output (a single number). Do not guess; run the command.",
+				"Use the bash tool to run exactly: sleep 15; echo $PI_HERDR_SPAWN_DEPTH — then reply with only its output (a single number). Do not guess; run the command.",
 			wait: 180_000,
 		},
 		undefined,
 	);
-	const d = res.details ?? {};
+	const receipt = res.details ?? {};
+	const returnedAt = Date.now();
+	check(returnedAt - began < 10_000 && ["starting", "queued"].includes(receipt.status), "spawn tool returns acceptance without awaiting child completion (legacy wait ignored)");
+	const d = { ...receipt, ...await inspectStarted(name) };
+	let running = false;
+	const deadline = Date.now() + 180_000;
+	while (Date.now() < deadline && !running) {
+	 const snapshot = await getResult.execute("live-running", { target: name }, undefined);
+	 const act = readActivityFile(snapshot.details?.activityPath ?? d.activityPath);
+	 running = act.state === "ok" && act.activity.phase === "active" && act.activity.tool === "bash";
+	 if (["done", "error", "gone"].includes(snapshot.details?.status)) break;
+	 if (!running) await sleep(100);
+	}
+	check(running && Date.now() > returnedAt, "child is observed running a real tool after spawn already returned");
 	check(res.isError !== true, `spawn ok (isError=${res.isError})`);
 	check(!!d.paneId, `paneId present: ${d.paneId}`);
 	check(d.name === name, `handle returned: ${d.name}`);
 	check(d.type === "general-purpose", `type reported: ${d.type}`);
 	check(d.depth === 2, `child depth = 2 (root 1 + 1), got ${d.depth}`);
-	check(
-		d.status === "done" || d.status === "blocked",
-		`wait:180s settled terminal, status: ${d.status}`,
-	);
+
 
 	if (d.paneId) {
 		// The substrate round-trip: pull the result with herdr_get_agent_result —
@@ -234,7 +255,8 @@ try {
 				},
 			},
 		);
-		const d2 = res2.details ?? {};
+		const d2 = { ...res2.details, ...await inspectStarted(name2) };
+		await getResult.execute("live-model-result", { target: name2, wait: 180_000 }, undefined);
 		check(res2.isError !== true, `pinned-model spawn ok (${res2.isError ? JSON.stringify(res2.content?.[0]?.text ?? "").slice(0, 120) : "ok"})`);
 		check(
 			d2.model === pinned,
@@ -266,7 +288,7 @@ try {
 	console.log("\n[live] cleanup");
 	if (d.paneId) {
 		const c = await herdr(["pane", "close", d.paneId], { timeoutMs: 10_000 });
-		check(c.ok, `closed pane ${d.paneId}`);
+		check(c.ok || c.error.code === "NOT_FOUND", `closed or already auto-exited pane ${d.paneId}`);
 	}
 	await sleep(500);
 } finally {

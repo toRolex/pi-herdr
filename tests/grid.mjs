@@ -136,6 +136,8 @@ console.log("\n[1] column count and the spec fill order");
 
 console.log("\n[2] a 7th occupant opens a new tab; holes are reused");
 {
+	// The main window plus five agents is the full 6. The next agent is
+	// the 7th pane, which is what opens the tab (spec: 6 panes = 3×2).
 	const full = [main, agent(1), agent(2), agent(3), agent(4), agent(5)];
 	eq(
 		grid.planGridPlacement({
@@ -190,6 +192,70 @@ console.log("\n[2] a 7th occupant opens a new tab; holes are reused");
 			],
 		},
 		"a hole in the middle is reused instead of growing",
+	);
+}
+
+console.log("\n[2b] the 7th occupant carries the command that opens its tab");
+{
+	const full = [
+		main,
+		{ ...agent(1), at: { row: 1, col: 2 } },
+		{ ...agent(2), at: { row: 2, col: 2 } },
+		{ ...agent(3), at: { row: 2, col: 1 } },
+		{ ...agent(4), at: { row: 1, col: 3 } },
+		{ ...agent(5), at: { row: 2, col: 3 } },
+	];
+	const plan = grid.planGridPlacement({
+		occupied: full,
+		incoming: agent(6),
+		tabId: "t0",
+		newTabId: "t1",
+	});
+	const split = grid.splitFor(plan, "a6", [
+		{ id: "main", at: { row: 1, col: 1 } },
+		{ id: "p1", at: { row: 1, col: 2 } },
+		{ id: "p2", at: { row: 2, col: 2 } },
+		{ id: "p3", at: { row: 2, col: 1 } },
+		{ id: "p4", at: { row: 1, col: 3 } },
+		{ id: "p5", at: { row: 2, col: 3 } },
+	]);
+	eq(
+		split.commands.map((c) => c.args.slice(0, 2)),
+		[["tab", "create"]],
+		"the 7th occupant's split opens a tab before any pane is made",
+	);
+	assert(
+		split.commands[0].args.includes("--no-focus") &&
+			!split.commands[0].args.includes("--label"),
+		"the overflow tab is unfocused and unlabeled (it stays on the orchestrator's group)",
+	);
+	assert(
+		!split.paneId,
+		"the overflow split names no pane on the full tab — the new tab's shell is the pane",
+	);
+}
+
+console.log("\n[2c] a hole above an occupied cell swaps into place");
+{
+	const plan = grid.planGridPlacement({
+		occupied: [main, { ...agent(2), at: { row: 2, col: 2 } }],
+		incoming: agent(9),
+		tabId: "t0",
+		holes: [{ row: 1, col: 2 }],
+	});
+	const split = grid.splitFor(plan, "a9", [
+		{ id: "main", at: { row: 1, col: 1 } },
+		{ id: "p-a2", at: { row: 2, col: 2 } },
+	]);
+	eq(
+		{ paneId: split.paneId, direction: split.direction, at: split.at },
+		{ paneId: "p-a2", direction: "down", at: { row: 1, col: 2 } },
+		"the newcomer splits the occupant under the hole downward",
+	);
+	eq(
+		split.commands.map((c) => c.args),
+		[["pane", "swap", "--panes", "p-a2,{new}"]],
+		"then swaps with that occupant, so the newcomer ends up in the hole",
 	);
 }
 
@@ -295,6 +361,8 @@ console.log("\n[4] group tabs isolate capacity and holes");
 		{ id: "a8", row: 1, col: 1 },
 		"a hole on this group tab is filled before the grid grows",
 	);
+	const leftHole = grid.splitFor(reused, "a8", [{ id: "right-pane", at: { row: 1, col: 2 } }]);
+	eq({ from: leftHole.paneId, direction: leftHole.direction, commands: leftHole.commands }, { from: "right-pane", direction: "right", commands: [{ args: ["pane", "swap", "--panes", "right-pane,{new}"] }] }, "left hole splits its right neighbor then swaps, without resize");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

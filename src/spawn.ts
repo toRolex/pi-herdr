@@ -32,7 +32,7 @@
 // capability table below (verified in wayfinder/research/capability-matrix.md).
 
 import { getAgentKinds } from "./config.js";
-import { planGridPlacement, splitFor, type GridCell } from "./grid.js";
+import { createGridTabArgs, planGridPlacement, splitFor, type GridCell, type GridSeat } from "./grid.js";
 import { herdr } from "./herdr.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -724,12 +724,12 @@ export interface SpawnRecord {
 	group?: string;
 	/** Grid cell reserved at START, before the pane exists. Concurrent grid
 	 * starts read this so they do not both take the same hole. */
-	gridClaim?: { tabId: string; at: GridCell };
+	gridClaim?: GridSeat;
 	/** Grid cell this pane landed on. Absent until the pane exists, and
 	 * absent entirely under spiral. */
-	gridAt?: GridCell;
+	gridAt?: GridSeat["at"];
 	/** Tab the pane was placed on (grid only). */
-	gridTab?: string;
+	gridTab?: GridSeat["tabId"];
 	/** Message-less resume (issue 10): the boot IS the handoff — the
 	 * original prompt must NOT be resubmitted. Rides the record so the
 	 * queue drain's startRecordNow stays silent too. */
@@ -838,6 +838,8 @@ export interface SpawnDeps {
 	parent?: ParentRouting;
 	/** Disable the background queue-drain timer (tests drive drains explicitly). */
 	autodrain?: boolean;
+	/** Maximum wait to acquire the grid placement lock. */
+	gridTimeoutMs?: number;
 	signal?: AbortSignal;
 }
 
@@ -1084,73 +1086,99 @@ export async function startRecordNow(
 	});
 
 	// 3. pane (herdr's native kind axis; version-branched launcher)
-	const childEnv: Record<string, string> = {
-		PI_HERDR_SPAWN_DEPTH: String(record.depth),
-	};
-	if (record.orchestratorPane) {
-		childEnv.PI_HERDR_ORCHESTRATOR_PANE = record.orchestratorPane;
-	}
-	if (record.sessionPath) {
-		childEnv.PI_HERDR_SESSION = record.sessionPath;
-		childEnv.PI_HERDR_NAME = record.name;
-		childEnv.PI_HERDR_AGENT = record.type ?? "";
-		childEnv.PI_HERDR_AUTO_EXIT = record.stance === "autonomous" ? "1" : "0";
-		childEnv.PI_HERDR_DENIED_TOOLS = (record.deniedTools ?? []).join(",");
-		if (record.activityPath)
-			childEnv.PI_HERDR_ACTIVITY_FILE = record.activityPath;
-		// idle re-arm window (issue 06): after a human takeover, settle + this
-		// much quiet → the child auto-delivers (rearm-labeled) and closes.
-		childEnv.PI_HERDR_IDLE_REARM_MS = String(
-			Math.max(0, (deps.load ?? defaultLoad)().idle_rearm_minutes) * 60_000,
-		);
-		// Caller-stamped extras (issue 14) run LAST, so they deliberately win
-		// over any built-in of the same name. Only trusted code sets extraEnv
-		// (the workflow host, in-process) — never a tool caller.
-		Object.assign(childEnv, record.extraEnv);
-	}
+	const childEnv = buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes);
 	const start = deps.start ?? startHerdrAgent;
 	// Layout is decided at START, never at accept: a queued spawn that drains
 	// later sees whatever is live then, and a setting change only affects the
 	// next start. spiral is the golden spiral (unchanged). grid is the
 	// equal-width planner. A grid plan that cannot be observed falls back to
 	// splitting the current pane rightward — a start still happens.
+	// The grid lock covers observation, the plan, pane creation, and the
+	// seat write: a second START must see the predecessor's pane, not just
+	// its claim, or its split target is a cell the pane does not occupy yet.
 	const mode = (deps.load ?? defaultLoad)().layout_mode;
-	const placed = mode === "spiral" ? undefined : await placeOnGrid(record, deps);
-	if (placed) {
-		record.gridClaim = { tabId: placed.tabId, at: placed.at };
-		const run = deps.herdr ?? herdr;
-		for (const command of placed.commands) {
-			const ran = await run(command.args, { signal });
-			if (!ran.ok) break;
+	const launched = await launchPane();
+	if (!launched.ok) return launched;
+	const startR = launched;
+
+	async function launchPane(): Promise<Awaited<ReturnType<typeof start>>> {
+		const go = async () => {
+			const placed =
+				mode === "spiral" ? undefined : await planGridSeat(record, deps);
+			if (placed) {
+				record.gridClaim = { tabId: placed.tabId, at: placed.at };
+				const run = deps.herdr ?? herdr;
+				for (const command of placed.commands) {
+					if (command.args.some((a) => a.includes("{new}"))) continue;
+					const ran = await run(command.args, { signal });
+					if (!ran.ok) return ran;
+					if (command.args[0] === "tab" && command.args[1] === "create") {
+						const made = ran.data as {
+							tab?: { tab_id?: string; root_pane?: string; pane_id?: string };
+						};
+						if (!made?.tab?.tab_id) return spawnErr("AGENT_START_FAILED", "new grid tab returned no tab id");
+						if (made.tab.tab_id) {
+							placed.tabId = made.tab.tab_id;
+							placed.reusePane =
+								made.tab.root_pane ?? made.tab.pane_id;
+							record.gridClaim = {
+								tabId: placed.tabId,
+								at: placed.at,
+							};
+							placed.reusePane ??= await shellOn(run, placed.tabId, deps);
+							if (!placed.reusePane) return spawnErr("AGENT_START_FAILED", "new grid tab returned no shell pane");
+						}
+					}
+				}
+			}
+			const splitPlan = placed ? undefined : await nextSplitFor(record, deps);
+			const startR = await start({
+				name: record.name,
+				agent: record.kind,
+				agentArgs: record.launchPlan,
+				cwd,
+				env: childEnv,
+				signal,
+				...(placed?.reusePane
+					? { existingPane: placed.reusePane, focus: false }
+					: {
+							split: placed?.direction ?? splitPlan?.direction,
+							splitFrom: placed?.paneId ?? splitPlan?.targetPaneId,
+							ratio: placed?.ratio ?? splitPlan?.ratio,
+							focus: placed ? false : undefined,
+					}),
+			});
+			if (!startR.ok) {
+				record.gridClaim = undefined;
+				return startR;
+			}
+			const paneId = normalizeAgent(startR.data.agent).paneId;
+			record.paneId = paneId;
+			if (placed && paneId) {
+				const run = deps.herdr ?? herdr;
+				for (const command of placed.commands) {
+					if (!command.args.some((a) => a.includes("{new}"))) continue;
+					const swapped = await run(
+						command.args.map((a) => a.replaceAll("{new}", paneId)),
+						{ signal },
+					);
+					if (!swapped.ok) return swapped;
+				}
+			}
+			record.paneId = paneId;
+			record.startedAt = Date.now();
+			if (placed) {
+				record.gridAt = placed.at;
+				record.gridTab = placed.tabId;
+				record.gridClaim = undefined;
+			}
+			return startR;
+		};
+		try {
+			return mode === "spiral" ? await go() : await withGridLock(go, deps.gridTimeoutMs ?? 30_000, signal);
+		} finally {
+			record.gridClaim = undefined;
 		}
-	}
-	const splitPlan = placed ? undefined : await nextSplitFor(record, deps);
-	const startR = await start({
-		name: record.name,
-		agent: record.kind,
-		agentArgs: record.launchPlan,
-		cwd,
-		env: childEnv,
-		signal,
-		...(placed?.reusePane
-			? { existingPane: placed.reusePane, focus: false }
-			: {
-					split: placed?.direction ?? splitPlan?.direction,
-					splitFrom: placed?.paneId ?? splitPlan?.targetPaneId,
-					ratio: placed?.ratio ?? splitPlan?.ratio,
-					focus: placed ? false : undefined,
-			}),
-	});
-	if (!startR.ok) {
-		record.gridClaim = undefined;
-		return startR;
-	}
-	record.paneId = normalizeAgent(startR.data.agent).paneId;
-	record.startedAt = Date.now();
-	if (placed) {
-		record.gridAt = placed.at;
-		record.gridTab = placed.tabId;
-		record.gridClaim = undefined;
 	}
 	if (!record.paneId) {
 		return spawnErr(
@@ -1199,13 +1227,11 @@ export async function startRecordNow(
 	return { ok: true, data: { paneId: record.paneId } };
 }
 
-interface GridPlacement {
+interface GridPlacement extends GridSeat {
 	paneId?: string;
 	reusePane?: string;
 	direction: "right" | "down";
 	ratio: number;
-	at: GridCell;
-	tabId: string;
 	commands: { args: string[] }[];
 }
 
@@ -1214,27 +1240,33 @@ interface ListedPane {
 	tab_id?: string;
 }
 
-/** One grid plan at a time. Two STARTS that both read an empty tab would
- * otherwise reserve the same cell; the lock covers the read-and-claim,
- * not the herdr commands that follow. */
+/** Serialize observation through pane creation and seat registration.
+ * Expired waiters retain their queue position until their predecessor releases,
+ * so cancellation cannot let a later start overlap the current owner. */
 let gridLock: Promise<void> = Promise.resolve();
 
-function withGridLock<T>(fn: () => Promise<T>): Promise<T> {
+async function withGridLock<T>(fn: () => Promise<Result<T>>, timeoutMs: number, signal?: AbortSignal): Promise<Result<T>> {
 	const previous = gridLock;
-	let release: () => void = () => {};
-	gridLock = new Promise((resolve) => {
-		release = resolve;
+	let release!: () => void;
+	const held = new Promise<void>((resolve) => { release = resolve; });
+	gridLock = previous.then(() => held);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let cancel!: () => void;
+	const cancelled = new Promise<false>((resolve) => {
+		cancel = () => resolve(false);
+		timer = setTimeout(cancel, Math.max(0, timeoutMs));
+		signal?.addEventListener("abort", cancel, { once: true });
+		if (signal?.aborted) cancel();
 	});
-	return previous.then(fn, fn).finally(release);
-}
-
-/** Best-effort grid placement. A herdr failure returns undefined and the
- * launcher falls back to the golden spiral, so a start still happens. */
-async function placeOnGrid(
-	record: SpawnRecord,
-	deps: SpawnDeps,
-): Promise<GridPlacement | undefined> {
-	return withGridLock(() => planGridSeat(record, deps));
+	try {
+		const acquired = await Promise.race([cancelled, previous.then(() => true)]);
+		if (!acquired || signal?.aborted) return spawnErr("TIMEOUT", "grid placement lock wait timed out or was cancelled");
+		return await fn();
+	} finally {
+		clearTimeout(timer);
+		signal?.removeEventListener("abort", cancel);
+		release();
+	}
 }
 
 async function planGridSeat(
@@ -1274,15 +1306,7 @@ async function planGridSeat(
 			const made = await run<{
 				tab?: { tab_id?: string; root_pane?: string; pane_id?: string };
 			}>(
-				[
-					"tab",
-					"create",
-					...(here.workspace_id ? ["--workspace", here.workspace_id] : []),
-					"--label",
-					group,
-					"--no-focus",
-					...envFlags(record),
-				],
+				createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes)),
 				{ signal: deps.signal },
 			);
 			if (!made.ok || !made.data?.tab?.tab_id) return undefined;
@@ -1348,6 +1372,7 @@ async function planGridSeat(
 		tabId,
 		holes,
 	});
+
 	const known = [
 		...(onOrchestrator
 			? [{ id: here.pane_id, at: { row: 1 as const, col: 1 as const } }]
@@ -1359,6 +1384,9 @@ async function planGridSeat(
 	];
 	const split = splitFor(plan, record.name, known);
 	if (!split) return undefined;
+	if (plan.openedTab) {
+		split.commands = [{ args: createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes)) }];
+	}
 	if (!split.paneId && tabId !== here.tab_id) {
 		const anchor = live[0]?.pane_id;
 		if (anchor) split.paneId = anchor;
@@ -1369,10 +1397,10 @@ async function planGridSeat(
 
 /** Child env stamped onto a tab the grid creates, because `agent start`
  * has no `--env` of its own — the shell inherits the tab's. */
-function envFlags(record: SpawnRecord): string[] {
-	const flags: string[] = [];
+function buildChildEnv(record: SpawnRecord, idleRearmMinutes: number): Record<string, string> {
+	const env: Record<string, string> = {};
 	const stamp = (k: string, v: string | undefined) => {
-		if (v !== undefined) flags.push("--env", `${k}=${v}`);
+		if (v !== undefined) env[k] = v;
 	};
 	stamp("PI_HERDR_SPAWN_DEPTH", String(record.depth));
 	stamp("PI_HERDR_ORCHESTRATOR_PANE", record.orchestratorPane);
@@ -1386,9 +1414,10 @@ function envFlags(record: SpawnRecord): string[] {
 		);
 		stamp("PI_HERDR_DENIED_TOOLS", (record.deniedTools ?? []).join(","));
 		stamp("PI_HERDR_ACTIVITY_FILE", record.activityPath);
+		stamp("PI_HERDR_IDLE_REARM_MS", String(Math.max(0, idleRearmMinutes) * 60_000));
 	}
 	for (const [k, v] of Object.entries(record.extraEnv ?? {})) stamp(k, v);
-	return flags;
+	return env;
 }
 
 function cellKey(cell: GridCell | undefined): string {

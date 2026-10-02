@@ -205,7 +205,8 @@ console.log("\n[3] Unknown `type` errors listing available types");
 		r2.error.message.includes("my-inline"),
 		"error lists session inline definitions too",
 	);
-	const layers = spawn.listAgentTypes().map((t) => t.name);
+	// File-layer behavior has its own suite; do not read developer agent folders.
+	const layers = spawn.listAgentTypes({ project: join(ROOT, "tests/fixtures/no-project-agents"), global: join(ROOT, "tests/fixtures/no-global-agents") }).map((t) => t.name);
 	assert(
 		eq(layers, ["my-inline", "general-purpose", "Explore", "Plan"]),
 		"listAgentTypes: session first, then built-ins",
@@ -617,7 +618,8 @@ function makeGridDeps(opts = {}) {
 			return { ok: true, data: { tabs: world.tabs.map((t) => ({ ...t })) } };
 		}
 		if (noun === "tab" && verb === "create") {
-			const label = args[args.indexOf("--label") + 1];
+			const labelAt = args.indexOf("--label");
+			const label = labelAt === -1 ? undefined : args[labelAt + 1];
 			const tab_id = `t-${world.next++}`;
 			const pane_id = `shell-${tab_id}`;
 			world.tabs.push({ tab_id, label });
@@ -626,6 +628,20 @@ function makeGridDeps(opts = {}) {
 				ok: true,
 				data: { tab: { tab_id, root_pane: pane_id } },
 			};
+		}
+		if (noun === "pane" && verb === "swap") {
+			const spec = args[args.indexOf("--panes") + 1] ?? "";
+			const [a, b] = spec.split(",");
+			const pa = world.panes.find((p) => p.pane_id === a);
+			const pb = world.panes.find((p) => p.pane_id === b);
+			if (pa && pb) {
+				const tab = pa.tab_id;
+				pa.tab_id = pb.tab_id;
+				pb.tab_id = tab;
+			}
+			world.swaps = world.swaps ?? [];
+			world.swaps.push(spec);
+			return { ok: true, data: {} };
 		}
 		return { ok: true, data: {} };
 	};
@@ -638,6 +654,7 @@ function makeGridDeps(opts = {}) {
 			const tab =
 				world.panes.find((p) => p.pane_id === from)?.tab_id ?? "t-main";
 			world.panes.push({ pane_id: paneId, tab_id: tab });
+
 			if (input.existingPane) {
 				world.panes = world.panes.filter(
 					(p) => p.pane_id !== input.existingPane,
@@ -1379,6 +1396,89 @@ console.log(
 }
 
 console.log(
+	"\n[19b] the 7th live occupant of the main tab opens a tab, and does not become a 7th pane",
+);
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+	});
+	for (let i = 1; i <= 5; i++) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name: `m${i}` },
+			h.deps,
+		);
+		assert(r.ok, `main-tab spawn m${i} ok`);
+	}
+	const before = h.world.panes.filter((p) => p.tab_id === "t-main").length;
+	const r7 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "m7" },
+		h.deps,
+	);
+	assert(r7.ok, "7th main-tab occupant ok");
+	const rec7 = spawn.spawnRecords().get("m7");
+	const overflow = h.commands.filter(
+		(c) => c[0] === "tab" && c[1] === "create" && !c.includes("--label"),
+	);
+	assert(
+		overflow.length === 1,
+		`exactly one unlabeled tab is created for the 7th occupant (commands ${JSON.stringify(h.commands.filter((c) => c[0] === "tab"))})`,
+	);
+	assert(
+		rec7?.gridTab && rec7.gridTab !== "t-main",
+		`the 7th occupant is recorded on the new tab (${rec7?.gridTab})`,
+	);
+	assert(
+		h.world.panes.filter((p) => p.tab_id === "t-main").length === before,
+		`the main tab still holds ${before} panes, not 7`,
+	);
+	assert(
+		h.calls.start[5].existingPane && !h.calls.start[5].split,
+		"the 7th attaches to the new tab's shell instead of splitting the main tab",
+	);
+}
+
+console.log(
+	"\n[19c] a hole above a live pane is reused by swapping, not by growing downward",
+);
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+	});
+	for (const name of ["h1", "h2"]) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name },
+			h.deps,
+		);
+		assert(r.ok, `${name} placed`);
+	}
+	const gone = spawn.spawnRecords().get("h1");
+	h.world.panes = h.world.panes.filter((p) => p.pane_id !== gone.paneId);
+	const r3 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "h3" },
+		h.deps,
+	);
+	assert(r3.ok, "h3 placed");
+	const rec3 = spawn.spawnRecords().get("h3");
+	assert(
+		rec3.gridAt.row === gone.gridAt.row &&
+			rec3.gridAt.col === gone.gridAt.col,
+		`h3 is recorded on the closed cell r${gone.gridAt.row}c${gone.gridAt.col}`,
+	);
+	const issued = h.commands.filter(
+		(c) => c[0] === "pane" && c[1] === "swap",
+	);
+	const expected = `pane swap --panes ${spawn.spawnRecords().get("h2").paneId},${rec3.paneId}`;
+	assert(
+		issued.length === 1 && issued[0].join(" ") === expected,
+		`the newcomer swaps with the pane that was under the hole (${expected}; got ${JSON.stringify(issued)})`,
+	);
+}
+
+console.log(
 	"\n[20] concurrent grid starts do not take the same hole",
 );
 {
@@ -1401,6 +1501,7 @@ console.log(
 		new Set(cells).size === 3,
 		`each concurrent start lands on its own cell (${cells.join(", ")})`,
 	);
+	assert(h.calls.start[1].splitFrom === spawn.spawnRecords().get("c1").paneId, "concurrent second START splits the completed predecessor pane");
 }
 
 console.log("\n[21] a closed pane's cell is reused inside its own tab");
@@ -1431,6 +1532,37 @@ console.log("\n[21] a closed pane's cell is reused inside its own tab");
 			spawn.spawnRecords().get("k3").gridTab === gone.gridTab,
 		`the newcomer takes the closed cell on the same tab (${hole})`,
 	);
+}
+
+console.log("\n[22] grid lock timeout / abort preserve serialization");
+{
+ reset();
+ const h = makeGridDeps({ settings: { max_parallel_agents: 20 } });
+ const start = h.deps.start;
+ let release;
+ let entered;
+ const ready = new Promise(r => { entered = r; });
+ const held = new Promise(r => { release = r; });
+ h.deps.start = async input => { if (input.name === "lock-owner") { entered(); await held; } return start(input); };
+ const owner = spawn.spawnAgent({ prompt: "x", type: "Explore", name: "lock-owner" }, h.deps);
+ await ready;
+ const timed = await spawn.spawnAgent({ prompt: "x", type: "Explore", name: "lock-timeout" }, { ...h.deps, gridTimeoutMs: 10 });
+ assert(!timed.ok && timed.error.code === "TIMEOUT", "queued grid START expires with TIMEOUT");
+ const controller = new AbortController();
+ const aborted = spawn.spawnAgent({ prompt: "x", type: "Explore", name: "lock-abort" }, { ...h.deps, signal: controller.signal });
+ controller.abort();
+ const cancelled = await aborted;
+ assert(!cancelled.ok && cancelled.error.code === "TIMEOUT", "aborted grid waiter resolves TIMEOUT");
+ const follower = spawn.spawnAgent({ prompt: "x", type: "Explore", name: "lock-follower" }, h.deps);
+ await new Promise(r => setTimeout(r, 20));
+ assert(h.calls.start.length === 0, "expired waiters cannot release the live owner's lock");
+ release();
+ await Promise.all([owner, follower]);
+ assert(h.calls.start.length === 2 && h.calls.start[1].splitFrom === spawn.spawnRecords().get("lock-owner").paneId, "next waiter observes owner pane after release");
+ const tab = makeGridDeps({ settings: { idle_rearm_minutes: 7 } });
+ await spawn.spawnAgent({ prompt: "x", type: "Explore", name: "env-check", group: "env" }, tab.deps);
+ const command = tab.commands.find(c => c[0] === "tab" && c[1] === "create");
+ assert(Object.entries(tab.calls.start[0].env).every(([k,v]) => command.includes(k + "=" + v)), "tab and agent launch carry identical child env including idle re-arm");
 }
 
 // ---------------------------------------------------------------------------

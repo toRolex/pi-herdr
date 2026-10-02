@@ -12,6 +12,15 @@ export interface GridCell {
 	col: 1 | 2 | 3;
 }
 
+export interface GridSeat {
+	tabId: string;
+	at: GridCell;
+}
+
+export function createGridTabArgs(workspace?: string, label?: string, env: Record<string, string> = {}): string[] {
+	return ["tab", "create", ...(workspace ? ["--workspace", workspace] : []), ...(label ? ["--label", label] : []), "--no-focus", ...Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`])];
+}
+
 export interface GridOccupant {
 	id: string;
 	role: "main" | "agent";
@@ -118,6 +127,7 @@ const CAP = 6;
 
 export function planGridPlacement(input: GridPlacementInput): GridPlan {
 	const { occupied, incoming, holes } = input;
+	// The main pane counts toward the same six-cell cap.
 	if (incoming && occupied.length >= CAP) {
 		return {
 			tabId: input.newTabId ?? input.tabId,
@@ -129,6 +139,7 @@ export function planGridPlacement(input: GridPlacementInput): GridPlan {
 	}
 	const people = incoming ? [...occupied, incoming] : occupied;
 	const assignments = place(people, holes ?? []);
+
 	return { tabId: input.tabId, ...shape(people.length), assignments };
 }
 
@@ -147,22 +158,39 @@ export function splitFor(
 	const cell = plan.assignments.find((a) => a.id === incomingId);
 	if (!cell) return undefined;
 	if (plan.openedTab || panes.length === 0) {
+		// A full tab has nowhere to split. The command opens the tab; the
+		// launcher attaches the agent to that tab's shell pane.
+		const commands: LayoutCommand[] = plan.openedTab
+			? [{ args: createGridTabArgs() }]
+			: [];
 		return {
 			direction: "right",
 			ratio: 0.5,
-			commands: [],
+			commands,
 			at: { row: cell.row, col: cell.col },
 			tabId: plan.tabId,
 		};
 	}
 	const left = panes.find((p) => p.at.row === cell.row && p.at.col === cell.col - 1);
 	const above = panes.find((p) => p.at.col === cell.col && p.at.row === cell.row - 1);
-	const sameColumn = panes.find((p) => p.at.col === cell.col);
-	const anchor = above ?? sameColumn ?? left ?? panes[0];
-	const direction = above || sameColumn ? "down" : "right";
+	// The cell directly under the assignment. Splitting it downward grows
+	// BELOW it, so it is only an anchor when that is where the assignment is.
+	const below = panes.find((p) => p.at.col === cell.col && p.at.row === cell.row + 1);
+	const right = panes.find((p) => p.at.row === cell.row && p.at.col === cell.col + 1);
+	const anchor = above ?? below ?? right ?? left ?? panes[0];
+	const direction = above || below ? "down" : "right";
 	const commands: LayoutCommand[] = [];
+	// herdr only splits right or down. Landing in a cell that already has an
+	// occupant under it means the split created the pane in the wrong cell;
+	// swapping the two puts the newcomer where the plan assigned it.
+	const swap = below ?? (!above ? right : undefined);
+	if (swap) {
+		commands.push({
+			args: ["pane", "swap", "--panes", `${swap.id},{new}`],
+		});
+	}
 	let ratio = 0.5;
-	if (direction === "right" && plan.columns === 3 && left) {
+	if (direction === "right" && !right && plan.columns === 3 && left) {
 		// Two equal columns become three. The leftmost pane of this row shrinks
 		// by 1/6 of the tab (amount is an absolute ratio delta) so it keeps
 		// 1/3; splitting what remains in half gives the other two columns 1/3.
