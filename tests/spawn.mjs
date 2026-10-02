@@ -1048,7 +1048,11 @@ console.log("\n[16] Tool registration surface");
 	// The injected start hangs until the test releases it, so a blocking
 	// tool call would never resolve.
 	reset();
-	const hung = makeDeps();
+	// Spiral skips the grid planner. The default grid takes a module-level
+	// lock and queries herdr before start, and earlier sections leave that
+	// query in flight — this section only cares that the tool returns before
+	// the injected start resolves.
+	const hung = makeDeps({ settings: { layout_mode: "spiral" } });
 	let releaseStart;
 	hung.deps.start = () =>
 		new Promise((resolve) => {
