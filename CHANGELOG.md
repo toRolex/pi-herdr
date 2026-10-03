@@ -5,85 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-10-03
 
-### Changed
-
-Synced `upstream/main` (AndrewJacop v0.6.0): the canonical v0.6.0 release —
-workflow resume journal + saved workflows (issue 13), progress card + budget +
-structured output (issue 14), the golden-spiral spawn layout replacing the
-equal-width grid, and the F-series delivery/widget hardening. The local
-grid-layout line is preserved on `local/equal-width-grid`.
-
-### Fixed
-
-Re-applied on top of v0.6.0:
-
-- **Widget narrow-pane callout hardening** — the BLOCKED callout line now
-  budgets the name against the real remaining width, so on narrow terminals
-  the alarm word and the age survive and the inverse style is closed instead
-  of being cut by the final hard-fit truncation (the F11 width cap itself is
-  upstream's; `visibleLen` stays upstream's regex).
-- **`herdr_get_agent_result` never blocks at the tool layer** — single-shot,
-  one call one snapshot; the `wait` parameter is gone from the tool surface
-  (the core keep-waiting implementation remains for internal callers).
-- **No-sidecar settled children deliver + close** — an autonomous pi child
-  that settled (session JSONL shows `stop`/`error`) but never wrote an exit
-  sidecar now delivers from the session and closes its pane instead of idling
-  forever; session-less kinds deliver the pane tail after a working turn was
-  seen (`readTail` seam); the watchdog no longer flags a vanished pane as
-  stalled when the session already shows a finished run.
-
-### Fixed
-
-E2E hardening round (manual live scenarios + the findings ledger in
-`.scratch/v0.6/E2E-FINDINGS.md`):
-
-- **Prompt-only spawn.** A bare `{ prompt, name }` — the most natural call —
-  was a VALIDATION_ERROR demanding registry jargon. It now resolves the
-  built-in `general-purpose` through the ordinary registry chain, and the
-  specifier boundary coerces-or-refuses instead of leaking shape rules:
-  an agent-string specifier coerces to `type`, a type-object to an inline
-  definition; only `type`+`agent` together still refuses.
-- **Workflow `args` validation.** A double-encoded JSON string passed
-  `Type.Any` and died mid-sandbox (`args.files.map` on undefined). Args are
-  now JSON-shaped object-or-coerced-string at the boundary, enforce-or-error
-  before the run starts.
-- **Run summaries carry failures.** A run's completion summary no longer
-  races its own per-agent failure notices and no longer reports a bare
-  `0/4 agents · 0s` with null results — it embeds `— failures: <label>:
-  <reason>` so the caller's model stops theorizing.
-- **Workflow label naming rule documented where the model looks** — spawn
-  names are `[a-z][a-z0-9-]*`; a `review-calc.js`-derived label now fails
-  with a nameable error, not four silent 0s spawn refusals.
-- **Created workflows auto-save to `.pi/workflows/<meta.name>.js`** (dedupe
-  suffix `-2`/`-3`), so an inline script is re-runnable by `name:` instead of
-  being lost with its temp scratch dir.
-- **Fleet-wide pane-close promise.** Autonomous children's panes close at
-  their terminal delivery mark (done push, typed error, rearm auto-delivery,
-  gone note) — previously only workflow-abort closed anything. Workflow
-  children close at their own terminal mark too; only their push stays
-  suppressed (the run reports for them). Never-started and
-  taken-over-until-rearm records are guarded; a sidecar-vs-exit race gets a
-  short `paneClosePending` retry.
-- **Fleet widget: one slot, honest widths.** The workflow progress card now
-  renders beneath the table inside ONE widget — pi's `setExtensionWidget`
-  delete+appends on every set, so two self-refreshing widgets leapfrogged
-  forever. Duplicated age tokens (`active · streaming 1m 1m`) are suppressed
-  when the detail carries its own age; rows pad to the header width; and the
-  overwide-line overflow that could hard-crash pi on narrow terminals is
-  capped (header counts truncate) with an ANSI-aware hard clamp over every
-  rendered line — the widget can no longer exceed the pane width, ever.
-
-### Changed
-
-- **Golden-spiral pane layout.** The first spawn splits the orchestrator's
-  pane right at ratio 0.6; each subsequent spawn splits the previous child's
-  pane, alternating down/right by accept-time ordinal — the orchestrator
-  keeps the largest share of the screen and children spiral away from it.
-  Engine-internal only; no new tool-surface parameters.
-
-## [Unreleased]
+Hard fork of [AndrewJacop/pi-herdr](https://github.com/AndrewJacop/pi-herdr),
+forked at upstream v0.6.0 and maintained at
+[toRolex/pi-herdr](https://github.com/toRolex/pi-herdr). From this release the
+fork runs its own version line — upstream version numbers no longer apply —
+and the package is published as `@torolex/pi-herdr`.
 
 ### Added
 
@@ -344,102 +272,6 @@ E2E hardening round (manual live scenarios + the findings ledger in
   `herdr_wait_agent` / `herdr_read_agent` are retired; `herdr_send_prompt`
   remains until `herdr_message_agent` absorbs it).
 
-### Removed
-
-- **`herdr_send_prompt` (breaking, v0.6 issue 05).** Absorbed by
-  `herdr_message_agent` — same send machinery underneath (`agent prompt` /
-  `pane send-text`), plus the envelope, the full resolution chain, and the
-  reserved `orchestrator` role. `herdr_get_agent_result`'s blocked-answer
-  text now points there. Surface stays at 9 tools; the count converges to 12
-  as tickets 10/12 land.
-
-- **`herdr_wait_agent` and `herdr_read_agent` (breaking, v0.6 issue 04).**
-  Replaced by `herdr_get_agent_result` — `wait: true` blocks until
-  done/failed/blocked/gone, and the result is the exact final assistant
-  message rather than a screen scrape. Raw pane reads remain on
-  `herdr_read_pane` (pane-sync quartet).
-
-- **The `.md` agent registry + `herdr_save_agent` (v0.6 issue 03).** Agent
-  definitions now load from YAML-frontmatter `.md` files: `.pi/agents/`
-  (project) > `~/.pi/agent/agents/` (global) > bundled — first-hit-wins per
-  name, project shadowing global, session inline definitions shadowing both,
-  read-at-use (a saved file resolves without a reload). The frontmatter
-  dialect is the full v0.6 field set — `model`, `thinking`, `session-mode`,
-  `auto-exit`, `interactive`, `spawning`, `deny-tools`, `args` (raw CLI
-  flags), `cwd`, `prompt_mode`, plus the identity/system-prompt fields, with
-  the system prompt as the file body — and it is deliberately shared with the
-  coinstallable prior art: unknown keys are ignored on both sides, list
-  values accept JSON arrays or comma lists, a malformed file is skipped and
-  reported without killing the rest of the registry. `herdr_save_agent`
-  persists an inline definition or any registry `type` to the project
-  (default) or global folder — ungated by decision (low risk, reversible by
-  deleting the file), with an overwrite guard for existing files. Inline
-  definitions gained the same v0.6 fields (`thinking`, `session_mode`,
-  `auto_exit`, `interactive`, `spawning`, `cwd`); definition `cwd` feeds the
-  spawn (spawn param wins), frontmatter `args` ride `agent_args` today.
-  Surface: 9 → 10 tools.
-
-### Removed
-
-- **Breaking: the v0.6 surface cut — 43 tools → one deliberate surface of 9
-  (12 at completion); `/herdr` became `/subagents config`.** One surface,
-  nothing to switch to: the `surface: agents|full` setting is gone. Kept
-  today: `herdr_spawn_agent`, the legacy result trio (`herdr_send_prompt` /
-  `herdr_wait_agent` / `herdr_read_agent` — retired by `get_agent_result` in
-  ticket 04), `herdr_list_agents` (the fleet's single introspection tool),
-  and the pane-sync quartet (`herdr_run_command` / `herdr_read_pane` /
-  `herdr_wait_output` / `herdr_send_keys`); later tickets register
-  `get_agent_result`, `message_agent`, `interrupt`/`resume`, and
-  `run_workflow`. Removed from the model surface, with replacements:
-  `herdr_delegate` → spawn + `wait` (+ wait/read; push delivery makes it
-  redundant); `herdr_start_agent` → `herdr_spawn_agent` (same single
-  `agent start --kind` path); `herdr_get_agent` / `herdr_explain_agent` →
-  `herdr_list_agents`; `herdr_stop_agent` → the confirmed Kill-all menu
-  action or `herdr_send_keys ["ctrl+c"]`; `herdr_rename_agent` /
-  `herdr_focus_agent` → the herdr UI; `herdr_split_pane` / `herdr_close_pane`
-  → the herdr UI (drive existing panes by id); all 18 layout tools
-  (panes/tabs/workspaces CRUD) → the herdr UI; worktree CRUD →
-  `isolated: true` or `herdr worktree …`; `herdr_api_snapshot` /
-  `herdr_session_*` → the `herdr` CLI. **Machinery survives internally —
-  code deletion ≠ capability deletion**: worktree create/remove powers
-  `isolated` (`src/tools/worktrees.ts` is machinery-only now), pane close
-  powers kill-all, the `agent get` poll loop powers every wait;
-  `src/tools/layout.ts` and `src/tools/introspection.ts` are deleted
-  outright (no internal consumers). Tools keep the `herdr_` prefix; no
-  runtime nagging, no shim tools. Decided by wayfinder ticket 09
-  (surface-cut settings).
-
-### Changed
-
-- **Breaking: version floor — herdr ≥ 0.9.0, hard.** herdr below 0.9.0 now
-  refuses to run: init probes `herdr --version` once and surfaces exactly one
-  `HERDR_TOO_OLD` error naming the upgrade pointer (herdr.dev), in the same
-  style as `HERDR_UNAVAILABLE`; the gate lives inside `herdr()` itself, so no
-  tool can half-work below the floor and there are no degraded paths. An
-  unparseable version is refused too (a hard floor doesn't guess); a missing
-  binary keeps its single natural `HERDR_UNAVAILABLE`. Above the floor,
-  everything goes through exactly one launch path on every OS —
-  `agent start --kind <kind> --pane <id> [-- <agentArgs>]` — because 0.9.0 is
-  the release that fixed Windows `agent start --kind` (npm-shim launch + flaky
-  process-tree detection). The legacy forest dies with it: the 0.7.3 legacy
-  `agent start`/`agent send`/`wait agent-status` API branches, the Windows
-  0.7.5–0.8.x `pane run` + auto-detect spawn fallback (with its `agent rename`
-  naming step), and the 0.8.2 `agent_not_ready` workarounds (pane-level prompt
-  submission + screen-stability turn driving) are deleted. The `AGENT_NOT_READY`
-  error code is removed from the normalized code set (spawn prompt-submission
-  failures now surface as `AGENT_START_FAILED`). The version probe itself
-  stays for diagnostics: the detected version still shows in the footer
-  (`herdr: 3 agents (1 working) (0.9.0)`; below the floor it reads
-  `herdr: too old (0.8.2 < 0.9.0)`). Self-report is untouched — orthogonal
-  insurance against herdr's working→idle misses, not a version workaround.
-- **Removed: agent preset/launcher machinery.** `HERDR_PRESET_<NAME>` env
-  overrides, the Windows `cmd /c` preset wrappers, and `src/launcher.ts`
-  (`expandAgentSpec`) are gone — they existed to build raw argv for launch
-  paths that no longer exist. `agent start --kind` resolves the kind to its
-  CLI on herdr's side; `agentArgs` after `--` is the supported way to pass
-  native agent flags.
-
-### Added
 
 - **Settings: new key table — `models.*` routing, `idle_rearm_minutes`,
   `workflows_enabled`; `surface` and `allow_save_agent` die.** `models.default`
@@ -491,6 +323,173 @@ E2E hardening round (manual live scenarios + the findings ledger in
   init and its row is marked restart-required. Malformed JSON is reported and
   ignored, never silently clobbered. There is deliberately no `/herdr set key
   value` args form — settings are user knobs; hand-edit the JSON to script them.
+
+### Changed
+
+Synced `upstream/main` (AndrewJacop v0.6.0): the canonical v0.6.0 release —
+workflow resume journal + saved workflows (issue 13), progress card + budget +
+structured output (issue 14), the golden-spiral spawn layout replacing the
+equal-width grid, and the F-series delivery/widget hardening. The local
+grid-layout line is preserved on `local/equal-width-grid`.
+
+
+- **Golden-spiral pane layout.** The first spawn splits the orchestrator's
+  pane right at ratio 0.6; each subsequent spawn splits the previous child's
+  pane, alternating down/right by accept-time ordinal — the orchestrator
+  keeps the largest share of the screen and children spiral away from it.
+  Engine-internal only; no new tool-surface parameters.
+
+
+- **Breaking: version floor — herdr ≥ 0.9.0, hard.** herdr below 0.9.0 now
+  refuses to run: init probes `herdr --version` once and surfaces exactly one
+  `HERDR_TOO_OLD` error naming the upgrade pointer (herdr.dev), in the same
+  style as `HERDR_UNAVAILABLE`; the gate lives inside `herdr()` itself, so no
+  tool can half-work below the floor and there are no degraded paths. An
+  unparseable version is refused too (a hard floor doesn't guess); a missing
+  binary keeps its single natural `HERDR_UNAVAILABLE`. Above the floor,
+  everything goes through exactly one launch path on every OS —
+  `agent start --kind <kind> --pane <id> [-- <agentArgs>]` — because 0.9.0 is
+  the release that fixed Windows `agent start --kind` (npm-shim launch + flaky
+  process-tree detection). The legacy forest dies with it: the 0.7.3 legacy
+  `agent start`/`agent send`/`wait agent-status` API branches, the Windows
+  0.7.5–0.8.x `pane run` + auto-detect spawn fallback (with its `agent rename`
+  naming step), and the 0.8.2 `agent_not_ready` workarounds (pane-level prompt
+  submission + screen-stability turn driving) are deleted. The `AGENT_NOT_READY`
+  error code is removed from the normalized code set (spawn prompt-submission
+  failures now surface as `AGENT_START_FAILED`). The version probe itself
+  stays for diagnostics: the detected version still shows in the footer
+  (`herdr: 3 agents (1 working) (0.9.0)`; below the floor it reads
+  `herdr: too old (0.8.2 < 0.9.0)`). Self-report is untouched — orthogonal
+  insurance against herdr's working→idle misses, not a version workaround.
+- **Removed: agent preset/launcher machinery.** `HERDR_PRESET_<NAME>` env
+  overrides, the Windows `cmd /c` preset wrappers, and `src/launcher.ts`
+  (`expandAgentSpec`) are gone — they existed to build raw argv for launch
+  paths that no longer exist. `agent start --kind` resolves the kind to its
+  CLI on herdr's side; `agentArgs` after `--` is the supported way to pass
+  native agent flags.
+
+### Fixed
+
+Re-applied on top of v0.6.0:
+
+- **Widget narrow-pane callout hardening** — the BLOCKED callout line now
+  budgets the name against the real remaining width, so on narrow terminals
+  the alarm word and the age survive and the inverse style is closed instead
+  of being cut by the final hard-fit truncation (the F11 width cap itself is
+  upstream's; `visibleLen` stays upstream's regex).
+- **`herdr_get_agent_result` never blocks at the tool layer** — single-shot,
+  one call one snapshot; the `wait` parameter is gone from the tool surface
+  (the core keep-waiting implementation remains for internal callers).
+- **No-sidecar settled children deliver + close** — an autonomous pi child
+  that settled (session JSONL shows `stop`/`error`) but never wrote an exit
+  sidecar now delivers from the session and closes its pane instead of idling
+  forever; session-less kinds deliver the pane tail after a working turn was
+  seen (`readTail` seam); the watchdog no longer flags a vanished pane as
+  stalled when the session already shows a finished run.
+
+
+E2E hardening round (manual live scenarios + the findings ledger in
+`.scratch/v0.6/E2E-FINDINGS.md`):
+
+- **Prompt-only spawn.** A bare `{ prompt, name }` — the most natural call —
+  was a VALIDATION_ERROR demanding registry jargon. It now resolves the
+  built-in `general-purpose` through the ordinary registry chain, and the
+  specifier boundary coerces-or-refuses instead of leaking shape rules:
+  an agent-string specifier coerces to `type`, a type-object to an inline
+  definition; only `type`+`agent` together still refuses.
+- **Workflow `args` validation.** A double-encoded JSON string passed
+  `Type.Any` and died mid-sandbox (`args.files.map` on undefined). Args are
+  now JSON-shaped object-or-coerced-string at the boundary, enforce-or-error
+  before the run starts.
+- **Run summaries carry failures.** A run's completion summary no longer
+  races its own per-agent failure notices and no longer reports a bare
+  `0/4 agents · 0s` with null results — it embeds `— failures: <label>:
+  <reason>` so the caller's model stops theorizing.
+- **Workflow label naming rule documented where the model looks** — spawn
+  names are `[a-z][a-z0-9-]*`; a `review-calc.js`-derived label now fails
+  with a nameable error, not four silent 0s spawn refusals.
+- **Created workflows auto-save to `.pi/workflows/<meta.name>.js`** (dedupe
+  suffix `-2`/`-3`), so an inline script is re-runnable by `name:` instead of
+  being lost with its temp scratch dir.
+- **Fleet-wide pane-close promise.** Autonomous children's panes close at
+  their terminal delivery mark (done push, typed error, rearm auto-delivery,
+  gone note) — previously only workflow-abort closed anything. Workflow
+  children close at their own terminal mark too; only their push stays
+  suppressed (the run reports for them). Never-started and
+  taken-over-until-rearm records are guarded; a sidecar-vs-exit race gets a
+  short `paneClosePending` retry.
+- **Fleet widget: one slot, honest widths.** The workflow progress card now
+  renders beneath the table inside ONE widget — pi's `setExtensionWidget`
+  delete+appends on every set, so two self-refreshing widgets leapfrogged
+  forever. Duplicated age tokens (`active · streaming 1m 1m`) are suppressed
+  when the detail carries its own age; rows pad to the header width; and the
+  overwide-line overflow that could hard-crash pi on narrow terminals is
+  capped (header counts truncate) with an ANSI-aware hard clamp over every
+  rendered line — the widget can no longer exceed the pane width, ever.
+
+### Removed
+
+- **`herdr_send_prompt` (breaking, v0.6 issue 05).** Absorbed by
+  `herdr_message_agent` — same send machinery underneath (`agent prompt` /
+  `pane send-text`), plus the envelope, the full resolution chain, and the
+  reserved `orchestrator` role. `herdr_get_agent_result`'s blocked-answer
+  text now points there. Surface stays at 9 tools; the count converges to 12
+  as tickets 10/12 land.
+
+- **`herdr_wait_agent` and `herdr_read_agent` (breaking, v0.6 issue 04).**
+  Replaced by `herdr_get_agent_result` — `wait: true` blocks until
+  done/failed/blocked/gone, and the result is the exact final assistant
+  message rather than a screen scrape. Raw pane reads remain on
+  `herdr_read_pane` (pane-sync quartet).
+
+- **The `.md` agent registry + `herdr_save_agent` (v0.6 issue 03).** Agent
+  definitions now load from YAML-frontmatter `.md` files: `.pi/agents/`
+  (project) > `~/.pi/agent/agents/` (global) > bundled — first-hit-wins per
+  name, project shadowing global, session inline definitions shadowing both,
+  read-at-use (a saved file resolves without a reload). The frontmatter
+  dialect is the full v0.6 field set — `model`, `thinking`, `session-mode`,
+  `auto-exit`, `interactive`, `spawning`, `deny-tools`, `args` (raw CLI
+  flags), `cwd`, `prompt_mode`, plus the identity/system-prompt fields, with
+  the system prompt as the file body — and it is deliberately shared with the
+  coinstallable prior art: unknown keys are ignored on both sides, list
+  values accept JSON arrays or comma lists, a malformed file is skipped and
+  reported without killing the rest of the registry. `herdr_save_agent`
+  persists an inline definition or any registry `type` to the project
+  (default) or global folder — ungated by decision (low risk, reversible by
+  deleting the file), with an overwrite guard for existing files. Inline
+  definitions gained the same v0.6 fields (`thinking`, `session_mode`,
+  `auto_exit`, `interactive`, `spawning`, `cwd`); definition `cwd` feeds the
+  spawn (spawn param wins), frontmatter `args` ride `agent_args` today.
+  Surface: 9 → 10 tools.
+
+
+- **Breaking: the v0.6 surface cut — 43 tools → one deliberate surface of 9
+  (12 at completion); `/herdr` became `/subagents config`.** One surface,
+  nothing to switch to: the `surface: agents|full` setting is gone. Kept
+  today: `herdr_spawn_agent`, the legacy result trio (`herdr_send_prompt` /
+  `herdr_wait_agent` / `herdr_read_agent` — retired by `get_agent_result` in
+  ticket 04), `herdr_list_agents` (the fleet's single introspection tool),
+  and the pane-sync quartet (`herdr_run_command` / `herdr_read_pane` /
+  `herdr_wait_output` / `herdr_send_keys`); later tickets register
+  `get_agent_result`, `message_agent`, `interrupt`/`resume`, and
+  `run_workflow`. Removed from the model surface, with replacements:
+  `herdr_delegate` → spawn + `wait` (+ wait/read; push delivery makes it
+  redundant); `herdr_start_agent` → `herdr_spawn_agent` (same single
+  `agent start --kind` path); `herdr_get_agent` / `herdr_explain_agent` →
+  `herdr_list_agents`; `herdr_stop_agent` → the confirmed Kill-all menu
+  action or `herdr_send_keys ["ctrl+c"]`; `herdr_rename_agent` /
+  `herdr_focus_agent` → the herdr UI; `herdr_split_pane` / `herdr_close_pane`
+  → the herdr UI (drive existing panes by id); all 18 layout tools
+  (panes/tabs/workspaces CRUD) → the herdr UI; worktree CRUD →
+  `isolated: true` or `herdr worktree …`; `herdr_api_snapshot` /
+  `herdr_session_*` → the `herdr` CLI. **Machinery survives internally —
+  code deletion ≠ capability deletion**: worktree create/remove powers
+  `isolated` (`src/tools/worktrees.ts` is machinery-only now), pane close
+  powers kill-all, the `agent get` poll loop powers every wait;
+  `src/tools/layout.ts` and `src/tools/introspection.ts` are deleted
+  outright (no internal consumers). Tools keep the `herdr_` prefix; no
+  runtime nagging, no shim tools. Decided by wayfinder ticket 09
+  (surface-cut settings).
 
 ## [0.5.0] - 2026-09-12
 

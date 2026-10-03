@@ -1,6 +1,6 @@
 {
-  "name": "@andrewjacop/pi-herdr",
-  "version": "0.6.0",
+  "name": "@torolex/pi-herdr",
+  "version": "1.0.0",
   "description": "herdr integration for the pi coding agent \u2014 spawn, drive, wait for, and harvest AI agent panes running in herdr.",
   "type": "module",
   "keywords": [
@@ -17,14 +17,14 @@
     "codex"
   ],
   "license": "MIT",
-  "author": "Andrew",
-  "homepage": "https://github.com/AndrewJacop/pi-herdr#readme",
+  "author": "rolex <torolex@163.com>",
+  "homepage": "https://github.com/toRolex/pi-herdr#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AndrewJacop/pi-herdr.git"
+    "url": "git+https://github.com/toRolex/pi-herdr.git"
   },
   "bugs": {
-    "url": "https://github.com/AndrewJacop/pi-herdr/issues"
+    "url": "https://github.com/toRolex/pi-herdr/issues"
   },
   "engines": {
     "node": ">=20"
