@@ -479,9 +479,11 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		...extra,
 	});
 
-	/** Fake world: registry + fleet statuses + fake clock + captured pushes. */
+	/** Fake world: registry + fleet statuses + fake clock + captured pushes
+	 * + captured pane closes. */
 	function world(records, opts = {}) {
 		const pushes = [];
+		const closes = [];
 		let clock = 1_000_000;
 		let fleet = opts.fleet ?? [];
 		const registry = new Map(records.map((r) => [r.name, r]));
@@ -501,13 +503,20 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			push: (m) => pushes.push(m),
 			now: () => clock,
 			goneGraceMs: opts.goneGraceMs ?? 10_000,
-			// Default no-ops so a settle never calls the real herdr CLI.
-			close: opts.close ?? (async () => {}),
+			// `close` (feature-branch name) and `closePane` (upstream name) both
+			// map onto the close seam; readTail backs the session-less tail route.
+			closePane:
+				opts.closePane ??
+				opts.close ??
+				(async (paneId) => {
+					closes.push(paneId);
+				}),
 			readTail: opts.readTail ?? (async () => ""),
 		};
 		return {
 			deps,
 			pushes,
+			closes,
 			setFleet: (f) => (fleet = f),
 			advance: (ms) => (clock += ms),
 			tick: () => delivery.deliverOnce(deps),
@@ -520,13 +529,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("The scan found 3 issues. All fixed.")]);
 		const r = rec("scout", { sessionPath: sess });
-		const closed = [];
-		const w = world([r], {
-			fleet: [{ paneId: r.paneId, status: "working" }],
-			close: async (paneId) => {
-				closed.push(paneId);
-			},
-		});
+		const w = world([r], { fleet: [{ paneId: r.paneId, status: "done" }] });
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
 		await w.tick();
 		assert(
@@ -535,7 +538,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				w.pushes[0].content.includes('Agent "scout" finished'),
 			"sidecar done → the FULL final message is the push (the letter, not a doorbell)",
 		);
-		assert(closed[0] === r.paneId, "autonomous done sidecar closes the pane after the result is pushed");
+		assert(w.closes[0] === r.paneId, "autonomous done sidecar closes the pane after the result is pushed");
 		assert(
 			w.pushes[0].wake === true,
 			"notifications normal → the push wakes (triggerTurn via sink flags)",
@@ -546,8 +549,13 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		);
 		await w.tick();
 		assert(
-			w.pushes.length === 1 && closed.length === 1,
+			w.pushes.length === 1 && w.closes.length === 1,
 			"exactly ONE push and ONE close per terminal event (inline waits + pulls never double it)",
+		);
+		assert(
+			w.closes.includes(r.paneId) &&
+				w.closes.filter((id) => id === r.paneId).length === 1,
+			"done-delivery closes the child's leftover pane — exactly once (F2 promise)",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -568,7 +576,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes[0]?.content.startsWith("auto-delivered after user steer: "),
 			"rearm sidecar → honestly labeled auto-delivery",
 		);
-		assert(closed.length === 0, "rearm sidecar does not close the pane (a human took over)");
+		assert(
+			closed.length === 1 && closed[0] === r.paneId,
+			"rearm sidecar delivery closes the pane (the settings promise: auto-delivered, pane closes)",
+		);
 		rmSync(dir, { recursive: true, force: true });
 	}
 	{
@@ -585,8 +596,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
 		await w.tick();
 		assert(
-			w.pushes.length === 1 && closed.length === 0 && r.takenOver !== true,
-			"rearm:true alone keeps the pane open, even when the record was never marked taken over",
+			w.pushes.length === 1 && closed.length === 1 && r.takenOver !== true,
+			"rearm:true alone still delivers and closes (upstream F2: only taken-over + non-rearm holds)",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -614,6 +625,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		assert(
 			w.pushes[0]?.details.error?.errorMessage === "provider overloaded",
 			"error details carry the mined failure",
+		);
+		assert(
+			closed.includes(r.paneId),
+			"typed error delivery closes the pane too",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -664,6 +679,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes.length === 0 && r.delivery?.kind === "done",
 			"notifications none → no completion push at all (pull-only), still marked delivered",
 		);
+		assert(
+			w.closes.includes(r.paneId),
+			"notifications none still closes the pane (lifecycle promise, not a notification)",
+		);
 		rmSync(dir, { recursive: true, force: true });
 	}
 
@@ -688,6 +707,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes.length === 1 &&
 				w.pushes[0].content.includes("died mid-report but this text survived"),
 			"sentinel: after grace the JSONL's last message IS the delivered letter",
+		);
+		assert(
+			w.closes.includes(r.paneId),
+			"the sentinel's mined-done delivery closes the leftover pane as well",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -724,6 +747,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				w.pushes[0].details.kind === "gone" &&
 				w.pushes[0].content.includes("retained"),
 			"pane vanished with no evidence → honest gone note, session retained",
+		);
+		assert(
+			w.closes.includes(r.paneId),
+			"gone-note delivery closes the leftover pane too (best-effort; already gone = harmless)",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -783,6 +810,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		w.setFleet([{ paneId: r.paneId, status: "blocked" }]);
 		await w.tick();
 		assert(w.pushes.length === 2, "a NEW blocked episode wakes again");
+		assert(
+			w.closes.length === 0,
+			"a blocked child's pane is NEVER closed (it needs input, not a funeral)",
+		);
 	}
 	{
 		for (const notes of ["quiet", "none"]) {
@@ -844,6 +875,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		assert(
 			queued.delivery === undefined,
 			"still-queued records are skipped (nothing to watch yet)",
+		);
+		assert(
+			w.closes.length === 0,
+			"a never-started record closes nothing (there was never a pane)",
 		);
 	}
 	{
@@ -994,6 +1029,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes.length === 0,
 			"live idle WITHOUT a sidecar is not terminal (interactive children sit idle) — pull stays the route",
 		);
+		assert(
+			w.closes.length === 0,
+			"an UNDELIVERED record's pane is never closed",
+		);
 		rmSync(dir, { recursive: true, force: true });
 	}
 	{
@@ -1013,7 +1052,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes.length === 1 && w.pushes[0].content.includes("interactive finished"),
 			"interactive done sidecar still delivers",
 		);
-		assert(closed.length === 0, "interactive done sidecar does not close the pane");
+		assert(closed.length === 1, "interactive done sidecar closes the pane too (fleet-wide F2)");
 		rmSync(dir, { recursive: true, force: true });
 	}
 	{
@@ -1078,7 +1117,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes.length === 0 && child.delivery?.kind === "done",
 			"a workflow child's terminal sidecar MARKS the record (row prunes) without a per-child push",
 		);
-		assert(closed.length === 0, "a workflow child's done sidecar does not close its pane");
+		assert(
+			closed.includes(child.paneId),
+			"a workflow child's settled pane STILL closes at its terminal mark (F10 — only the push is suppressed)",
+		);
 		// ...and the error sidecar is equally silent
 		const dir2 = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-wf2-"));
 		const sess2 = join(dir2, "s.jsonl");
@@ -1127,6 +1169,63 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			"ordinary children in the same registry keep their completion pushes",
 		);
 		for (const d of [dir, dir2, dir3]) rmSync(d, { recursive: true, force: true });
+	}
+
+	// --- pane-close guards + the auto-exit race (manual e2e F2) -------------
+	{
+		// A taken-over pane that has NOT re-arm-delivered: agent_done declared
+		// under a human — delivered, but the pane stays (the human is driving).
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-to2-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("declared done under a human")]);
+		const r = rec("scout", { sessionPath: sess, takenOver: true });
+		const w = world([r]);
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		await w.tick();
+		assert(
+			w.pushes.length === 1 &&
+				w.closes.length === 0 &&
+				r.delivery?.kind === "done",
+			"a taken-over pane that has NOT re-arm-delivered is never closed",
+		);
+		// The same situation ON the re-arm delivery: the settings copy promises
+		// "auto-delivered ... and its pane closes" — so it does.
+		const r2 = rec("scout-2", { sessionPath: sess, takenOver: true });
+		const w2 = world([r2]);
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
+		await w2.tick();
+		assert(
+			w2.pushes.length === 1 &&
+				w2.pushes[0].content.startsWith("auto-delivered after user steer: ") &&
+				w2.closes.includes(r2.paneId),
+			"the rearm-labeled delivery closes the taken-over pane (the promise)",
+		);
+		rmSync(dir, { recursive: true, force: true });
+	}
+	{
+		// Auto-exit race: the sidecar lands while the fleet still lists the pane
+		// as working — never close under a live agent; the close is held and
+		// retried on a later tick, so the promise does not lose the race.
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-race-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("finished mid-race")]);
+		const r = rec("scout", { sessionPath: sess });
+		const w = world([r], { fleet: [{ paneId: r.paneId, status: "working" }] });
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		await w.tick();
+		assert(
+			r.delivery?.kind === "done" &&
+				w.closes.length === 0 &&
+				r.paneClosePending === true,
+			"a close never fires under a live agent — held pending (auto-exit race)",
+		);
+		w.setFleet([]); // the child finished exiting
+		await w.tick();
+		assert(
+			w.closes.includes(r.paneId) && r.paneClosePending === false,
+			"the held close retries once the fleet stops listing the pane",
+		);
+		rmSync(dir, { recursive: true, force: true });
 	}
 
 	// --- registration smoke: sink maps wake → sendMessage flags ------------

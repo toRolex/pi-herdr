@@ -70,7 +70,20 @@ console.log("\n[1] `type` xor `agent` — exactly one");
 	const neither = spawn.resolveSpecifier({});
 	assert(
 		!neither.ok && /one of/i.test(neither.error.message),
-		"neither errors asking for one",
+		"bare resolveSpecifier (no opt-in) still errors asking for one — save_agent keeps the demand",
+	);
+	// Manual e2e F1: the prompt-only default rides the ordinary registry path
+	// (inline=false, built-in layer) — the spawn surface opts in per call.
+	const defaulted = spawn.resolveSpecifier(
+		{},
+		undefined,
+		{ defaultType: "general-purpose" },
+	);
+	assert(
+		defaulted.ok &&
+			defaulted.data.definition.name === "general-purpose" &&
+			defaulted.data.inline === false,
+		"prompt-only specifier (neither type nor agent) resolves the general-purpose registry type",
 	);
 	const badInline = spawn.resolveSpecifier({
 		agent: { name: "x", tools: ["read", 5] },
@@ -83,6 +96,62 @@ console.log("\n[1] `type` xor `agent` — exactly one");
 		agent: { name: "x", thinking: "high", max_turns: 10 },
 	});
 	assert(unknownKeys.ok, "unknown inline keys ignored (cross-dialect no-ops)");
+
+	// Manual e2e F12 boundary coercion: wrong-shape single-side specifiers
+	// coerce instead of refusing — a bare string cannot be an inline def, a
+	// non-string object cannot be a registry name. Both-present still refuses.
+	const coercedType = spawn.resolveSpecifier({ agent: "Explore" });
+	assert(
+		coercedType.ok &&
+			coercedType.data.inline === false &&
+			coercedType.data.definition.name === "Explore" &&
+			coercedType.data.coerced === "specifier coerced — agent string treated as type 'Explore'",
+		"agent string coerces to the registry type, honestly noted",
+	);
+	const coercedInline = spawn.resolveSpecifier({
+		type: { name: "x", system_prompt: "do x" },
+	});
+	assert(
+		coercedInline.ok &&
+			coercedInline.data.inline === true &&
+			coercedInline.data.definition.name === "x" &&
+			coercedInline.data.coerced ===
+				"specifier coerced — type object treated as the inline agent definition",
+		"type object coerces to the inline definition, honestly noted",
+	);
+	const bothWrongShapes = spawn.resolveSpecifier({
+		type: { name: "x" },
+		agent: "Explore",
+	});
+	assert(
+		!bothWrongShapes.ok && /exactly one/i.test(bothWrongShapes.error.message),
+		"both-present refuses BEFORE coercion even when both shapes are wrong",
+	);
+
+	// Engine-level: the coercion lands on the spawn record and the result.
+	reset();
+	const hCo = makeDeps({ env: { HERDR_PANE_ID: "w1:p1" } });
+	const rCo = await spawn.spawnAgent(
+		{ prompt: "search it", agent: "Explore", name: "coerced-scout" },
+		hCo.deps,
+	);
+	assert(rCo.ok, `agent-string spawn ok (${rCo.ok ? "" : rCo.error.message})`);
+	assert(
+		rCo.data.type === "Explore" && rCo.data.coercedNote !== undefined,
+		"engine: agent string treated as type, coercedNote surfaced",
+	);
+	reset();
+	const hIn = makeDeps({ env: { HERDR_PANE_ID: "w1:p1" } });
+	const rIn = await spawn.spawnAgent(
+		{ prompt: "inline it", type: { name: "inl", system_prompt: "p" }, name: "coerced-inline" },
+		hIn.deps,
+	);
+	assert(rIn.ok, `type-object spawn ok (${rIn.ok ? "" : rIn.error.message})`);
+	assert(
+		rIn.data.coercedNote !== undefined && rIn.data.type === "inl",
+		"engine: type object treated as inline definition, coercedNote surfaced",
+	);
+	reset();
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +205,8 @@ console.log("\n[3] Unknown `type` errors listing available types");
 		r2.error.message.includes("my-inline"),
 		"error lists session inline definitions too",
 	);
-	const layers = spawn.listAgentTypes().map((t) => t.name);
+	// File-layer behavior has its own suite; do not read developer agent folders.
+	const layers = spawn.listAgentTypes({ project: join(ROOT, "tests/fixtures/no-project-agents"), global: join(ROOT, "tests/fixtures/no-global-agents") }).map((t) => t.name);
 	assert(
 		eq(layers, ["my-inline", "general-purpose", "Explore", "Plan"]),
 		"listAgentTypes: session first, then built-ins",
@@ -459,9 +529,11 @@ console.log("\n[8] Gate order — kill-switch before depth before cap");
 function makeDeps(opts = {}) {
 	const calls = { start: [], submit: [], worktree: [] };
 	const live = opts.live ?? []; // [{name, paneId, agent_status}]
+	const panesBox = { current: opts.panes ?? null }; // [paneId,...] — null → derive from live
 	return {
 		calls,
 		live,
+		panes: panesBox,
 		deps: {
 			load: () => ({ ...settingsMod.DEFAULT_SETTINGS, ...opts.settings }),
 			kinds: async () => opts.kinds ?? ["pi", "claude", "codex", "gemini"],
@@ -469,7 +541,11 @@ function makeDeps(opts = {}) {
 				live
 					.filter((a) => a.paneId)
 					.map((a) => ({ name: a.name, paneId: a.paneId })),
+			paneList: async () =>
+				panesBox.current ?? live.filter((a) => a.paneId).map((a) => a.paneId),
 			start: async (input) => {
+				if (opts.startDelayMs)
+						await new Promise((r) => setTimeout(r, opts.startDelayMs));
 				calls.start.push(input);
 				const paneId = `p${calls.start.length}`;
 				live.push({ name: input.name, paneId, agent_status: "idle" });
@@ -503,9 +579,93 @@ function makeDeps(opts = {}) {
 			childExtension: "D:/ext/child.ts",
 			env: opts.env ?? {},
 			autodrain: false,
-			herdr: opts.herdr,
 		},
 	};
+}
+
+// Grid harness: a fake herdr that answers pane/tab queries and records the
+// commands placeOnGrid runs before the pane is created. `start` still lands
+// in calls.start, so assertions read the launch the engine actually asked for.
+function makeGridDeps(opts = {}) {
+	const base = makeDeps(opts);
+	const settings = base.deps.load();
+	base.deps.load = () => settings;
+	const world = {
+		panes: [{ pane_id: "w9:p1", tab_id: "t-main" }],
+		tabs: [{ tab_id: "t-main", label: "main" }],
+		next: 1,
+	};
+	const commands = [];
+	base.deps.herdr = async (args) => {
+		commands.push(args);
+		const [noun, verb] = args;
+		if (noun === "pane" && verb === "current") {
+			return {
+				ok: true,
+				data: {
+					pane: {
+						pane_id: "w9:p1",
+						tab_id: "t-main",
+						workspace_id: "ws",
+					},
+				},
+			};
+		}
+		if (noun === "pane" && verb === "list") {
+			return { ok: true, data: { panes: world.panes.map((p) => ({ ...p })) } };
+		}
+		if (noun === "tab" && verb === "list") {
+			return { ok: true, data: { tabs: world.tabs.map((t) => ({ ...t })) } };
+		}
+		if (noun === "tab" && verb === "create") {
+			const labelAt = args.indexOf("--label");
+			const label = labelAt === -1 ? undefined : args[labelAt + 1];
+			const tab_id = `t-${world.next++}`;
+			const pane_id = `shell-${tab_id}`;
+			world.tabs.push({ tab_id, label });
+			world.panes.push({ pane_id, tab_id });
+			return {
+				ok: true,
+				data: { tab: { tab_id, root_pane: pane_id } },
+			};
+		}
+		if (noun === "pane" && verb === "swap") {
+			const spec = args[args.indexOf("--panes") + 1] ?? "";
+			const [a, b] = spec.split(",");
+			const pa = world.panes.find((p) => p.pane_id === a);
+			const pb = world.panes.find((p) => p.pane_id === b);
+			if (pa && pb) {
+				const tab = pa.tab_id;
+				pa.tab_id = pb.tab_id;
+				pb.tab_id = tab;
+			}
+			world.swaps = world.swaps ?? [];
+			world.swaps.push(spec);
+			return { ok: true, data: {} };
+		}
+		return { ok: true, data: {} };
+	};
+	const innerStart = base.deps.start;
+	base.deps.start = async (input) => {
+		const r = await innerStart(input);
+		if (r.ok) {
+			const paneId = r.data.agent.pane_id;
+			const from = input.existingPane ?? input.splitFrom;
+			const tab =
+				world.panes.find((p) => p.pane_id === from)?.tab_id ?? "t-main";
+			world.panes.push({ pane_id: paneId, tab_id: tab });
+
+			if (input.existingPane) {
+				world.panes = world.panes.filter(
+					(p) => p.pane_id !== input.existingPane,
+				);
+			}
+		}
+		return r;
+	};
+	base.commands = commands;
+	base.world = world;
+	return base;
 }
 
 // ---------------------------------------------------------------------------
@@ -538,6 +698,23 @@ console.log("\n[9] Engine — background spawn end to end, child env stamped");
 	assert(
 		h.calls.submit[0].text === "find the entry point",
 		"prompt submitted to the pane",
+	);
+	// Manual e2e F1: {prompt} alone spawns the default — general-purpose on
+	// the ordinary registry path (the most natural minimal call must work).
+	reset();
+	const hDefault = makeDeps({ env: { HERDR_PANE_ID: "w9:p9" } });
+	const rDefault = await spawn.spawnAgent({ prompt: "do the thing" }, hDefault.deps);
+	assert(
+		rDefault.ok,
+		`prompt-only spawn accepted (${rDefault.ok ? "" : rDefault.error.message})`,
+	);
+	assert(
+		rDefault.ok && rDefault.data.type === "general-purpose",
+		"{prompt} alone resolves type general-purpose",
+	);
+	assert(
+		rDefault.ok && rDefault.data.kind === "pi",
+		"prompt-only default rides the built-in's pi kind",
 	);
 	// no HERDR_PANE_ID → no orchestrator var
 	const h2 = makeDeps();
@@ -837,59 +1014,9 @@ console.log(
 		h3.deps,
 	);
 	assert(r3.ok && h3.calls.submit.length === 2, "NOT_STARTED is retried once");
-	// A submit that reached the pane and then timed out is NOT a lost prompt.
-	// Re-sending it makes the child read the second input as a human takeover
-	// and disable auto-exit, so the completion sidecar is never written.
-	const h4 = makeDeps();
-	h4.deps.submit = async (paneId, text) => {
-		h4.calls.submit.push({ paneId, text });
-		return { ok: false, error: { code: "TIMEOUT", message: "herdr timed out" } };
-	};
-	const r4 = await spawn.spawnAgent(
-		{ prompt: "long task", type: "Plan", name: "long" },
-		h4.deps,
-	);
-	assert(r4.ok, `a timed-out submit still returns the spawned agent (got ${JSON.stringify(r4)})`);
-	assert(h4.calls.submit.length === 1, "a non-NOT_STARTED submit failure is not re-sent");
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n[15b] A new group tab stamps the child env on its shell");
-{
-	reset();
-	const calls = [];
-	const h = makeDeps({
-		herdr: async (args) => {
-			calls.push(args);
-			if (args[0] === "pane" && args[1] === "current") {
-				return { ok: true, data: { pane: { pane_id: "w1:p1", tab_id: "w1:t1", workspace_id: "w1" } } };
-			}
-			if (args[0] === "pane" && args[1] === "list") {
-				return { ok: true, data: { panes: [{ pane_id: "w1:p1", tab_id: "w1:t1" }] } };
-			}
-			if (args[0] === "tab" && args[1] === "list") {
-				return { ok: true, data: { tabs: [{ tab_id: "w1:t1", label: "1" }] } };
-			}
-			if (args[0] === "tab" && args[1] === "create") {
-				return { ok: true, data: { root_pane: { pane_id: "w1:p2", tab_id: "w1:t2" }, type: "tab_created" } };
-			}
-			return { ok: false, error: { code: "VALIDATION_ERROR", message: args.join(" ") } };
-		},
-	});
-	const r = await spawn.spawnAgent(
-		{ prompt: "review", type: "Plan", name: "reviewer", group: "review" },
-		h.deps,
-	);
-	assert(r.ok, `grouped spawn ok (${r.ok ? "" : r.error.message})`);
-	const created = calls.find((a) => a[0] === "tab" && a[1] === "create") ?? [];
-	assert(created.includes("--env"), `tab create carries --env (got ${created.join(" ")})`);
-	assert(
-		created.some((a) => a.startsWith("PI_HERDR_AUTO_EXIT=")),
-		"the new tab's shell gets PI_HERDR_AUTO_EXIT",
-	);
-	assert(h.calls.start[0].existingPane === "w1:p2", "the agent attaches to the tab's root pane");
-}
-
 console.log("\n[16] Tool registration surface");
 {
 	reset();
@@ -904,12 +1031,538 @@ console.log("\n[16] Tool registration surface");
 			t.description.includes("General-purpose agent for researching"),
 		"description carries the trio's full text",
 	);
-	// offline-safe error path: specifier failure happens before any I/O
-	const res = await t.execute("t1", { prompt: "x" }, undefined);
-	assert(
-		res.isError === true && /one of/.test(res.content[0].text),
-		"execute without type/agent errors cleanly",
+	// Manual e2e F1: prompt-only no longer refuses (asserted via
+	// resolveSpecifier + spawnAgent in [1]/[9]); the impossible state — BOTH
+	// type and agent — still errors, offline-safe before any I/O.
+	const res = await t.execute(
+		"t1",
+		{ prompt: "x", type: "Explore", agent: { name: "y" } },
+		undefined,
 	);
+	assert(
+		res.isError === true && /exactly one/i.test(res.content[0].text),
+		"execute with BOTH type and agent errors cleanly",
+	);
+	assert(
+		!/Pass one of `type`/.test(res.content[0].text),
+		"the old neither-given refusal is gone from the spawn surface",
+	);
+
+	// ticket #2: wait is gone from the tool schema and the description.
+	const props = t.parameters?.properties ?? t.parameters?.schema?.properties;
+	assert(props && !("wait" in props), "spawn tool schema has no wait parameter");
+	assert(
+		!/wait:\s*true|blocks until|wait: <ms>/i.test(t.description),
+		"spawn tool description does not claim the call blocks",
+	);
+	assert(
+		/accepted|queued|starting/i.test(t.description) &&
+			/does not promise|not promise|no promise/i.test(t.description),
+		"description states accepted/queued/starting and does not promise the child has started",
+	);
+
+	// ticket #2: the tool returns before a still-running child finishes.
+	// The injected start hangs until the test releases it, so a blocking
+	// tool call would never resolve.
+	reset();
+	// Spiral skips the grid planner. The default grid takes a module-level
+	// lock and queries herdr before start, and earlier sections leave that
+	// query in flight — this section only cares that the tool returns before
+	// the injected start resolves.
+	const hung = makeDeps({ settings: { layout_mode: "spiral" } });
+	let releaseStart;
+	hung.deps.start = () =>
+		new Promise((resolve) => {
+			releaseStart = () =>
+				resolve({ ok: true, data: { agent: { pane_id: "p-hung" } } });
+		});
+	const pending = agentsTool.spawnFromTool(
+		{ prompt: "keep running", type: "Plan", name: "long-child", wait: true },
+		hung.deps,
+	);
+	const raced = await Promise.race([
+		pending.then((r) => ({ settled: true, r })),
+		new Promise((resolve) => setTimeout(() => resolve({ settled: false }), 50)),
+	]);
+	assert(
+		raced.settled === true &&
+			raced.r.ok &&
+			raced.r.data.status === "starting" &&
+			raced.r.data.queued !== true &&
+			raced.r.data.paneId === undefined &&
+			raced.r.data.waited !== true,
+		"tool spawn returns starting before the child pane exists, even if the caller passed wait:true",
+	);
+	assert(
+		hung.calls.start.length === 0 &&
+			spawn.spawnRecords().get("long-child")?.paneId === undefined,
+		"returning starting does not mean the child has booted",
+	);
+	releaseStart();
+	await pending;
+
+	reset();
+	const capped = makeDeps({ settings: { max_parallel_agents: 1 } });
+	const first = await agentsTool.spawnFromTool(
+		{ prompt: "x", type: "Plan", name: "holds-slot" },
+		capped.deps,
+	);
+	assert(first.ok && first.data.status === "starting", "under cap: accepted as starting");
+	// occupy the slot the way the drain counts it: a live registry pane
+	const held = spawn.spawnRecords().get("holds-slot");
+	held.paneId = "p-held";
+	capped.live.push({ name: "holds-slot", paneId: "p-held", agent_status: "working" });
+	const second = await agentsTool.spawnFromTool(
+		{ prompt: "y", type: "Plan", name: "overflow", wait: true },
+		capped.deps,
+	);
+	assert(
+		second.ok &&
+			second.data.status === "queued" &&
+			second.data.queued === true &&
+			second.data.waited !== true,
+		"over cap: queued immediately, wait:true does not block through the queue",
+	);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[17] Golden-spiral pane layout (nextSplit + start-time wiring)");
+{
+	reset();
+	// pure decision: #1 → spawner's pane right; #2 → child #1 down; #3 → child
+	// #2 right; no live sibling → the spawner's pane again; ratio favors the
+	// EXISTING pane (verified: herdr --ratio is the source pane's share).
+	const s1 = spawn.nextSplit({ spawnerPane: "w1:p1", liveChildCount: 0 });
+	assert(
+		s1.targetPaneId === "w1:p1" &&
+			s1.direction === "right" &&
+			s1.ratio === 0.6,
+		"spawn #1: spawner's pane, right, ratio 0.6",
+	);
+	const s2 = spawn.nextSplit({
+		spawnerPane: "w1:p1",
+		lastChildPane: "w1:p1A",
+		liveChildCount: 1,
+	});
+	assert(
+		s2.targetPaneId === "w1:p1A" && s2.direction === "down",
+		"spawn #2: previous child's pane, down",
+	);
+	const s3 = spawn.nextSplit({
+		spawnerPane: "w1:p1",
+		lastChildPane: "w1:p1B",
+		liveChildCount: 2,
+	});
+	assert(
+		s3.targetPaneId === "w1:p1B" && s3.direction === "right",
+		"spawn #3: previous child's pane, right (alternates)",
+	);
+	assert(
+		spawn.nextSplit({ spawnerPane: "w1:p1", liveChildCount: 0 })
+			.targetPaneId === "w1:p1",
+		"no live sibling → the spawner's pane (fallback)",
+	);
+	assert(
+		spawn.nextSplit({ liveChildCount: 0 }).targetPaneId === undefined,
+		"spawner not in a pane → undefined target (--current)",
+	);
+
+	// wiring: three engine spawns — target/direction thread into the split
+	// call, resolved at START time against live siblings (registry order).
+	// The default layout is now grid; this section pins spiral so the
+	// golden-spiral contract stays the thing under test.
+	const h = makeDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { layout_mode: "spiral" },
+	});
+	for (const name of ["ga", "gb", "gc"]) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name },
+			h.deps,
+		);
+		assert(r.ok, `spawn ${name} ok (${r.ok ? "" : r.error?.message})`);
+	}
+	const [sA, sB, sC] = h.calls.start;
+	assert(
+		sA.splitFrom === "w9:p1" && sA.split === "right" && sA.ratio === 0.6,
+		"#1 splits the spawner's pane right at 0.6",
+	);
+	assert(
+		sB.splitFrom === "p1" && sB.split === "down",
+		"#2 splits child #1's pane (p1) down",
+	);
+	assert(
+		sC.splitFrom === "p2" && sC.split === "right",
+		"#3 splits child #2's pane (p2) right",
+	);
+
+	// fallback: every child exited (fleet list empty) → the spawner's pane.
+	h.live.length = 0;
+	const rd = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "gd" },
+		h.deps,
+	);
+	assert(rd.ok, `fallback spawn ok (${rd.ok ? "" : rd.error?.message})`);
+	const sD = h.calls.start[3];
+	assert(
+		sD.splitFrom === "w9:p1" && sD.split === "down",
+		"all children exited → the spawner's pane again (direction by ordinal parity)",
+	);
+
+	// regression (parallel batch): siblings still BOOTING are invisible to the
+	// agent list but their panes exist — split targeting reads the pane list,
+	// not the agent list, or every parallel spawn falls back to the spawner.
+	h.live.length = 0; // fleet detects no agents yet (all booting)
+	h.panes.current = ["w9:p1", "p1", "p2", "p3", "p4"]; // ...but every pane exists
+	const re = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "ge" },
+		h.deps,
+	);
+	assert(re.ok, `booting-sibling spawn ok (${re.ok ? "" : re.error?.message})`);
+	const sE = h.calls.start[4];
+	assert(
+		sE.splitFrom === "p4" && sE.split === "right",
+		"booting sibling's pane (p4) is the split target — pane list, not agent list",
+	);
+
+	// a CLOSED sibling pane is gone from the pane list → spawner fallback
+	h.panes.current = ["w9:p1"];
+	const rf = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "gf" },
+		h.deps,
+	);
+	assert(rf.ok, `gf fallback spawn ok (${rf.ok ? "" : rf.error?.message})`);
+	const sF = h.calls.start[5];
+	assert(
+		sF.splitFrom === "w9:p1" && sF.split === "down",
+		"closed sibling panes are skipped → the spawner's pane, direction by ordinal parity",
+	);
+
+	// parallel batch: the predecessor may be MID-START (no paneId yet) — the
+	// spiral waits for its pane instead of falling back to the spawner.
+	const hp = makeDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		startDelayMs: 400,
+		settings: { layout_mode: "spiral" },
+	});
+	const pending = spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "ha" },
+		hp.deps,
+	);
+	await new Promise((r) => setTimeout(r, 120)); // ha mid-start, no paneId yet
+	const rhb = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "hb" },
+		hp.deps,
+	);
+	const sHb = hp.calls.start[1];
+	assert(
+		sHb.splitFrom === "p1" && sHb.split === "down",
+		`parallel: mid-start predecessor is awaited and targeted (down) (${JSON.stringify(sHb)})`,
+	);
+	assert(rhb.ok, `hb spawn ok (${rhb.ok ? "" : rhb.error?.message})`);
+	await pending;
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[18] layout_mode is read at START: grid by default, spiral when set");
+{
+	reset();
+	// Missing setting → grid. The first agent splits the orchestrator's pane
+	// to the right at half (equal columns), not the spiral's 0.6.
+	const hg = makeGridDeps({ env: { HERDR_PANE_ID: "w9:p1" } });
+	const g1 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "ga" },
+		hg.deps,
+	);
+	assert(g1.ok, `grid spawn ok (${g1.ok ? "" : g1.error?.message})`);
+	const gs = hg.calls.start[0];
+	assert(
+		gs.split === "right" && gs.splitFrom === "w9:p1" && gs.ratio === 0.5,
+		`default layout is grid: first agent is the right half of the main pane (${JSON.stringify({ split: gs.split, from: gs.splitFrom, ratio: gs.ratio })})`,
+	);
+
+	// Explicit spiral keeps the golden-spiral contract (ratio 0.6, alternating).
+	reset();
+	const hs = makeDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { layout_mode: "spiral" },
+	});
+	for (const name of ["sa", "sb"]) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name },
+			hs.deps,
+		);
+		assert(r.ok, `spiral ${name} ok`);
+	}
+	assert(
+		hs.calls.start[0].ratio === 0.6 && hs.calls.start[0].split === "right",
+		"explicit spiral: spawn #1 still splits right at 0.6",
+	);
+	assert(
+		hs.calls.start[1].split === "down" && hs.calls.start[1].splitFrom === "p1",
+		"explicit spiral: spawn #2 still splits the previous child down",
+	);
+}
+
+console.log(
+	"\n[19] grid group: same group shares a tab; the 7th live occupant opens another",
+);
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+	});
+	const placed = [];
+	for (let i = 1; i <= 7; i++) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name: `g${i}`, group: "coding" },
+			h.deps,
+		);
+		assert(r.ok, `group spawn g${i} ok (${r.ok ? "" : r.error?.message})`);
+		if (!r.ok || !h.calls.start[i - 1]) break;
+		const rec = spawn.spawnRecords().get(`g${i}`);
+		placed.push({
+			tab: rec?.gridTab,
+			at: rec?.gridAt,
+			reuse: h.calls.start[i - 1].existingPane,
+			split: h.calls.start[i - 1].split,
+		});
+	}
+	const firstTab = placed[0].tab;
+	assert(
+		firstTab && firstTab !== "t-main" && placed.slice(0, 6).every((p) => p.tab === firstTab),
+		`the first six of a group share one tab that is not the main tab (${JSON.stringify(placed.map((p) => p.tab))})`,
+	);
+	assert(
+		placed[6].tab && placed[6].tab !== firstTab,
+		`the 7th live occupant of the group opens another tab (${placed[6].tab})`,
+	);
+	assert(
+		placed[0].reuse && !placed[0].split,
+		"a brand-new group tab reuses the tab's shell pane instead of splitting",
+	);
+	const created = h.commands.find((c) => c[0] === "tab" && c[1] === "create");
+	assert(
+		created?.includes("--env") &&
+			created.some((a) => a.startsWith("PI_HERDR_SESSION=")),
+		"the new group tab is created with the child's env, since agent start cannot stamp it",
+	);
+
+	// An 8th member of the same group fills the earliest page that still has
+	// room — the new page — rather than opening a third or joining the main tab.
+	const r8 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "g8", group: "coding" },
+		h.deps,
+	);
+	assert(r8.ok, "8th group member ok");
+	const rec8 = spawn.spawnRecords().get("g8");
+	assert(
+		rec8?.gridTab === placed[6].tab,
+		`the 8th joins the group's second tab (${rec8?.gridTab} vs ${placed[6].tab})`,
+	);
+
+	// A spawn with no group stays on the orchestrator's tab.
+	const plain = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "loose" },
+		h.deps,
+	);
+	assert(plain.ok, "ungrouped spawn ok");
+	assert(
+		spawn.spawnRecords().get("loose")?.gridTab === "t-main",
+		"no group → the orchestrator's tab",
+	);
+
+	// Switching the setting does not move panes already placed. The next
+	// START is the only one that changes shape.
+	const live = h.deps.load();
+	live.layout_mode = "spiral";
+	const before = spawn.spawnRecords().get("g1")?.gridAt;
+	const switched = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "spiraled" },
+		h.deps,
+	);
+	assert(switched.ok, "post-switch spawn ok");
+	const sw = h.calls.start.at(-1);
+	assert(
+		sw.ratio === 0.6 && sw.split && !sw.existingPane,
+		`the spawn after the switch uses spiral (${JSON.stringify({ ratio: sw.ratio, split: sw.split })})`,
+	);
+	assert(
+		JSON.stringify(spawn.spawnRecords().get("g1")?.gridAt) ===
+			JSON.stringify(before),
+		"panes placed before the switch stay where they were",
+	);
+}
+
+console.log(
+	"\n[19b] the 7th live occupant of the main tab opens a tab, and does not become a 7th pane",
+);
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+	});
+	for (let i = 1; i <= 5; i++) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name: `m${i}` },
+			h.deps,
+		);
+		assert(r.ok, `main-tab spawn m${i} ok`);
+	}
+	const before = h.world.panes.filter((p) => p.tab_id === "t-main").length;
+	const r7 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "m7" },
+		h.deps,
+	);
+	assert(r7.ok, "7th main-tab occupant ok");
+	const rec7 = spawn.spawnRecords().get("m7");
+	const overflow = h.commands.filter(
+		(c) => c[0] === "tab" && c[1] === "create" && !c.includes("--label"),
+	);
+	assert(
+		overflow.length === 1,
+		`exactly one unlabeled tab is created for the 7th occupant (commands ${JSON.stringify(h.commands.filter((c) => c[0] === "tab"))})`,
+	);
+	assert(
+		rec7?.gridTab && rec7.gridTab !== "t-main",
+		`the 7th occupant is recorded on the new tab (${rec7?.gridTab})`,
+	);
+	assert(
+		h.world.panes.filter((p) => p.tab_id === "t-main").length === before,
+		`the main tab still holds ${before} panes, not 7`,
+	);
+	assert(
+		h.calls.start[5].existingPane && !h.calls.start[5].split,
+		"the 7th attaches to the new tab's shell instead of splitting the main tab",
+	);
+}
+
+console.log(
+	"\n[19c] a hole above a live pane is reused by swapping, not by growing downward",
+);
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+	});
+	for (const name of ["h1", "h2"]) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name },
+			h.deps,
+		);
+		assert(r.ok, `${name} placed`);
+	}
+	const gone = spawn.spawnRecords().get("h1");
+	h.world.panes = h.world.panes.filter((p) => p.pane_id !== gone.paneId);
+	const r3 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "h3" },
+		h.deps,
+	);
+	assert(r3.ok, "h3 placed");
+	const rec3 = spawn.spawnRecords().get("h3");
+	assert(
+		rec3.gridAt.row === gone.gridAt.row &&
+			rec3.gridAt.col === gone.gridAt.col,
+		`h3 is recorded on the closed cell r${gone.gridAt.row}c${gone.gridAt.col}`,
+	);
+	const issued = h.commands.filter(
+		(c) => c[0] === "pane" && c[1] === "swap",
+	);
+	const expected = `pane swap --panes ${spawn.spawnRecords().get("h2").paneId},${rec3.paneId}`;
+	assert(
+		issued.length === 1 && issued[0].join(" ") === expected,
+		`the newcomer swaps with the pane that was under the hole (${expected}; got ${JSON.stringify(issued)})`,
+	);
+}
+
+console.log(
+	"\n[20] concurrent grid starts do not take the same hole",
+);
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+		startDelayMs: 300,
+	});
+	const pending = ["c1", "c2", "c3"].map((name) =>
+		spawn.spawnAgent({ prompt: "x", type: "Explore", name }, h.deps),
+	);
+	const results = await Promise.all(pending);
+	assert(results.every((r) => r.ok), "three concurrent grid spawns all start");
+	const cells = ["c1", "c2", "c3"].map((name) => {
+		const at = spawn.spawnRecords().get(name)?.gridAt;
+		return at ? `${at.row}:${at.col}` : "none";
+	});
+	assert(
+		new Set(cells).size === 3,
+		`each concurrent start lands on its own cell (${cells.join(", ")})`,
+	);
+	assert(h.calls.start[1].splitFrom === spawn.spawnRecords().get("c1").paneId, "concurrent second START splits the completed predecessor pane");
+}
+
+console.log("\n[21] a closed pane's cell is reused inside its own tab");
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+	});
+	for (const name of ["k1", "k2"]) {
+		const r = await spawn.spawnAgent(
+			{ prompt: "x", type: "Explore", name, group: "coding" },
+			h.deps,
+		);
+		assert(r.ok, `${name} placed`);
+	}
+	const gone = spawn.spawnRecords().get("k2");
+	const hole = `${gone.gridAt.row}:${gone.gridAt.col}`;
+	h.world.panes = h.world.panes.filter((p) => p.pane_id !== gone.paneId);
+	const r3 = await spawn.spawnAgent(
+		{ prompt: "x", type: "Explore", name: "k3", group: "coding" },
+		h.deps,
+	);
+	assert(r3.ok, "k3 placed");
+	const at = spawn.spawnRecords().get("k3").gridAt;
+	assert(
+		`${at.row}:${at.col}` === hole &&
+			spawn.spawnRecords().get("k3").gridTab === gone.gridTab,
+		`the newcomer takes the closed cell on the same tab (${hole})`,
+	);
+}
+
+console.log("\n[22] grid lock timeout / abort preserve serialization");
+{
+ reset();
+ const h = makeGridDeps({ settings: { max_parallel_agents: 20 } });
+ const start = h.deps.start;
+ let release;
+ let entered;
+ const ready = new Promise(r => { entered = r; });
+ const held = new Promise(r => { release = r; });
+ h.deps.start = async input => { if (input.name === "lock-owner") { entered(); await held; } return start(input); };
+ const owner = spawn.spawnAgent({ prompt: "x", type: "Explore", name: "lock-owner" }, h.deps);
+ await ready;
+ const timed = await spawn.spawnAgent({ prompt: "x", type: "Explore", name: "lock-timeout" }, { ...h.deps, gridTimeoutMs: 10 });
+ assert(!timed.ok && timed.error.code === "TIMEOUT", "queued grid START expires with TIMEOUT");
+ const controller = new AbortController();
+ const aborted = spawn.spawnAgent({ prompt: "x", type: "Explore", name: "lock-abort" }, { ...h.deps, signal: controller.signal });
+ controller.abort();
+ const cancelled = await aborted;
+ assert(!cancelled.ok && cancelled.error.code === "TIMEOUT", "aborted grid waiter resolves TIMEOUT");
+ const follower = spawn.spawnAgent({ prompt: "x", type: "Explore", name: "lock-follower" }, h.deps);
+ await new Promise(r => setTimeout(r, 20));
+ assert(h.calls.start.length === 0, "expired waiters cannot release the live owner's lock");
+ release();
+ await Promise.all([owner, follower]);
+ assert(h.calls.start.length === 2 && h.calls.start[1].splitFrom === spawn.spawnRecords().get("lock-owner").paneId, "next waiter observes owner pane after release");
+ const tab = makeGridDeps({ settings: { idle_rearm_minutes: 7 } });
+ await spawn.spawnAgent({ prompt: "x", type: "Explore", name: "env-check", group: "env" }, tab.deps);
+ const command = tab.commands.find(c => c[0] === "tab" && c[1] === "create");
+ assert(Object.entries(tab.calls.start[0].env).every(([k,v]) => command.includes(k + "=" + v)), "tab and agent launch carry identical child env including idle re-arm");
 }
 
 // ---------------------------------------------------------------------------

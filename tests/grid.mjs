@@ -1,9 +1,7 @@
 // Offline tests for the equal-width spawn grid.
 //
-// Public seam: planGridPlacement({ occupied, tabId, tabLabel, newTabId }).
-// `occupied` is the live slot list for ONE tab (main window included when it
-// is that tab). Empty slots are absent. Expectations are the spec table,
-// not a re-implementation of the planner.
+// Public seam: planGridPlacement / splitFor. Expectations are the spec
+// table, not a re-implementation of the planner.
 //
 // Run: node tests/grid.mjs
 
@@ -37,13 +35,16 @@ const agent = (n) => ({ id: `a${n}`, role: "agent" });
 
 console.log("\n[1] column count and the spec fill order");
 {
-	// 1 pane: the main window alone, one column.
 	eq(
 		grid.planGridPlacement({ occupied: [main], tabId: "t0" }),
-		{ tabId: "t0", columns: 1, rows: 1, assignments: [{ id: "main", row: 1, col: 1 }] },
+		{
+			tabId: "t0",
+			columns: 1,
+			rows: 1,
+			assignments: [{ id: "main", row: 1, col: 1 }],
+		},
 		"1 slot is a single full-width column",
 	);
-	// 2 panes: one row, two columns of 1/2. First agent sits right of main.
 	eq(
 		grid.planGridPlacement({ occupied: [main, agent(1)], tabId: "t0" }),
 		{
@@ -57,7 +58,6 @@ console.log("\n[1] column count and the spec fill order");
 		},
 		"2 slots: main left, a1 right, columns of 1/2",
 	);
-	// 3 panes: two columns of 1/2. Right column stacks; main's column stays one tall cell.
 	eq(
 		grid.planGridPlacement({
 			occupied: [main, agent(1), agent(2)],
@@ -75,7 +75,6 @@ console.log("\n[1] column count and the spec fill order");
 		},
 		"3 slots: main left half, two agents stacked on the right",
 	);
-	// 4 panes: 2x2. The third agent sits directly under the main window.
 	eq(
 		grid.planGridPlacement({
 			occupied: [main, agent(1), agent(2), agent(3)],
@@ -94,7 +93,6 @@ console.log("\n[1] column count and the spec fill order");
 		},
 		"4 slots: a3 is under the main window",
 	);
-	// 5 panes: three columns of 1/3. Fourth agent opens column 3 on the top row.
 	eq(
 		grid.planGridPlacement({
 			occupied: [main, agent(1), agent(2), agent(3), agent(4)],
@@ -114,7 +112,6 @@ console.log("\n[1] column count and the spec fill order");
 		},
 		"5 slots: three columns, a4 at the top of column 3",
 	);
-	// 6 panes: 3x2. Fifth agent closes column 3.
 	eq(
 		grid.planGridPlacement({
 			occupied: [main, agent(1), agent(2), agent(3), agent(4), agent(5)],
@@ -139,6 +136,8 @@ console.log("\n[1] column count and the spec fill order");
 
 console.log("\n[2] a 7th occupant opens a new tab; holes are reused");
 {
+	// The main window plus five agents is the full 6. The next agent is
+	// the 7th pane, which is what opens the tab (spec: 6 panes = 3×2).
 	const full = [main, agent(1), agent(2), agent(3), agent(4), agent(5)];
 	eq(
 		grid.planGridPlacement({
@@ -156,8 +155,6 @@ console.log("\n[2] a 7th occupant opens a new tab; holes are reused");
 		},
 		"7th occupant is alone on a new tab",
 	);
-	// A closed agent leaves a hole. The next occupant takes that coordinate
-	// and the column count does not grow.
 	eq(
 		grid.planGridPlacement({
 			occupied: [main, { ...agent(1), at: { row: 1, col: 2 } }],
@@ -177,8 +174,6 @@ console.log("\n[2] a 7th occupant opens a new tab; holes are reused");
 		},
 		"an empty slot is filled before the grid grows",
 	);
-	// The hole is NOT the next fill-order slot: a1 closed (r1c2) while a2
-	// still sits at r2c2. The newcomer takes r1c2, not a fresh column.
 	eq(
 		grid.planGridPlacement({
 			occupied: [{ ...agent(2), at: { row: 2, col: 2 } }, main],
@@ -200,6 +195,70 @@ console.log("\n[2] a 7th occupant opens a new tab; holes are reused");
 	);
 }
 
+console.log("\n[2b] the 7th occupant carries the command that opens its tab");
+{
+	const full = [
+		main,
+		{ ...agent(1), at: { row: 1, col: 2 } },
+		{ ...agent(2), at: { row: 2, col: 2 } },
+		{ ...agent(3), at: { row: 2, col: 1 } },
+		{ ...agent(4), at: { row: 1, col: 3 } },
+		{ ...agent(5), at: { row: 2, col: 3 } },
+	];
+	const plan = grid.planGridPlacement({
+		occupied: full,
+		incoming: agent(6),
+		tabId: "t0",
+		newTabId: "t1",
+	});
+	const split = grid.splitFor(plan, "a6", [
+		{ id: "main", at: { row: 1, col: 1 } },
+		{ id: "p1", at: { row: 1, col: 2 } },
+		{ id: "p2", at: { row: 2, col: 2 } },
+		{ id: "p3", at: { row: 2, col: 1 } },
+		{ id: "p4", at: { row: 1, col: 3 } },
+		{ id: "p5", at: { row: 2, col: 3 } },
+	]);
+	eq(
+		split.commands.map((c) => c.args.slice(0, 2)),
+		[["tab", "create"]],
+		"the 7th occupant's split opens a tab before any pane is made",
+	);
+	assert(
+		split.commands[0].args.includes("--no-focus") &&
+			!split.commands[0].args.includes("--label"),
+		"the overflow tab is unfocused and unlabeled (it stays on the orchestrator's group)",
+	);
+	assert(
+		!split.paneId,
+		"the overflow split names no pane on the full tab — the new tab's shell is the pane",
+	);
+}
+
+console.log("\n[2c] a hole above an occupied cell swaps into place");
+{
+	const plan = grid.planGridPlacement({
+		occupied: [main, { ...agent(2), at: { row: 2, col: 2 } }],
+		incoming: agent(9),
+		tabId: "t0",
+		holes: [{ row: 1, col: 2 }],
+	});
+	const split = grid.splitFor(plan, "a9", [
+		{ id: "main", at: { row: 1, col: 1 } },
+		{ id: "p-a2", at: { row: 2, col: 2 } },
+	]);
+	eq(
+		{ paneId: split.paneId, direction: split.direction, at: split.at },
+		{ paneId: "p-a2", direction: "down", at: { row: 1, col: 2 } },
+		"the newcomer splits the occupant under the hole downward",
+	);
+	eq(
+		split.commands.map((c) => c.args),
+		[["pane", "swap", "--panes", "p-a2,{new}"]],
+		"then swaps with that occupant, so the newcomer ends up in the hole",
+	);
+}
+
 console.log("\n[3] split target keeps columns equal");
 {
 	const plan = grid.planGridPlacement({
@@ -212,8 +271,18 @@ console.log("\n[3] split target keeps columns equal");
 		{ id: "p-a1", at: { row: 1, col: 2 } },
 	]);
 	eq(
-		{ paneId: split.paneId, direction: split.direction, ratio: split.ratio, at: split.at },
-		{ paneId: "p-a1", direction: "down", ratio: 0.5, at: { row: 2, col: 2 } },
+		{
+			paneId: split.paneId,
+			direction: split.direction,
+			ratio: split.ratio,
+			at: split.at,
+		},
+		{
+			paneId: "p-a1",
+			direction: "down",
+			ratio: 0.5,
+			at: { row: 2, col: 2 },
+		},
 		"the second agent splits the first agent downward, half and half",
 	);
 	const wide = grid.planGridPlacement({
@@ -234,9 +303,66 @@ console.log("\n[3] split target keeps columns equal");
 	eq(third.direction, "right", "the third column splits right");
 	eq(
 		third.commands.map((c) => c.args.slice(0, 6).concat(c.args.slice(-2))),
-		[["pane", "resize", "--pane", "main", "--direction", "left", "--amount", String(1 / 6)]],
+		[
+			[
+				"pane",
+				"resize",
+				"--pane",
+				"main",
+				"--direction",
+				"left",
+				"--amount",
+				String(1 / 6),
+			],
+		],
 		"the left column shrinks by 1/6 of the tab first, so three columns end equal",
 	);
+}
+
+console.log("\n[4] group tabs isolate capacity and holes");
+{
+	const groupFull = [
+		{ ...agent(1), at: { row: 1, col: 1 } },
+		{ ...agent(2), at: { row: 1, col: 2 } },
+		{ ...agent(3), at: { row: 2, col: 2 } },
+		{ ...agent(4), at: { row: 2, col: 1 } },
+		{ ...agent(5), at: { row: 1, col: 3 } },
+		{ ...agent(6), at: { row: 2, col: 3 } },
+	];
+	eq(
+		grid.planGridPlacement({
+			occupied: groupFull,
+			incoming: agent(7),
+			tabId: "g1",
+			newTabId: "g2",
+		}).tabId,
+		"g2",
+		"a group tab's 7th occupant opens another tab of that group",
+	);
+	const otherTabHole = grid.planGridPlacement({
+		occupied: [{ ...agent(1), at: { row: 1, col: 1 } }],
+		incoming: agent(2),
+		tabId: "g1",
+		holes: [],
+	});
+	eq(
+		otherTabHole.assignments.find((a) => a.id === "a2"),
+		{ id: "a2", row: 1, col: 2 },
+		"with no hole on THIS tab the next agent grows, it does not borrow another tab",
+	);
+	const reused = grid.planGridPlacement({
+		occupied: [{ ...agent(2), at: { row: 1, col: 2 } }],
+		incoming: agent(8),
+		tabId: "g1",
+		holes: [{ row: 1, col: 1 }],
+	});
+	eq(
+		reused.assignments.find((a) => a.id === "a8"),
+		{ id: "a8", row: 1, col: 1 },
+		"a hole on this group tab is filled before the grid grows",
+	);
+	const leftHole = grid.splitFor(reused, "a8", [{ id: "right-pane", at: { row: 1, col: 2 } }]);
+	eq({ from: leftHole.paneId, direction: leftHole.direction, commands: leftHole.commands }, { from: "right-pane", direction: "right", commands: [{ args: ["pane", "swap", "--panes", "right-pane,{new}"] }] }, "left hole splits its right neighbor then swaps, without resize");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

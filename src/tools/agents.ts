@@ -42,7 +42,9 @@ const FORK_COSTS =
 const DESCRIPTION =
 	"Spawn a background AI agent in a herdr pane, submit the task prompt, and return " +
 	"{name, paneId, status}. Address the agent by `name` afterwards. " +
-	"Specify the agent EITHER by `type` (registry) or an inline `agent` definition — exactly one. " +
+	"Specify the agent by `type` (registry), an inline `agent` definition, or NEITHER — " +
+	"a prompt-only spawn (just `prompt`, optionally `name`) defaults to the built-in general-purpose " +
+	"type (pi kind, autonomous stance). `type` and `agent` are mutually exclusive — never both. " +
 	`Built-in types:\n${builtInTypeLines()}\n` +
 	"The registry also serves `.md` definitions from `.pi/agents/` (project) and the global " +
 	"agents dir — project shadows global, session inline definitions shadow both. " +
@@ -68,15 +70,21 @@ const DESCRIPTION =
 	"2000 chars are written to `<session>.task.md` and delivered as a one-line reference. Raw CLI flags " +
 	"ride `agent_args` (spawn level, appended after the definition's `args:` — last-wins). Stance (v0.6): " +
 	"autonomous by default (auto-exit on settle; pane closes, session retained), `interactive: true` or " +
-	"`auto_exit: false` keeps the pane open. Always background: returns immediately; queued spawns " +
-	"return status 'queued'. At max_parallel_agents the spawn is accepted queued (no pane until a " +
-	"slot frees). " +
+	"`auto_exit: false` keeps the pane open. Always returns immediately: accepted as `starting` " +
+	"(the child is not promised to have booted), or `queued` when the fleet is at max_parallel_agents " +
+	"(no pane until a slot frees). There is no wait parameter — a caller-supplied wait is ignored and " +
+	"cannot block this call. The result arrives later by push-on-completion (the notifications setting) " +
+	"or by herdr_get_agent_result. " +
 	"`isolated: true` runs the agent in a fresh auto-created herdr-side git worktree " +
 	"(worktree stays after the agent — remove it yourself with `herdr worktree remove` or git). " +
 	"Gates, checked in order before any side effect: kill-switch, spawn depth, parallel cap. " +
-	"Layout: the current tab is an equal-width grid, at most 3 columns by 2 rows. Omit `group` " +
-	"to place the agent on the orchestrator's tab; pass `group` to gather related agents on their " +
-	"own tab (a new group name opens a new tab; a full grid of 6 opens another tab of the same group).";
+	"Layout follows the `layout_mode` setting, read when the pane is created: `grid` " +
+		"(the default) fills an equal-width 3×2 and opens another tab for the 7th live occupant; " +
+		"`spiral` is the golden spiral — alternating right/down, the existing pane keeps the larger share. " +
+		"Omit `group` to land on the orchestrator's tab; pass `group` to gather related agents on a tab " +
+		"titled with that name (a full page of 6 opens another tab of the same group, and the next " +
+		"member of the group fills the earliest page that still has room). Changing `layout_mode` never " +
+		"moves a pane that already exists.";
 
 /** The inline `agent: {…}` definition schema — shared by spawn_agent and save_agent. */
 const AGENT_DEF_SCHEMA = Type.Object({
@@ -149,6 +157,45 @@ const AGENT_DEF_SCHEMA = Type.Object({
 	),
 });
 
+/** The call the tool's execute makes. Exported so tests drive the same
+ * path (detach, wait stripped) without a pi session. */
+export function spawnFromTool(
+	p: {
+		prompt: string;
+		fork?: boolean;
+		type?: string;
+		agent?: unknown;
+		name?: string;
+		kind?: string;
+		model?: string;
+		thinking?: string;
+		agent_args?: string[];
+		cwd?: string;
+		isolated?: boolean;
+		group?: string;
+	},
+	deps: Parameters<typeof spawnAgent>[1],
+): ReturnType<typeof spawnAgent> {
+	return spawnAgent(
+		{
+			prompt: p.prompt,
+			fork: p.fork,
+			type: p.type,
+			agent: p.agent,
+			name: p.name,
+			kind: p.kind,
+			model: p.model,
+			thinking: p.thinking,
+			agent_args: p.agent_args,
+			cwd: p.cwd,
+			isolated: p.isolated,
+			group: p.group,
+			detach: true,
+		},
+		deps,
+	);
+}
+
 export function registerAgents(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "herdr_spawn_agent",
@@ -166,7 +213,7 @@ export function registerAgents(pi: ExtensionAPI): void {
 			type: Type.Optional(
 				Type.String({
 					description:
-						'Registry agent type, e.g. "general-purpose", "Explore", "Plan", or a session inline definition name. Exactly one of type/agent.',
+						'Registry agent type, e.g. "general-purpose", "Explore", "Plan", or a session inline definition name. Omit both type and agent to spawn the general-purpose default on the prompt alone; never pass both.',
 				}),
 			),
 			agent: Type.Optional(AGENT_DEF_SCHEMA),
@@ -216,7 +263,7 @@ export function registerAgents(pi: ExtensionAPI): void {
 			group: Type.Optional(
 				Type.String({
 					description:
-						"Task category. Same group shares one tab (a new name opens a new tab). Omit to stay on the orchestrator's tab. Empty is treated as omitted.",
+						"Task category. The same group shares one tab (a new name opens a new tab; a full grid of 6 opens another tab of the same group, and later members fill the earliest page with room). Omit to stay on the orchestrator's tab. Empty is treated as omitted. Honored when layout_mode is grid.",
 				}),
 			),
 		}),
@@ -227,22 +274,7 @@ export function registerAgents(pi: ExtensionAPI): void {
 			_onUpdate,
 			ctx: ExtensionContext | undefined,
 		) {
-			const r = await spawnAgent(
-				{
-					prompt: p.prompt,
-					fork: p.fork,
-					type: p.type,
-					agent: p.agent,
-					name: p.name,
-					kind: p.kind,
-					model: p.model,
-					thinking: p.thinking,
-					agent_args: p.agent_args,
-					cwd: p.cwd,
-					isolated: p.isolated,
-					group: p.group,
-				},
-				{
+			const r = await spawnFromTool(p, {
 					signal,
 					// Routing level 5 (parent session's model) + exact-model
 					// validation come from THIS session's pi context.
@@ -258,16 +290,16 @@ export function registerAgents(pi: ExtensionAPI): void {
 			);
 			if (!r.ok) return fail(r.error.message, r.error.code, r.error.details);
 			const d = r.data;
-			const where = d.paneId ? `pane ${d.paneId}` : "no pane yet (queued)";
 			const type = d.type ? ` (type ${d.type})` : "";
-			const session = d.sessionPath ? ` Session file: ${d.sessionPath}.` : "";
 			const stance = ` Stance: ${d.stance}.`;
-			const worktree = d.worktreePath
-				? ` Isolated worktree: ${d.worktreePath}`
-				: "";
+			// Manual e2e F12: a fired specifier coercion is surfaced, not silent —
+			// the caller should know the shape it passed was not taken literally.
+			const coerced = d.coercedNote ? ` Note: ${d.coercedNote}.` : "";
+			// starting/queued are accept-time facts. Do not report a pane id or
+			// session path here — those would claim the child has booted.
 			const text = d.queued
-				? `Spawn accepted as QUEUED: "${d.name}"${type} — fleet is at max_parallel_agents; the pane starts when a slot frees.${stance}`
-				: `Spawned ${d.kind} agent "${d.name}"${type} in ${where}; status: ${d.status}.${stance}${session}${worktree}`;
+				? `Spawn accepted as QUEUED: "${d.name}"${type} — fleet is at max_parallel_agents; the pane starts when a slot frees. The child is not started yet.${stance}${coerced}`
+				: `Spawn accepted as STARTING: "${d.name}"${type} (${d.kind}). The child is not promised to have booted; status: ${d.status}.${stance}${coerced}`;
 			return {
 				content: [{ type: "text", text }],
 				details: d,

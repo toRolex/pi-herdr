@@ -2,7 +2,7 @@
 // fleet — one row per in-flight agent — rendered above the editor.
 //
 //   ╭─ Subagents ────────────── 1 active · 1 open ─╮
-//   │ 00:23  scout-auth       active · bash 7m  7m │
+//   │ 00:23  scout-auth       active · bash 7m      │
 //   │ 00:45  scout-db               waiting       2m │
 //   ╰───────────────────────────────────────────────╯
 //    ⚠ scout-db BLOCKED 2m "Schema A (wide) or B (tall)?"
@@ -44,6 +44,9 @@ import {
 	type ProjectableRecord,
 	type Projection,
 } from "./status.js";
+import { liveWorkflowRuns, type WorkflowRun } from "./workflow/runs.js";
+import { stats as workflowStats } from "./workflow/progress.js";
+import { layoutWorkflowCards } from "./workflow/card.js";
 import type { NormalizedAgent, Result } from "./env.js";
 
 // ---- the model ---------------------------------------------------------------
@@ -102,6 +105,9 @@ export type WidgetRecord = ProjectableRecord & {
 	type?: string;
 	spawnedAt: number;
 	startedAt?: number;
+	/** Workflow run id (issue 14): a run-stamped child is never a fleet row —
+	 * the run's own workflow row reports for it. */
+	workflow?: string;
 };
 
 /**
@@ -110,16 +116,23 @@ export type WidgetRecord = ProjectableRecord & {
  * back to the first-seen cache for states without a clock (blocked, coarse
  * running); the cache restarts an episode on state change. Pure apart from
  * the cache.
+ *
+ * `liveRuns` (issue 14): the fleet's workflow children do NOT render as
+ * rows — the RUN reports for them — so each live run gets ONE row instead
+ * (`<name> │ running · N/M agents`), counted toward the header's active
+ * side, gone when the run settles.
  */
 export function buildWidgetModel(
 	records: WidgetRecord[],
 	projections: WidgetProjection[],
 	now: number,
 	cache: WidgetCache,
+	liveRuns: readonly WorkflowRun[] = [],
 ): WidgetModel {
 	const rows: WidgetRow[] = [];
 	for (let i = 0; i < records.length; i++) {
 		const record = records[i];
+		if (record.workflow) continue; // the run's row reports for it
 		const proj = projections[i];
 		if (record.delivery) continue; // rows leave on delivery — not a morgue
 
@@ -152,8 +165,8 @@ export function buildWidgetModel(
 			if (record.interruptedAt !== undefined) stateAgeMs = now - record.interruptedAt;
 			else if (record.watch?.problemSince !== undefined)
 				stateAgeMs = now - record.watch.problemSince;
-			else if (record.paneId) stateAgeMs = now - entry.since;
-			else stateAgeMs = now - record.spawnedAt;
+			else if (!record.paneId) stateAgeMs = now - record.spawnedAt;
+			else stateAgeMs = now - entry.since;
 		}
 
 		rows.push({
@@ -166,6 +179,18 @@ export function buildWidgetModel(
 			elapsedMs,
 			stateAgeMs,
 			blockedPreview: proj.blockedPreview,
+		});
+	}
+	// One row per live workflow run — in-flight work only, like every row here.
+	for (const run of liveRuns) {
+		const s = workflowStats(run.progress);
+		const elapsedMs = Math.max(0, now - run.startedAt);
+		rows.push({
+			name: run.meta.name,
+			status: "running",
+			detail: `${s.done}/${s.total} agents`,
+			elapsedMs,
+			stateAgeMs: elapsedMs,
 		});
 	}
 	const active = rows.filter((r) => ACTIVE_STATES.has(r.status)).length;
@@ -196,23 +221,7 @@ const PLAIN: WidgetStyle = {
 	inverse: (s) => s,
 };
 
-const ESC = String.fromCharCode(0x1b);
-function visibleLen(s: string): number {
-	let n = 0;
-	for (let i = 0; i < s.length; i++) {
-		if (s[i] !== ESC || s[i + 1] !== "[") {
-			n++;
-			continue;
-		}
-		const end = s.indexOf("m", i + 2);
-		if (end < 0) {
-			n++;
-			continue;
-		}
-		i = end;
-	}
-	return n;
-}
+const visibleLen = (s: string): number => s.replace(/\x1b\[[0-9;]*m/g, "").length;
 
 function fit(s: string, n: number): string {
 	return s.length <= n ? s : `${s.slice(0, Math.max(1, n - 1))}…`;
@@ -233,7 +242,14 @@ export function renderWidgetLines(
 		name: r.name,
 		left: `${formatElapsed(r.elapsedMs)}  ${r.name}`,
 		mid: r.detail ? `${r.status} · ${r.detail}` : r.status,
-		age: formatAge(r.stateAgeMs),
+		// An activity detail already carries its own age (`streaming 1m`);
+		// repeating the state age beside it reads as a bug when they coincide
+		// (`1m 1m` — the fresh-turn case, i.e. almost always). Keep the right
+		// column for details without an age and for blocked rows (callout).
+		age:
+			r.status !== "blocked" && r.detail && /\s\d+[smh]$/.test(r.detail)
+				? ""
+				: formatAge(r.stateAgeMs),
 		callout: r.status === "blocked",
 		preview: r.blockedPreview,
 	}));
@@ -249,17 +265,19 @@ export function renderWidgetLines(
 	// maxL + maxM + maxA + 5 wide between the bars, +2 with them.
 	const natural = maxL + maxM + maxA + 7;
 	const headerMin = counts.length + 18; // `─ Subagents ─ N active · M open ─`
-	// Hug content, keep the header shape when the terminal allows it, and
-	// never exceed `width` — raising F to headerMin on a narrow pane is what
-	// overflows pi's strict line-width check.
-	const F = Math.min(width, Math.max(natural, Math.min(headerMin, width)));
+	// Hug the content, cap at the terminal — the widget must NEVER exceed the
+	// supplied width: pi's TUI hard-crashes the session on any overwide line
+	// (manual e2e F11: the old headerMin floor rendered 35-char lines in a
+	// 26-col pane). In a narrow pane the header counts truncate; that is the
+	// right trade for not killing the session.
+	const F = Math.min(Math.max(20, width), Math.max(natural, headerMin), width);
 
 	// Shrink the name column first, then the state column (ages stay honest).
 	let LW = maxL;
 	let MW = maxM;
 	const budget = F - 7 - maxA; // LW + MW ≤ this keeps a row at width F
-	if (LW + MW > budget) LW = Math.max(1, budget - MW);
-	if (LW + MW > budget) MW = Math.max(1, budget - LW);
+	if (LW + MW > budget) LW = Math.max(8, budget - MW);
+	if (LW + MW > budget) MW = Math.max(6, budget - LW);
 
 	const bar = style.border("│");
 	const lines: string[] = [];
@@ -267,26 +285,33 @@ export function renderWidgetLines(
 
 	// header: ╭─ Subagents ────── N active · M open ─╮
 	const dashes = Math.max(1, F - counts.length - 16);
-	const headContent = `─ Subagents ${"─".repeat(Math.max(0, dashes - 1))} ${counts} ─`;
+	const headContent = `─ Subagents ${"─".repeat(dashes - 1)} ${counts} ─`;
 	lines.push(style.border("╭") + style.border(hardFit(headContent, F - 2)) + style.border("╮"));
 
 	for (const c of cells) {
+		// hardFit truncates, padEnd fills: a row must ALWAYS span the box. The
+		// header's dashes can make F wider than the row content (short states,
+		// narrow terminals) — unpadded rows floated short of the right border
+		// in exactly those states.
 		const content = hardFit(
 			` ${fit(c.left, LW)}${" ".repeat(Math.max(0, LW - c.left.length))}  ` +
 				`${fit(c.mid, MW)}${" ".repeat(Math.max(0, MW - c.mid.length))} ` +
 				`${c.age.padStart(maxA)} `,
 			F - 2,
-		);
+		).padEnd(F - 2);
 		lines.push(bar + content + bar);
 		if (c.callout) callouts.push(calloutLine(c.name, c.age, c.preview, width, style));
 	}
 
-	const footContent = hardFit("─".repeat(Math.max(1, F - 2)), Math.max(0, F - 2));
+	const footContent = "─".repeat(Math.max(1, F - 2));
 	lines.push(style.border("╰") + style.border(footContent) + style.border("╯"));
 	// The blocked callout sits beneath the whole table — the widget's one
 	// loud alarm (kept v0.5 amendment; the box is the quiet ambient view).
 	lines.push(...callouts);
-	return lines;
+	// The hard contract (F11): every line fits the supplied width, no matter
+	// what the assembly above does. hardFit is ANSI-aware, so this is a pure
+	// safety net — normal widths never hit it.
+	return lines.map((l) => hardFit(l, width));
 }
 
 function hardFit(s: string, n: number): string {
@@ -328,6 +353,8 @@ export interface WidgetDeps {
 	readActivity?: (activityPath?: string) => ActivityRead;
 	extract?: (sessionPath: string) => ExtractedResult | null;
 	now?: () => number;
+	/** The live workflow runs (issue 14) — default: the real runs registry. */
+	liveRuns?: () => readonly WorkflowRun[];
 	/** The setWidget sink — default: the orchestrator's ctx.ui. */
 	ui?: UiSink;
 }
@@ -423,9 +450,12 @@ export async function fleetWidgetOnce(deps: WidgetDeps = {}): Promise<void> {
 
 	// Rows leave on delivery — the table is in-flight work only, not a morgue
 	// (the registry keeps delivered records, so an empty ROWS view must clear
-	// exactly like an empty registry would).
-	const records = [...registry.values()].filter((r) => !r.delivery);
-	if (records.length === 0) {
+	// exactly like an empty registry would). Run-stamped records (issue 14)
+	// never render as rows at all — the run's own workflow row reports for
+	// them — and live runs keep the table up even with no ordinary rows.
+	const liveRuns = (deps.liveRuns ?? (() => [...liveWorkflowRuns().values()]))();
+	const records = [...registry.values()].filter((r) => !r.delivery && !r.workflow);
+	if (records.length === 0 && liveRuns.length === 0) {
 		clearOnce();
 		return;
 	}
@@ -467,14 +497,24 @@ export async function fleetWidgetOnce(deps: WidgetDeps = {}): Promise<void> {
 	for (const k of cache.keys()) if (!names.has(k)) cache.delete(k);
 
 	shown = true;
-	const model = buildWidgetModel(records, projections, now(), cache);
+	const model = buildWidgetModel(records, projections, now(), cache, [...liveRuns]);
 	sink.setWidget(WIDGET_KEY, (_tui, theme) => ({
-		render: (width) =>
-			renderWidgetLines(model, width, {
+		// ONE widget slot for table + workflow card (manual e2e F9): pi re-stacks
+		// widgets on every setWidget (delete + append), so two self-refreshing
+		// widgets flip vertical order forever. The card renders beneath the
+		// table, plain (it never used the theme).
+		render: (width) => [
+			...renderWidgetLines(model, width, {
 				dim: (s) => theme.fg("dim", s),
 				border: (s) => theme.fg(model.idle ? "warning" : "border", s),
 				inverse: (s) => theme.inverse(s),
 			}),
+			// F11: the card's own truncate is length-based (ASCII content); the
+			// ANSI-aware clamp keeps the whole widget inside pi's hard limit.
+			...(liveRuns.length
+				? layoutWorkflowCards(liveRuns, now(), width).map((l) => hardFit(l, width))
+				: []),
+		],
 		invalidate: () => {},
 	}));
 }

@@ -96,6 +96,17 @@ console.log("\n[1] Pure formatting: elapsed, counts, rendering");
 		`right column is state ages: ${ages.join(",")}`,
 	);
 	assert(
+		!row.endsWith("7m 7m"),
+		`no state age duplicated beside an age-bearing detail: ${row}`,
+	);
+	// header-dictated width (natural < headerMin): rows must still span the box
+	const narrowLines = wg.renderWidgetLines(idle, 80);
+	assert(
+		visible(narrowLines[1]).length === visible(narrowLines[0]).length &&
+			narrowLines[1].endsWith("│"),
+		`row spans the box when the header dictates width: ${visible(narrowLines[1])}`,
+	);
+	assert(
 		rendered.some((l) => l.startsWith("╰─")),
 		"box closes with the footer border",
 	);
@@ -123,6 +134,17 @@ console.log("\n[1] Pure formatting: elapsed, counts, rendering");
 		narrow.some((l) => l.includes("…")),
 		"narrow render truncates with an ellipsis",
 	);
+
+	// F11 (manual e2e crash): below headerMin (~35) the old code FLOORED the
+	// box at headerMin — 35-char lines in a 26-col pane crash pi's TUI. Every
+	// width, including sub-floor ones, must render inside the terminal.
+	for (const w of [26, 13]) {
+		const tiny = wg.renderWidgetLines(model, w);
+		assert(
+			tiny.length > 0 && tiny.every((l) => visible(l).length <= w),
+			`width ${w}: every line fits (got max ${Math.max(...tiny.map((l) => visible(l).length))})`,
+		);
+	}
 
 	// blocked callout beneath the box
 	const blockedModel = wg.buildWidgetModel(
@@ -374,6 +396,94 @@ console.log("\n[3] fleetWidgetOnce: sink sees the model, empty clears once");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\n[4] Workflow rows (issue 14): run-stamped children hidden, one row per live run");
+{
+	const NOW = 2_000_000;
+	const run = (over = {}) => ({
+		runId: "wf_card00001",
+		meta: { name: "review-changes", description: "d" },
+		startedAt: NOW - 60_000,
+		progress: [
+			{ type: "workflow_agent", index: 0, label: "a", state: "done", agentId: "w0", agentType: "t" },
+			{ type: "workflow_agent", index: 1, label: "b", state: "start", agentId: "w1", agentType: "t" },
+			{ type: "workflow_agent", index: 2, label: "c", state: "start", agentId: "w2", agentType: "t" },
+		],
+		...over,
+	});
+
+	// run-stamped records never render as ordinary fleet rows
+	const stamped = wg.buildWidgetModel(
+		[{ name: "wf-child", spawnedAt: NOW - 5_000, kind: "pi", submitted: true, sawWorking: true, workflow: "wf_card00001" }],
+		[{ status: "running" }],
+		NOW,
+		new Map(),
+		[],
+	);
+	eq(stamped.rows.length, 0, "run-stamped records are not fleet rows");
+
+	// one row per live run: name, running, N/M agents, elapsed — counted ACTIVE
+	const withRun = wg.buildWidgetModel(
+		[],
+		[],
+		NOW,
+		new Map(),
+		[run()],
+	);
+	eq(withRun.rows.length, 1, "one row per live run");
+	eq(withRun.rows[0].name, "review-changes", "the row names the workflow");
+	eq(withRun.rows[0].status, "running", "the run renders as running");
+	eq(withRun.rows[0].detail, "1/3 agents", "detail carries the N/M agent counts");
+	eq(withRun.rows[0].elapsedMs, 60_000, "elapsed from the run's start");
+	eq(withRun.active, 1, "the workflow row counts toward ACTIVE");
+	eq(withRun.idle, false, "a live run is not idle");
+
+	// (Settled runs never reach here — liveWorkflowRuns() filters by status,
+	// proven in the runs-registry section of tests/workflow-card.mjs.)
+
+	// fleetWidgetOnce: only workflow children in the registry + a live run →
+	// the table renders the workflow row alone (no clear, no child rows)
+	const liveRuns = () => [run()];
+	const wfChild = {
+		name: "wf-child",
+		paneId: "w1:p9",
+		spawnedAt: NOW - 5_000,
+		startedAt: NOW - 5_000,
+		kind: "pi",
+		submitted: true,
+		sawWorking: true,
+		workflow: "wf_card00001",
+	};
+	const seen = [];
+	await wg.fleetWidgetOnce({
+		registry: () => new Map([["wf-child", wfChild]]),
+		fleet: { ok: true, data: [{ paneId: "w1:p9", agentStatus: "working" }] },
+		readSidecar: () => ({ state: "missing" }),
+		readActivity: () => ({ state: "missing" }),
+		extract: () => null,
+		now: () => NOW,
+		liveRuns,
+		ui: { setWidget: (_k, factory) => seen.push(factory({}, { fg: (_c, s) => s, inverse: (s) => s }).render(120)) },
+	});
+	eq(seen.length, 1, "workflow-only fleet renders the table");
+	assert(seen[0].some((l) => l.includes("review-changes")), "the workflow row renders");
+	assert(!seen[0].some((l) => l.includes("wf-child")), "the workflow child itself does not");
+
+	// no visible records AND no live runs → clears once (unchanged rule)
+	const cleared = [];
+	await wg.fleetWidgetOnce({
+		registry: () => new Map([["wf-child", { ...wfChild, delivery: { kind: "done", at: NOW } }]]),
+		fleet: { ok: true, data: [] },
+		readSidecar: () => ({ state: "missing" }),
+		readActivity: () => ({ state: "missing" }),
+		extract: () => null,
+		now: () => NOW,
+		liveRuns: () => [],
+		ui: { setWidget: (_k, content) => cleared.push(content) },
+	});
+	eq(cleared.length, 1, "no rows + no runs clears the widget");
+	eq(cleared[0], undefined, "clear passes undefined");
+}
+
 console.log("\n[4] narrow terminal: no line exceeds the given width");
 {
 	const narrowModel = wg.buildWidgetModel(
@@ -399,6 +509,20 @@ console.log("\n[4] narrow terminal: no line exceeds the given width");
 			);
 		}
 	}
+	// with a real SGR style (the shapes pi themes emit), the narrow callout
+	// keeps the alarm word, the age, and closes the inverse (no style bleed)
+	const styled = {
+		dim: (s) => `\x1b[2m${s}\x1b[22m`,
+		border: (s) => `\x1b[38;5;245m${s}\x1b[39m`,
+		inverse: (s) => `\x1b[7m${s}\x1b[27m`,
+	};
+	const styledLines = wg.renderWidgetLines(narrowModel, 20, styled);
+	const styledCallout = styledLines.find((l) => l.includes("BLOCKED"));
+	assert(styledCallout !== undefined, "width 20 (SGR): the BLOCKED callout still renders");
+	assert(
+		styledCallout.includes("\x1b[27m"),
+		"width 20 (SGR): the inverse style is closed (no style bleed)",
+	);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

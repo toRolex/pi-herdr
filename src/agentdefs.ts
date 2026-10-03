@@ -323,9 +323,21 @@ export function validateAgentDefinition(raw: unknown): Result<AgentDefinition> {
 }
 
 /**
- * Resolve the spawn specifier: `type` xor `agent`, exactly one (wayfinder
- * ticket 01 decision 1 — no silent default agent). Returns the definition and
- * whether it came from the registry or was inline.
+ * Resolve the spawn specifier: `type` xor `agent`, exactly one — unless the
+ * caller opts into the prompt-only default (manual e2e F1 ruling: omitting
+ * everything spawns the built-in general-purpose type), in which case a fully
+ * omitted specifier resolves as `opts.defaultType` through the ordinary
+ * registry lookup (session > project > global > built-in — a project
+ * `general-purpose.md` still shadows the built-in). Surfaces without the
+ * opt-in (herdr_save_agent) keep demanding one of the two. Returns the
+ * definition and whether it came from the registry or was inline.
+ *
+ * Shape coercion (manual e2e F12): a bare string cannot be an inline
+ * definition, so `agent: "Explore"` is treated as `type: "Explore"`; a
+ * non-string object cannot be a registry name, so `type: {...}` is treated
+ * as the inline `agent` definition. Both-present still refuses before any
+ * coercion — the xor ruling stands even when a side has the wrong shape.
+ * A fired coercion rides the result as `coerced` so the receipt can say so.
  */
 export function resolveSpecifier(
 	spec: {
@@ -333,30 +345,61 @@ export function resolveSpecifier(
 		agent?: unknown;
 	},
 	dirs: AgentDirs = defaultAgentDirs(),
-): Result<{ definition: AgentDefinition; inline: boolean }> {
-	const hasType = spec.type !== undefined;
-	const hasAgent = spec.agent !== undefined;
-	if (hasType && hasAgent) {
+	opts?: { defaultType?: string },
+): Result<{ definition: AgentDefinition; inline: boolean; coerced?: string }> {
+	if (spec.type !== undefined && spec.agent !== undefined) {
 		return err(
 			"Pass exactly one of `type` (registry name) or `agent` (inline definition) — not both.",
 		);
 	}
+	let coerced: string | undefined;
+	if (spec.agent !== undefined && typeof spec.agent === "string") {
+		coerced = `specifier coerced — agent string treated as type '${spec.agent}'`;
+		spec = { type: spec.agent };
+	} else if (
+		spec.type !== undefined &&
+		typeof spec.type === "object" &&
+		spec.type !== null
+	) {
+		coerced =
+			"specifier coerced — type object treated as the inline agent definition";
+		spec = { agent: spec.type };
+	}
+	const hasType = spec.type !== undefined;
+	const hasAgent = spec.agent !== undefined;
 	if (!hasType && !hasAgent) {
-		return err(
-			'Pass one of `type` (registry name, e.g. "Explore") or `agent` (inline definition).',
-		);
+		if (!opts?.defaultType) {
+			return err(
+				'Pass one of `type` (registry name, e.g. "Explore") or `agent` (inline definition).',
+			);
+		}
+		spec = { type: opts.defaultType };
 	}
 	if (hasAgent) {
 		const v = validateAgentDefinition(spec.agent);
 		if (!v.ok) return v;
-		return { ok: true, data: { definition: v.data, inline: true } };
+		return {
+			ok: true,
+			data: {
+				definition: v.data,
+				inline: true,
+				...(coerced !== undefined ? { coerced } : {}),
+			},
+		};
 	}
 	if (typeof spec.type !== "string" || !spec.type.trim()) {
 		return err("`type` must be a non-empty string");
 	}
 	const r = resolveAgentType(spec.type, dirs);
 	if (!r.ok) return r;
-	return { ok: true, data: { definition: r.data.definition, inline: false } };
+	return {
+		ok: true,
+		data: {
+			definition: r.data.definition,
+			inline: false,
+			...(coerced !== undefined ? { coerced } : {}),
+		},
+	};
 }
 
 // ---- the `.md` frontmatter dialect (v0.6 issue 03) ----------------------------

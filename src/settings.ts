@@ -35,6 +35,8 @@ export interface HerdrSettings {
 	notifications: "none" | "quiet" | "normal";
 	idle_rearm_minutes: number;
 	workflows_enabled: boolean;
+	/** Pane layout chosen at spawn START. Missing → grid. */
+	layout_mode: "grid" | "spiral";
 }
 
 /** Row identity — dotted names address nested file locations. */
@@ -47,7 +49,8 @@ export type SettingKey =
 	| "max_spawn_depth"
 	| "notifications"
 	| "idle_rearm_minutes"
-	| "workflows_enabled";
+	| "workflows_enabled"
+	| "layout_mode";
 
 export type SettingValue =
 	| HerdrSettings["agents_kill_switch"]
@@ -80,8 +83,9 @@ export interface SettingKeyDef {
 }
 
 /**
- * The nine keys, in menu order: the safety gate first, then behavior — kind,
- * model routing, caps, notifications, and the v0.6 experience knobs.
+ * The keys, in menu order: the safety gate first, then behavior — kind,
+ * model routing, caps, notifications, the v0.6 experience knobs, and the
+ * pane layout chosen at the next spawn START.
  * (Decided by wayfinder tickets 03 + 09 — settings menu, surface cut.)
  */
 export const SETTING_KEYS: readonly SettingKeyDef[] = [
@@ -171,6 +175,16 @@ export const SETTING_KEYS: readonly SettingKeyDef[] = [
 		description:
 			"Register the workflow tool. A gate on new workflow runs only — never stops one in flight.",
 	},
+	{
+		key: "layout_mode",
+		group: "behavior",
+		type: "enum",
+		values: ["grid", "spiral"],
+		default: "grid",
+		path: ["layout_mode"],
+		description:
+			"Where the next spawn's pane lands. grid = equal-width 3×2 (default). spiral = golden-spiral, the upstream layout. Changing it does not move panes that already exist.",
+	},
 ];
 
 export const DEFAULT_SETTINGS: Readonly<HerdrSettings> = Object.freeze({
@@ -182,6 +196,7 @@ export const DEFAULT_SETTINGS: Readonly<HerdrSettings> = Object.freeze({
 	notifications: "normal",
 	idle_rearm_minutes: 15,
 	workflows_enabled: true,
+	layout_mode: "grid",
 });
 
 // Tests assert every SETTING_KEYS default matches DEFAULT_SETTINGS, so the

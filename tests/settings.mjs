@@ -68,8 +68,9 @@ console.log("\n[1] Defaults when no files exist");
 		r.effective.models.default === "" &&
 			eq(r.effective.models.agents, {}) &&
 			r.effective.idle_rearm_minutes === 15 &&
-			r.effective.workflows_enabled === true,
-		"models.default unset, models.agents empty, idle_rearm 15, workflows on",
+			r.effective.workflows_enabled === true &&
+			r.effective.layout_mode === "grid",
+		"models.default unset, models.agents empty, idle_rearm 15, workflows on, layout grid",
 	);
 	assert(
 		!("surface" in r.effective) && !("allow_save_agent" in r.effective),
@@ -244,6 +245,7 @@ console.log("\n[6] Invalid values skipped (with issue), other file wins");
 			max_spawn_depth: 0,
 			notifications: "loud",
 			idle_rearm_minutes: 0,
+			layout_mode: "mosaic",
 			models: { default: "", agents: { scout: 42 } },
 		}),
 	);
@@ -270,8 +272,30 @@ console.log("\n[6] Invalid values skipped (with issue), other file wins");
 		"record with a non-string value rejected wholesale -> default",
 	);
 	assert(
-		r.issues.length === 6 && r.issues.every((i) => /ignored/.test(i.problem)),
-		"each invalid value reported as ignored (6: depth×2, notifications, idle_rearm, models.default, models.agents)",
+		r.effective.layout_mode === "grid",
+		"invalid layout_mode falls through to the default (grid)",
+	);
+	assert(
+		r.issues.length === 7 && r.issues.every((i) => /ignored/.test(i.problem)),
+		"each invalid value reported as ignored (7: depth×2, notifications, idle_rearm, layout_mode, models.default, models.agents)",
+	);
+}
+
+console.log("\n[6b] layout_mode: missing is grid, explicit spiral wins");
+{
+	const missing = settings.loadSettings(pathsFor("d6b-missing"));
+	assert(
+		missing.effective.layout_mode === "grid" &&
+			missing.sources.layout_mode === "default",
+		"missing layout_mode → grid from the default",
+	);
+	const p = pathsFor("d6b-spiral");
+	writeFile(p.projectPath, JSON.stringify({ layout_mode: "spiral" }));
+	const spiral = settings.loadSettings(p);
+	assert(
+		spiral.effective.layout_mode === "spiral" &&
+			spiral.sources.layout_mode === "project",
+		"explicit spiral → spiral from the project file",
 	);
 }
 
@@ -457,6 +481,7 @@ console.log("\n[9] Menu: flat rows, ordering, sources, no restart markers");
 		"notifications",
 		"idle_rearm_minutes",
 		"workflows_enabled",
+		"layout_mode",
 	];
 	const rowKeys = first.options
 		.filter((o) => o !== KILL && o !== DONE)
@@ -905,6 +930,77 @@ console.log("\n[18] Schema consistency");
 		),
 		"surface / allow_save_agent absent from the key table",
 	);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[16] Menu: stop workflow run (issue 14) + kill-all stops runs");
+{
+	const NOW = 3_000_000;
+	const fakeRun = {
+		runId: "wf_card00001",
+		meta: { name: "review-changes", description: "d" },
+		startedAt: NOW - 30_000,
+		status: "running",
+		progress: [
+			{ type: "workflow_agent", index: 0, label: "a", state: "done", agentId: "w0", agentType: "t" },
+			{ type: "workflow_agent", index: 1, label: "b", state: "start", agentId: "w1", agentType: "t" },
+			{ type: "workflow_agent", index: 2, label: "c", state: "start", agentId: "w2", agentType: "t" },
+		],
+	};
+
+	// live runs present → the menu grows the Stop row, placed before Kill-all
+	const p = pathsFor("m16");
+	const stopped = [];
+	const stoppedAll = [];
+	const { ctx, calls } = scriptedCtx({
+		select: ["Stop workflow run", "review-changes — 1/3 agents (wf_card00001)", DONE],
+		confirm: [true],
+	});
+	await menu.runSettingsMenu(ctx, {
+		paths: p,
+		kindsFn,
+		liveRuns: () => [fakeRun],
+		stopRun: (runId) => {
+			stopped.push(runId);
+			return true;
+		},
+		stopAllRuns: () => {
+			stoppedAll.push(1);
+		},
+	});
+	const first = calls.select[0];
+	assert(
+		first.options.includes("Stop workflow run") &&
+			first.options.indexOf("Stop workflow run") < first.options.indexOf(KILL),
+		"Stop-workflow row shows when runs are live (before Kill-all)",
+	);
+	const picker = calls.select[1];
+	assert(/Stop which workflow/i.test(picker.title), "a picker lists the live runs");
+	assert(
+		picker.options.some((o) => o.includes("review-changes") && o.includes("1/3 agents")),
+		"picker rows carry name + N/M agents",
+	);
+	assert(/review-changes/.test(calls.confirm[0].title), "stopping confirms against the named run");
+	assert(eq(stopped, ["wf_card00001"]), "the picked run id is stopped");
+	assert(calls.notify.some((n) => /stopped/i.test(n.message)), "the stop is acknowledged");
+
+	// no live runs → no Stop row (the default in every other test section)
+	const quiet = scriptedCtx({ select: [DONE] });
+	await menu.runSettingsMenu(quiet.ctx, { paths: p, kindsFn });
+	assert(!quiet.calls.select[0].options.includes("Stop workflow run"), "no live runs → no Stop row");
+
+	// kill-all also stops workflow runs (no whack-a-mole respawns)
+	const herdrMock = herdrRecorder([{ ok: true, data: { agents: [] } }]);
+	const kill = scriptedCtx({ select: [KILL, DONE], confirm: [true] });
+	await menu.runSettingsMenu(kill.ctx, {
+		paths: p,
+		herdrFn: herdrMock.fn,
+		kindsFn,
+		stopAllRuns: () => {
+			stoppedAll.push(2);
+		},
+	});
+	assert(eq(stoppedAll, [2]), "kill-all stops live workflow runs (after confirm)");
 }
 
 // ---------------------------------------------------------------------------

@@ -64,7 +64,10 @@ export default function (pi: ExtensionAPI): void {
 		stopAllWorkflowRuns();
 	});
 	// The fleet widget (v0.6 issue 11) rides the SAME tick as a third
-	// consumer — the ambient table above the editor, read-only.
+	// consumer — the ambient table above the editor, read-only. The workflow
+	// progress card (v0.6 issue 14) renders beneath it in the SAME slot
+	// (manual e2e F9): pi re-stacks widgets on every setWidget, so a second
+	// self-refreshing slot would flip vertical order forever.
 	registerFleetWidget(pi);
 
 	// The /subagents command: settings menu + confirmed Kill-all-agents action.
