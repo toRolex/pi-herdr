@@ -47,6 +47,12 @@ import {
 	type ReadSidecarResult,
 } from "../sessionfile.js";
 import { spawnRecords, type SpawnRecord } from "../spawn.js";
+import {
+	defaultInputWake,
+	registerResultInputWake,
+	waitForInputOrPoll,
+	type InputWake,
+} from "../inputwake.js";
 
 // ---- engine types -------------------------------------------------------------
 
@@ -89,6 +95,7 @@ export interface ResultView {
 	/** True when the target was never spawned by this session (adopted pane). */
 	adopted?: boolean;
 	note?: string;
+	interruptedByInput?: true;
 }
 
 export interface GetResultParams {
@@ -117,6 +124,8 @@ export interface GetResultDeps {
 	sleep?: (ms: number) => Promise<void>;
 	now?: () => number;
 	pollMs?: number;
+	/** Undefined uses the registered foreground scope; null is a background wait. */
+	inputWake?: InputWake | null;
 	signal?: AbortSignal;
 }
 
@@ -430,6 +439,9 @@ export async function getAgentResult(
 	const now = deps.now ?? (() => Date.now());
 	const pollMs = deps.pollMs ?? 1_500;
 	const wait = params.wait;
+	let wake: InputWake | null | undefined;
+	if (wait) wake = deps.inputWake === undefined ? defaultInputWake() : deps.inputWake;
+	const epoch = wake?.epoch ?? 0;
 	let deadline: number;
 	if (wait === true) deadline = Infinity;
 	else if (typeof wait === "number") deadline = now() + wait;
@@ -453,9 +465,25 @@ export async function getAgentResult(
 			return { ok: true, data: await inspectAdopted(params.target, deps, lines) };
 		}
 		const view = await inspectRecord(params.target, record, deps, lines);
+		if (deps.signal?.aborted) return err("TIMEOUT", "aborted");
 		if (TERMINAL.has(view.status) || now() >= deadline)
 			return { ok: true, data: view };
-		await (deps.sleep ?? sleep)(pollMs);
+		if (wake && wake.epoch !== epoch) {
+			return {
+				ok: true,
+				data: {
+					...view,
+					interim: true,
+					interruptedByInput: true,
+					note: "Input arrived while waiting. Handle the queued message before waiting again.",
+				},
+			};
+		}
+		if (wake) {
+			await waitForInputOrPoll(
+				wake, epoch, Math.min(pollMs, Math.max(0, deadline - now())), deps.signal,
+			);
+		} else await (deps.sleep ?? sleep)(pollMs);
 	}
 }
 
@@ -659,6 +687,7 @@ function render(view: ResultView): ToolReturn {
 }
 
 export function registerResultTool(pi: ExtensionAPI): void {
+	registerResultInputWake(pi);
 	pi.registerTool({
 		name: "herdr_get_agent_result",
 		label: "Get herdr agent result",

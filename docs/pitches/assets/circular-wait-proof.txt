@@ -1,0 +1,57 @@
+Circular wait proof excerpts (safe to share)
+
+1. Before patch, legacy-compatible circular repro
+Source: .agents/notes/circular-wait-implementation-notes.md, recorded failing output.
+This is recorded evidence, not a new run or a pre-fix commit.
+QUESTION_SENT parent=working child=idle
+RED parent consumed question and replied=false; elapsed=2509ms
+Steering: <agent-message from="circular-ekdqa7" to="orchestrator">
+herdr_get_agent_result target="circular-ekdqa7" wait=true
+CHILD_STATE agent_status=working
+$ sleep 0.1
+AssertionError: parent must consume child question and send ACK within 2.5s while waiting for child
+
+2. After patch, same default legacy-compatible circular repro
+Source: /tmp/pi-herdr-circular-review-live.log
+SHA256: 4432a2674f2be17a9f79c0c0f864e4cb762b64ea1cc387779271b66c342dfe76
+GREEN parent consumed question and replied=true; elapsed=566ms
+GREEN full circular exchange progressed and child completed after ACK
+GREEN parent consumes and answers ordinary user input
+
+3. After patch, independent busy-tool control
+Source: /tmp/pi-herdr-circular-review-busy.log
+SHA256: 3ac2f69dcd2b64c2f63089fa186d9134efb9076c286658beb724b33cb3b9a1a4
+GREEN parent consumed question and replied=true; elapsed=1588ms
+GREEN full circular exchange progressed and child completed after ACK
+GREEN parent consumes and answers ordinary user input
+The harness separately asserts non-error UNRELATED_TOOL_FINISHED. These GREEN lines alone do not show that tool result.
+
+4. Retained isolated workflow proof, snapshot registration
+Source: .artifacts/verification/verify-20261003-reviewed-final/result.json
+SHA256: bcf9a4a7b035512b52812dfd25a00db4906cd06dcd480ee5b241589b71fc0c08
+feature=workflow; exitCode=0
+GREEN parent consumed question and replied=true; elapsed=1ms
+GREEN full circular exchange progressed and child completed after ACK
+GREEN parent consumes and answers ordinary user input
+The 1ms label is the harness observation interval after question detection, not end-to-end message latency.
+
+Parent tool receipt fields (projected, not fabricated):
+Source: .artifacts/verification/verify-20261003-reviewed-final/parent.jsonl
+SHA256: b5906d06660f5141fa6c2d0f066043fe1c74add19976358aa336e5fd7b702adf
+{"timestamp":"2026-10-03T11:28:23.383Z","toolName":"herdr_message_agent","delivered":true,"isError":false}
+
+Child model-context ACK and following assistant completion (text projection):
+Source: .artifacts/verification/verify-20261003-reviewed-final/children/1.jsonl
+SHA256: 1664ae997ae86375d547c62354670c5b68254452cb2df7aa1ab9cb8a0c25ee28
+2026-10-03T11:28:23.392Z role=user
+<agent-message from="circular-jxwc0f-parent" to="circular-jxwc0f">
+PARENT_ACK
+</agent-message>
+2026-10-03T11:28:23.394Z role=assistant
+CHILD_COMPLETE_AFTER_ACK
+
+Terminal screenshot source SHA256: 833cd4787b69cbb1ce2cb48fa8ede3aefb38028751841e219fb5e3f68a5dd217
+Terminal screenshot contains only selected signal lines, not completion.
+Raw evidence has local paths and fixture context; intentionally not embedded here.
+No passwords, provider credentials, session headers or local user paths are copied.
+Deterministic provider controls model decisions. This is CLI/TUI transport and lifecycle evidence, not autonomous-model evaluation.

@@ -153,7 +153,7 @@ export function createWorkflowHost(deps: WorkflowHostDeps): WorkflowHost {
 		for (;;) {
 			const r = await (deps.result ?? getAgentResult)(
 				{ target: handle, wait: true },
-				{ signal: deps.signal },
+				{ signal: deps.signal, inputWake: null },
 			);
 			if (!r.ok) {
 				return { ok: false, error: r.error.message === "aborted" ? "aborted" : r.error.message };
