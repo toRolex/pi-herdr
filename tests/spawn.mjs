@@ -1611,6 +1611,8 @@ console.log("\n[23] roster menu — prepareLoadout renders the effective registr
 	const mockPi2 = { registerTool: (d) => tools2.push(d), on: () => {} };
 	agentsTool.registerAgents(mockPi2, { dirs: { project, global } });
 	const t2 = tools2.find((x) => x.name === "herdr_spawn_agent");
+	assert(t2.promptGuidelines.every((line) => line.includes("herdr_spawn_agent")),
+		"every spawn prompt guideline names herdr_spawn_agent");
 	const menuOf = () =>
 		t2.prepareLoadout().descriptions["herdr_spawn_agent"];
 	const menu = menuOf();
@@ -1682,6 +1684,22 @@ console.log("\n[23] roster menu — prepareLoadout renders the effective registr
 		menu.includes("re-resolves"),
 		"menu tail carries the hint disclaimer and re-resolution wording",
 	);
+	const separatorName = "Name\u2028Next\u2029End";
+	spawn.registerSessionAgent({ name: separatorName, description: "line-safe name" });
+	const separatorMenu = menuOf();
+	const separatorLine = separatorMenu.split(/[\n\r\u2028\u2029]/u)
+		.find((line) => line.endsWith(": line-safe name"));
+	assert(separatorLine === '- "Name\\u2028Next\\u2029End": line-safe name',
+		"Unicode line separators in names render as one complete JSON-string line");
+	assert(separatorLine?.startsWith('- "Name') && JSON.parse(separatorLine.slice(2, -': line-safe name'.length)) === separatorName &&
+		spawn.resolveAgentType(separatorName, { project, global }).ok,
+		"line-safe name round-trips losslessly and resolves as type");
+	spawn.registerSessionAgent({ name: "Dup", description: "session wins over both files" });
+	const sessionMenu = menuOf();
+	assert(sessionMenu.split("\n").filter((line) => line.startsWith('- "Dup": ')).length === 1 &&
+		sessionMenu.includes('- "Dup": session wins over both files') &&
+		!sessionMenu.includes("project wins") && !sessionMenu.includes("global loses"),
+		"session definition shadows both file layers exactly once on the menu seam");
 	// read-at-use: a file added after registration shows up, deleting removes it
 	w(project, "later.md", md('name: Later\ndescription: late arrival'));
 	assert(menuOf().includes('- "Later": late arrival'), "a saved .md enters the menu without refresh");
@@ -1792,6 +1810,14 @@ console.log(
 		entryLine(menu, "EscapeExact") === `- "EscapeExact": ${"\\u0007".repeat(85)}ab`,
 		"512 bytes after control escaping remain complete without a marker",
 	);
+	// Each generated escape is one representation unit, even near the cutoff.
+	for (const prefix of [508, 507, 506, 503]) {
+		spawn.registerSessionAgent({ name: "EscapeBoundary", description: "A".repeat(prefix) + "\u0007" + "B".repeat(10) });
+		const expected = prefix === 503 ? "A".repeat(503) + "\\u0007…" : "A".repeat(prefix) + "…";
+		assert(entryLine(menu18(), "EscapeBoundary") === `- "EscapeBoundary": ${expected}`,
+			`control escape stays whole at ${prefix}-byte prefix`);
+	}
+	spawn.clearSessionAgents();
 	const escapeDesc = entryLine(menu, "EscapeLong").slice('- "EscapeLong": '.length);
 	assert(byteLen(escapeDesc) <= 512 && escapeDesc.endsWith("…"),
 		"escape expansion and omission marker both count toward the budget");

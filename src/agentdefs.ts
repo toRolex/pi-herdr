@@ -326,22 +326,25 @@ const ROSTER_DESC_MARKER = "…"; // U+2026, 3 UTF-8 bytes
  * Render one description for the menu: collapse runs of whitespace
  * (newlines/tabs included) to single spaces and trim, escape remaining C0
  * controls + DEL/C1 as fixed-width `\u00xx` text, then — if the result still
- * exceeds the byte budget — cut on a code-point boundary so the marker fits.
+ * exceeds the byte budget — cut between complete representation tokens so
+ * neither a code point nor a generated control escape is split.
  * Deterministic on every input; same description in, same bytes out.
  */
 function renderDescription(description: string): string {
-	let s = description.replace(/\s+/gu, " ").trim();
-	s = s.replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) =>
-		`\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+	const tokens = Array.from(description.replace(/\s+/gu, " ").trim(), (ch) =>
+		/[\u0000-\u001f\u007f-\u009f]/u.test(ch)
+			? `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`
+			: ch,
 	);
-	if (byteLength(s) <= ROSTER_DESC_BUDGET_BYTES) return s;
+	const rendered = tokens.join("");
+	if (byteLength(rendered) <= ROSTER_DESC_BUDGET_BYTES) return rendered;
 	const budget = ROSTER_DESC_BUDGET_BYTES - byteLength(ROSTER_DESC_MARKER);
 	let out = "";
 	let used = 0;
-	for (const ch of s) {
-		const b = byteLength(ch);
+	for (const token of tokens) {
+		const b = byteLength(token);
 		if (used + b > budget) break;
-		out += ch;
+		out += token;
 		used += b;
 	}
 	return out + ROSTER_DESC_MARKER;
@@ -364,7 +367,7 @@ function byteLength(s: string): number {
 export function renderRoster(dirs: AgentDirs = defaultAgentDirs()): string {
 	const lines = effectiveRoster(dirs).map(
 		(e) =>
-			`- ${JSON.stringify(e.name)}: ${
+			`- ${JSON.stringify(e.name).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029")}: ${
 				e.layer === "built-in"
 					? (e.definition.description ?? "未提供描述")
 					: renderDescription(e.definition.description ?? "未提供描述")

@@ -210,7 +210,7 @@ export function registerAgents(
 		}),
 		promptGuidelines: [
 			"Use herdr_spawn_agent to fan out background work: it spawns the pane, submits the prompt, and returns a handle you address later.",
-			"Choose an agent by matching the task to the responsibilities in the current roster.",
+			"For herdr_spawn_agent, choose an agent by matching the task to the responsibilities in the current roster.",
 		],
 		parameters: Type.Object({
 			prompt: Type.String({
