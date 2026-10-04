@@ -1700,6 +1700,160 @@ console.log("\n[23] roster menu — prepareLoadout renders the effective registr
 
 // ---------------------------------------------------------------------------
 console.log(
+	"\n[24] roster description budget — flatten/escape/512-byte cap (issue 18)",
+);
+{
+	reset();
+	const project = mkdtempSync(join(tmpdir(), "pi-herdr-roster18-p-"));
+	const global = mkdtempSync(join(tmpdir(), "pi-herdr-roster18-g-"));
+	mkdirSync(project, { recursive: true });
+	mkdirSync(global, { recursive: true });
+	const w = (dir, file, content) => writeFileSync(join(dir, file), content, "utf8");
+	const md = (name, desc) =>
+		desc === undefined
+			? `---\nname: ${JSON.stringify(name)}\n---\n\nbody\n`
+			: `---\nname: ${JSON.stringify(name)}\ndescription: ${JSON.stringify(desc)}\n---\n\nbody\n`;
+
+	// multi-line + tab description — flattened to a single line
+	w(project, "multi.md", md("Multi", "line one\nline two\ttail"));
+	w(project, "unicode.md", md("Unicode", "  one\u00a0\u2003two\u2028three\u2029four  "));
+	// control character — escaped, visible as escape text
+	w(project, "bell.md", md("Bell", "alert \u0007 end"));
+	w(project, "controls.md", md("Controls", "a\u0000\u001b\u007f\u0085\u009fb"));
+	// over-budget description (long ascii, will exceed 512 bytes)
+	w(project, "long.md", md("Long", "A".repeat(600)));
+	// description exactly at the budget after flattening — must NOT be cut
+	const exactly512 = "B".repeat(512);
+	w(project, "exact.md", md("Exact", exactly512));
+	// multibyte boundary: 200 × 3-byte CJK = 600 bytes; 512-3=509 bytes fit →
+	// 169 full chars (507 bytes) + 3-byte marker = 510; one more char would be 513
+	const cjk = "漢".repeat(200);
+	w(project, "cjk.md", md("Cjk", cjk));
+	w(project, "emoji.md", md("Emoji", "😀".repeat(129)));
+	w(project, "escape-exact.md", md("EscapeExact", "\u0007".repeat(85) + "ab"));
+	w(project, "escape-long.md", md("EscapeLong", "\u0007".repeat(100)));
+	// missing description — placeholder unaffected by any of this
+	w(project, "nodesc.md", md("NoDesc18"));
+	// long legal name — never truncated, resolves verbatim
+	const longName = '  "' + "名".repeat(300) + '\n  ';
+	w(project, "longname.md", md(longName, "fine"));
+
+	const tools18 = [];
+	agentsTool.registerAgents(
+		{ registerTool: (d) => tools18.push(d), on: () => {} },
+		{ dirs: { project, global } },
+	);
+	const t18 = tools18.find((x) => x.name === "herdr_spawn_agent");
+	const menu18 = () => t18.prepareLoadout().descriptions["herdr_spawn_agent"];
+	const menu = menu18();
+	const entryLine = (m, name) =>
+		m.split("\n").find((l) => l.startsWith(`- ${JSON.stringify(name)}: `));
+
+	assert(
+		entryLine(menu, "Multi")?.includes("line one line two tail"),
+		"multi-line/tab description flattened to a single line",
+	);
+	assert(
+		entryLine(menu, "Multi") === '- "Multi": line one line two tail',
+		"flattened entry is one complete physical line in the menu",
+	);
+	assert(
+		entryLine(menu, "Bell")?.includes("\\u0007"),
+		"control character rendered as an escape, not a raw byte",
+	);
+	assert(
+		entryLine(menu, "Unicode") === '- "Unicode": one two three four',
+		"Unicode whitespace and line separators flatten to ordinary spaces",
+	);
+	assert(
+		entryLine(menu, "Controls") === '- "Controls": a\\u0000\\u001b\\u007f\\u0085\\u009fb',
+		"non-whitespace C0, DEL and C1 controls render visibly as escapes",
+	);
+	const longLine = entryLine(menu, "Long");
+	assert(longLine.endsWith("…"), "over-budget description carries the ellipsis marker");
+	assert(
+		!longLine.includes("A".repeat(600)),
+		"over-budget description is actually cut",
+	);
+	const byteLen = (s) => Buffer.byteLength(s, "utf8");
+	assert(
+		byteLen(longLine.split(": ").slice(1).join(": ")) <= 512,
+		"rendered description (escaping + marker included) fits 512 UTF-8 bytes",
+	);
+	assert(
+		entryLine(menu, "Exact")?.split(": ").slice(1).join(": ") === exactly512,
+		"description at exactly the budget is not truncated",
+	);
+	assert(
+		entryLine(menu, "Emoji") === `- "Emoji": ${"😀".repeat(127)}…`,
+		"astral code points are not split at the UTF-8 budget boundary",
+	);
+	assert(
+		entryLine(menu, "EscapeExact") === `- "EscapeExact": ${"\\u0007".repeat(85)}ab`,
+		"512 bytes after control escaping remain complete without a marker",
+	);
+	const escapeDesc = entryLine(menu, "EscapeLong").slice('- "EscapeLong": '.length);
+	assert(byteLen(escapeDesc) <= 512 && escapeDesc.endsWith("…"),
+		"escape expansion and omission marker both count toward the budget");
+	const cjkDesc = entryLine(menu, "Cjk")?.split(": ").slice(1).join(": ");
+	assert(
+		cjkDesc?.endsWith("…") && byteLen(cjkDesc) <= 512 && !cjkDesc.includes("\ufffd"),
+		"multibyte description truncated on a code-point boundary with marker, ≤512 bytes, no replacement chars",
+	);
+	assert(
+		entryLine(menu, "NoDesc18")?.endsWith(": 未提供描述"),
+		"missing-description placeholder still intact",
+	);
+	assert(
+		menu.includes(`- ${JSON.stringify(longName)}: fine`),
+		"name over 512 UTF-8 bytes with quotes/newline renders losslessly",
+	);
+	assert(
+		spawn.resolveAgentType(longName, { project, global }).ok,
+		"long name still resolves verbatim through resolveAgentType",
+	);
+	// built-in exemption: only true built-in winners keep full descriptions
+	assert(
+		entryLine(menu, "Explore") === `- "Explore": ${TINTINWEB.Explore.description}`,
+		"true built-in Explore winner keeps its entire over-512-byte description",
+	);
+	const menu18a = menu18();
+	assert(menu === menu18a, "same registry renders byte-identical menus (budget path)");
+	// visible change reflects on the next request
+	w(project, "long.md", md("Long", "short now"));
+	assert(
+		entryLine(menu18(), "Long")?.endsWith(": short now"),
+		"changed description reflects on the next request",
+	);
+	// a project override of a built-in does NOT enjoy the exemption
+	w(project, "explore.md", md("Explore", "X".repeat(600)));
+	const expLine = entryLine(menu18(), "Explore");
+	assert(
+		expLine?.endsWith("…") &&
+			!expLine.includes("Fast read-only search agent"),
+		"overridden built-in gets the budget + marker, not the original description",
+	);
+
+	// A modest fixture can exceed any per-description budget without losing entries.
+	for (let i = 0; i < 40; i++) {
+		w(global, `bulk-${i}.md`, md(`Bulk${i}`, "Z".repeat(600)));
+	}
+	spawn.registerSessionAgent({ name: "Inline18", description: "I".repeat(600) });
+	const fullMenu = menu18();
+	assert(Array.from({ length: 40 }, (_, i) => `Bulk${i}`).every(name =>
+		entryLine(fullMenu, name)?.endsWith("…")), "all file entries survive with no total menu budget or count cap");
+	assert(entryLine(fullMenu, "Inline18") === `- "Inline18": ${"I".repeat(509)}…`,
+		"session winners use the same description budget as file winners");
+	assert(fullMenu.includes("small trusted registries") && fullMenu.includes("large directories is not promised"),
+		"model-visible menu states the small trusted registry scale contract");
+
+	reset();
+	rmSync(project, { recursive: true, force: true });
+	rmSync(global, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
+console.log(
 	`\n${failed === 0 ? "✅ ALL PASS" : "❌ SOME FAILED"} (${passed}/${passed + failed})`,
 );
 process.exit(failed === 0 ? 0 : 1);
