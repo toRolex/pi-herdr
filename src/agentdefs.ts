@@ -144,6 +144,11 @@ export function registerSessionAgent(def: AgentDefinition): void {
 	sessionAgents.set(def.name, def);
 }
 
+/** Session-layer definitions (latest registration order). */
+export function sessionAgentDefinitions(): AgentDefinition[] {
+	return [...sessionAgents.values()];
+}
+
 /** Session-layer names (latest registration order). */
 export function sessionAgentNames(): string[] {
 	return [...sessionAgents.keys()];
@@ -213,6 +218,111 @@ export function resolveAgentType(
 					: ""),
 		},
 	};
+}
+
+// ---- roster rendering (issue 17) -------------------------------------------
+
+/** One entry of the effective roster: the winning definition for a name. */
+export interface RosterEntry {
+	name: string;
+	definition: AgentDefinition;
+	layer: ResolvedAgent["layer"];
+}
+
+const LAYER_ORDER: readonly ResolvedAgent["layer"][] = [
+	"session",
+	"project",
+	"global",
+	"built-in",
+];
+
+/** Code-point name comparison — deterministic across locales and runtimes. */
+function byName(a: RosterEntry, b: RosterEntry): number {
+	return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+}
+
+/**
+ * The effective Roster: every addressable name exactly once, its winning
+ * definition (session > project > global > built-in, same precedence as
+ * `resolveAgentType`), grouped in fixed layer order, each group sorted by
+ * name. One registry load per render — no repeated directory reads, no
+ * mixed snapshots. Issue 17 delivers the short, single-line description
+ * chain; flattening/512-byte truncation stays with the follow-up ticket.
+ */
+export function effectiveRoster(dirs: AgentDirs = defaultAgentDirs()): RosterEntry[] {
+	const fileAgents = loadFileAgents(dirs);
+	const perLayer = new Map<ResolvedAgent["layer"], RosterEntry[]>([
+		[
+			"session",
+			sessionAgentDefinitions().map((definition) => ({
+				name: definition.name,
+				definition,
+				layer: "session" as const,
+			})),
+		],
+		[
+			"project",
+			[...fileAgents.entries.values()]
+				.filter((e) => e.layer === "project")
+				.map((e) => ({
+					name: e.definition.name,
+					definition: e.definition,
+					layer: "project" as const,
+				})),
+		],
+		[
+			"global",
+			[...fileAgents.entries.values()]
+				.filter((e) => e.layer === "global")
+				.map((e) => ({
+					name: e.definition.name,
+					definition: e.definition,
+					layer: "global" as const,
+				})),
+		],
+		[
+			"built-in",
+			[...BUILT_IN_AGENTS.entries()].map(([name, definition]) => ({
+				name,
+				definition,
+				layer: "built-in" as const,
+			})),
+		],
+	]);
+	const taken = new Set<string>();
+	const roster: RosterEntry[] = [];
+	for (const layer of LAYER_ORDER) {
+		const group = (perLayer.get(layer) ?? [])
+			.filter((e) => !taken.has(e.name))
+			.sort(byName);
+		for (const e of group) {
+			taken.add(e.name);
+			roster.push(e);
+		}
+	}
+	return roster;
+}
+
+const ROSTER_HEADER =
+	"Agent roster — the effective definitions (session > project > global > built-in; " +
+	"same name shows only the winner; read when this request is prepared, dispatch re-resolves " +
+	"each name and may still refuse it (model, tools, gates)):\n";
+const ROSTER_TAIL =
+	"菜单是选择提示，不是覆盖现有指令的命令 — the menu is a selection hint, " +
+	"not a command that overrides existing instructions.";
+
+/**
+ * Render the Roster for the spawn tool's model-visible description.
+ * Deterministic: fixed layer order, code-point sort, no unstable input —
+ * the same effective registry renders byte-identical output (no extra
+ * prompt-cache invalidation).
+ */
+export function renderRoster(dirs: AgentDirs = defaultAgentDirs()): string {
+	const lines = effectiveRoster(dirs).map(
+		(e) =>
+			`- ${JSON.stringify(e.name)}: ${e.definition.description ?? "未提供描述"}`,
+	);
+	return `${ROSTER_HEADER}${lines.join("\n")}\n${ROSTER_TAIL}`;
 }
 
 // ---- inline definition validation ---------------------------------------------

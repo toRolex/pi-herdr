@@ -16,8 +16,16 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { spawnAgent } from "../spawn.js";
 import { saveAgent } from "../agentdefs.js";
+import type { AgentDirs } from "../agentdefs.js";
+import { defaultAgentDirs, renderRoster } from "../agentdefs.js";
 import type { ToolReturn } from "../env.js";
-import { BUILT_IN_AGENTS } from "../agentdefs.js";
+
+const ROSTER_TOOL_NAME = "herdr_spawn_agent";
+
+/** The full model-visible description: static mechanics + the live Roster. */
+function renderSpawnDescription(dirs: AgentDirs = defaultAgentDirs()): string {
+	return `${DESCRIPTION}\n\n${renderRoster(dirs)}`;
+}
 
 function fail(message: string, code: string, details?: unknown): ToolReturn {
 	return {
@@ -25,13 +33,6 @@ function fail(message: string, code: string, details?: unknown): ToolReturn {
 		details: { error: { code, message, details } },
 		isError: true,
 	};
-}
-
-/** The trio's full descriptions, verbatim, for the tool description. */
-function builtInTypeLines(): string {
-	return [...BUILT_IN_AGENTS.values()]
-		.map((d) => `- ${d.name} (${d.kind}) — ${d.description}`)
-		.join("\n");
 }
 
 /** The honest fork costs (issue 09, wayfinder ticket 05) — one wording shared
@@ -45,10 +46,8 @@ const DESCRIPTION =
 	"Specify the agent by `type` (registry), an inline `agent` definition, or NEITHER — " +
 	"a prompt-only spawn (just `prompt`, optionally `name`) defaults to the built-in general-purpose " +
 	"type (pi kind, autonomous stance). `type` and `agent` are mutually exclusive — never both. " +
-	`Built-in types:\n${builtInTypeLines()}\n` +
-	"The registry also serves `.md` definitions from `.pi/agents/` (project) and the global " +
-	"agents dir — project shadows global, session inline definitions shadow both. " +
-	"Inline definitions from earlier spawns this session are addressable by `type` too. " +
+	"The current agent menu (the effective Roster) is appended below by prepareLoadout on every " +
+	"request — choose types from it, not from a static list. " +
 	"Inline `agent` fields: name, description, kind, model, thinking, system_prompt, prompt_mode " +
 	"(replace|append, default replace), tools, exclude_tools, skills (pi-only), agent_args " +
 	"(raw CLI flags), session_mode (standalone|lineage-only|fork), auto_exit, interactive, " +
@@ -196,15 +195,22 @@ export function spawnFromTool(
 	);
 }
 
-export function registerAgents(pi: ExtensionAPI): void {
+export function registerAgents(
+	pi: ExtensionAPI,
+	opts: { dirs?: AgentDirs } = {},
+): void {
+	const dirs = opts.dirs ?? defaultAgentDirs();
 	pi.registerTool({
 		name: "herdr_spawn_agent",
 		label: "Spawn herdr agent",
 		description: DESCRIPTION,
 		promptSnippet: "Spawn a background herdr agent pane running a task prompt",
+		prepareLoadout: () => ({
+			descriptions: { [ROSTER_TOOL_NAME]: renderSpawnDescription(dirs) },
+		}),
 		promptGuidelines: [
 			"Use herdr_spawn_agent to fan out background work: it spawns the pane, submits the prompt, and returns a handle you address later.",
-			"Prefer the built-in read-only types (Explore, Plan) for search/planning; general-purpose for multi-step work.",
+			"Choose an agent by matching the task to the responsibilities in the current roster.",
 		],
 		parameters: Type.Object({
 			prompt: Type.String({

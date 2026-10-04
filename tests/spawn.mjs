@@ -16,7 +16,14 @@
 // Run: node tests/spawn.mjs
 
 import { createJiti } from "jiti";
-import { readFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	rmSync,
+	readFileSync,
+	writeFileSync,
+	mkdirSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -1026,10 +1033,20 @@ console.log("\n[16] Tool registration surface");
 	const t = tools.find((x) => x.name === "herdr_spawn_agent");
 	assert(!!t, "herdr_spawn_agent registered");
 	assert(
-		t.description.includes("Fast read-only search agent") &&
-			t.description.includes("Software architect agent") &&
-			t.description.includes("General-purpose agent for researching"),
-		"description carries the trio's full text",
+		!/Built-in types:/.test(t.description),
+		"static description no longer carries the built-in menu block",
+	);
+	assert(t.prepareLoadout, "spawn tool prepares a request-time roster");
+	const loadout = t.prepareLoadout();
+	const liveMenu =
+		loadout?.descriptions && loadout.descriptions["herdr_spawn_agent"];
+	assert(
+		typeof liveMenu === "string" && liveMenu.includes('- "Explore":'),
+		"roster renders names as JSON strings through the loadout descriptions map",
+	);
+	assert(
+		liveMenu.includes("选择提示，不是覆盖现有指令的命令"),
+		"roster includes menu safety note",
 	);
 	// Manual e2e F1: prompt-only no longer refuses (asserted via
 	// resolveSpecifier + spawnAgent in [1]/[9]); the impossible state — BOTH
@@ -1563,6 +1580,122 @@ console.log("\n[22] grid lock timeout / abort preserve serialization");
  await spawn.spawnAgent({ prompt: "x", type: "Explore", name: "env-check", group: "env" }, tab.deps);
  const command = tab.commands.find(c => c[0] === "tab" && c[1] === "create");
  assert(Object.entries(tab.calls.start[0].env).every(([k,v]) => command.includes(k + "=" + v)), "tab and agent launch carry identical child env including idle re-arm");
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[23] roster menu — prepareLoadout renders the effective registry");
+{
+	reset();
+	const project = mkdtempSync(join(tmpdir(), "pi-herdr-roster-p-"));
+	const global = mkdtempSync(join(tmpdir(), "pi-herdr-roster-g-"));
+	mkdirSync(project, { recursive: true });
+	mkdirSync(global, { recursive: true });
+	const w = (dir, file, content) => writeFileSync(join(dir, file), content, "utf8");
+	const md = (front) => `---\n${front}\n---\n\nbody prompt\n`;
+	// same name in both file layers — project must win
+	w(project, "dup.md", md('name: Dup\ndescription: project wins'));
+	w(global, "dup.md", md('name: Dup\ndescription: global loses'));
+	w(global, "zebra.md", md('name: Zebra\ndescription: stripes'));
+	// legal name with leading/trailing whitespace, quotes, newline
+	w(project, 'weird.md', md('name: "  \\"q\\" \\n"\ndescription: odd name'));
+	// no description
+	w(project, "nodesc.md", md('name: NoDesc'));
+	// malformed — must be skipped silently
+	w(project, "broken.md", "no frontmatter here\n");
+	// built-in override
+	w(project, "explore.md", md('name: Explore\ndescription: project Explore'));
+	// session inline registration
+	spawn.registerSessionAgent({ name: "Inline", description: "session layer" });
+
+	const tools2 = [];
+	const mockPi2 = { registerTool: (d) => tools2.push(d), on: () => {} };
+	agentsTool.registerAgents(mockPi2, { dirs: { project, global } });
+	const t2 = tools2.find((x) => x.name === "herdr_spawn_agent");
+	const menuOf = () =>
+		t2.prepareLoadout().descriptions["herdr_spawn_agent"];
+	const menu = menuOf();
+
+	assert(menu.includes('- "Inline": session layer'), "session inline defs are on the menu");
+	assert(menu.includes('- "Dup": project wins'), "project file wins over global");
+	assert(!menu.includes("global loses"), "shadowed global definition does not appear");
+	assert(menu.includes('- "Zebra": stripes'), "global-only defs are on the menu");
+	assert(
+		menu.includes('- "Explore": project Explore') &&
+			!menu.includes("Fast read-only search agent"),
+		"overridden built-in shows only the winning definition",
+	);
+	assert(
+		!menu.includes("Fast read-only search agent"),
+		"overridden built-in's original description is fully gone from this menu",
+	);
+	const menu2 = (() => {
+		const p2 = mkdtempSync(join(tmpdir(), "pi-herdr-roster-p2-"));
+		const g2 = mkdtempSync(join(tmpdir(), "pi-herdr-roster-g2-"));
+		const t3tools = [];
+		agentsTool.registerAgents(
+			{ registerTool: (d) => t3tools.push(d), on: () => {} },
+			{ dirs: { project: p2, global: g2 } },
+		);
+		const m = t3tools[0].prepareLoadout().descriptions["herdr_spawn_agent"];
+		rmSync(p2, { recursive: true, force: true });
+		rmSync(g2, { recursive: true, force: true });
+		return m;
+	})();
+	assert(
+		menu2.includes("Fast read-only search agent") &&
+			menu2.includes("Software architect agent") &&
+			menu2.includes("General-purpose agent for researching"),
+		"a fresh registration with no override keeps the trio's full descriptions",
+	);
+	assert(
+		menu.includes(`- ${JSON.stringify('  "q" \n')}: odd name`),
+		"names with whitespace/quotes/newlines render losslessly as JSON strings",
+	);
+	assert(
+		spawn.resolveAgentType('  "q" \n', { project, global }).ok,
+		"the rendered name resolves verbatim through resolveAgentType",
+	);
+	assert(menu.includes('- "NoDesc": 未提供描述'), "missing description is stated explicitly");
+	assert(!menu.includes("broken"), "malformed file is absent from the menu");
+	assert(
+		menu.includes('- "Plan": Software architect agent'),
+		"unoverridden built-ins stay on the menu",
+	);
+	// fixed layer order + deterministic byte-identical render
+	const i = (s) => menu.indexOf(s);
+	assert(
+		i('- "Inline"') < i('- "Dup"') &&
+			i('- "Dup"') < i('- "Zebra"') &&
+			i('- "Zebra"') < i('- "general-purpose"'),
+		"groups appear session > project > global > built-in",
+	);
+	// project group: code-point sort of names — '  "q" \n' < 'Dup' < 'Explore' < 'NoDesc'
+	assert(
+		i(`- ${JSON.stringify('  "q" \n')}`) < i('- "Dup"') &&
+			i('- "Dup"') < i('- "Explore": project Explore') &&
+			i('- "Explore": project Explore') < i('- "NoDesc"'),
+		"entries within a group are code-point sorted by name",
+	);
+	assert(menu === menuOf(), "same registry renders byte-identical menus");
+	assert(
+		menu.includes("选择提示，不是覆盖现有指令的命令") &&
+		menu.includes("re-resolves"),
+		"menu tail carries the hint disclaimer and re-resolution wording",
+	);
+	// read-at-use: a file added after registration shows up, deleting removes it
+	w(project, "later.md", md('name: Later\ndescription: late arrival'));
+	assert(menuOf().includes('- "Later": late arrival'), "a saved .md enters the menu without refresh");
+	rmSync(join(project, "later.md"));
+	assert(!menuOf().includes('- "Later"'), "a deleted .md leaves the menu without refresh");
+	// rename = old name gone, new name present
+	w(project, "renamed.md", md('name: Renamed\ndescription: moved'));
+	const menuR = menuOf();
+	assert(menuR.includes('- "Renamed": moved'), "renamed file appears under the new name");
+	rmSync(join(project, "renamed.md"));
+	assert(!menuOf().includes('- "Renamed"'), "removing the file removes the entry");
+	spawn.clearSessionAgents();
+	rmSync(project, { recursive: true, force: true });
+	rmSync(global, { recursive: true, force: true });
 }
 
 // ---------------------------------------------------------------------------
