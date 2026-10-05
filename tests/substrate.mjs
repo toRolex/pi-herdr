@@ -375,7 +375,17 @@ console.log("\n[7] Child extension — registration against a mock pi");
 
 	const dir = mkdtempSync(join(tmpdir(), "pi-herdr-child-"));
 	const sess = join(dir, "s.jsonl");
-	writeFileSync(sess, "");
+	writeFileSync(
+		sess,
+		JSON.stringify({
+			type: "message",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "final letter" }],
+				stopReason: "stop",
+			},
+		}) + "\n",
+	);
 	process.env.PI_HERDR_SESSION = sess;
 	process.env.PI_HERDR_NAME = "scout";
 	process.env.PI_HERDR_AGENT = "Explore";
@@ -404,16 +414,44 @@ console.log("\n[7] Child extension — registration against a mock pi");
 		const settle = registered.handlers.agent_settled?.[0];
 		assert(!!settle, "agent_settled wired (the definitive idle signal)");
 
-		// agent_done: writes {type:"done"} + shuts down
+		// agent_done: writes {type:"done", text} + shuts down
 		let shut = 0;
 		await done.execute("t1", {}, undefined, undefined, {
 			shutdown: () => shut++,
 		});
+		const declared = JSON.parse(readFileSync(`${sess}.exit`, "utf8"));
 		assert(
-			JSON.parse(readFileSync(`${sess}.exit`, "utf8")).type === "done",
-			"agent_done wrote the typed done sidecar",
+			declared.type === "done" && declared.text === "final letter",
+			"agent_done wrote the typed done sidecar with the final text",
 		);
 		assert(shut === 1, "agent_done exits the session");
+
+		// bare agent_done (no assistant text) is an error result: no shutdown,
+		// no sidecar rewrite, process stays up
+		writeFileSync(sess, "");
+		shut = 0;
+		const refused = await done.execute("t1b", {}, undefined, undefined, {
+			shutdown: () => shut++,
+		});
+		assert(
+			shut === 0 &&
+				refused.isError === true &&
+				typeof refused.content?.[0]?.text === "string" &&
+				refused.content[0].text.length > 0 &&
+				JSON.parse(readFileSync(`${sess}.exit`, "utf8")).text === "final letter",
+			"bare agent_done is refused without shutdown or a new sidecar",
+		);
+		writeFileSync(
+			sess,
+			JSON.stringify({
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "final letter" }],
+					stopReason: "stop",
+				},
+			}) + "\n",
+		);
 
 		// auto-exit on settle: agent_end holds messages, settle writes + exits
 		shut = 0;

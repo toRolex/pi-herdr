@@ -134,12 +134,15 @@ function doneContent(
 	record: SpawnRecord,
 	extracted: ExtractedResult | null,
 	rearm: boolean,
+	sidecarText?: string,
 ): string {
 	const label = rearm ? "auto-delivered after user steer: " : "";
+	const committed = sidecarText?.trim() ? sidecarText : undefined;
+	const mined = extracted && extracted.text.trim() ? extracted.text : undefined;
 	const body =
-		extracted && extracted.text.trim()
-			? extracted.text
-			: "(the child finished but its session file holds no assistant message)";
+		committed ??
+		mined ??
+		"(the child finished but its session file holds no assistant message)";
 	return `${label}Agent "${record.name}" finished — full final message:\n\n${body}${sessionNote(record)}`;
 }
 
@@ -389,7 +392,9 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 
 function deliverSidecar(
 	record: SpawnRecord,
-	sidecar: { type: "done"; rearm?: true } | { type: "error"; errorMessage: string; stopReason: string; rearm?: true },
+	sidecar:
+		| { type: "done"; rearm?: true; text?: string }
+		| { type: "error"; errorMessage: string; stopReason: string; rearm?: true },
 	deps: DeliveryDeps,
 	paneLive = false,
 ): void {
@@ -399,17 +404,18 @@ function deliverSidecar(
 		: null;
 	const rearm = sidecar.rearm === true;
 	if (sidecar.type === "done") {
+		const committed = sidecar.text?.trim() ? sidecar.text : undefined;
 		deliverTerminal(
 			deps,
 			record,
 			"done",
 			{
-				content: doneContent(record, extracted, rearm),
+				content: doneContent(record, extracted, rearm, committed),
 				details: {
 					name: record.name,
 					kind: "done",
 					...(rearm ? { rearm: true } : {}),
-					result: extracted?.text,
+					result: committed ?? extracted?.text,
 					...(extracted ? { message: extracted.message } : {}),
 					...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 				},
