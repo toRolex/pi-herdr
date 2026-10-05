@@ -1839,6 +1839,165 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 
 		rmSync(dir, { recursive: true, force: true });
 	}
+
+	// --- #41 orphan pane: recycle only after the result is delivered ----
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-orphan-close-"));
+		const root = join(dir, "root.jsonl");
+		const mid = join(dir, "mid.jsonl");
+		const leaf = join(dir, "leaf.jsonl");
+		const letter = "grandchild pane is empty after delivery.";
+		writeSession(leaf, [assistantMsg(letter)]);
+		writeFileSync(
+			`${leaf}.exit`,
+			JSON.stringify({ type: "done", text: letter, rootSession: root }),
+		);
+		const rootRecords = [
+			rec("mid", {
+				sessionPath: mid,
+				lineage: { rootSession: root, ownerSession: root },
+			}),
+		];
+		const leafRecord = {
+			name: "leaf",
+			kind: "pi",
+			paneId: "w1:leaf",
+			sessionPath: leaf,
+			stance: "autonomous",
+			lineage: { rootSession: root, ownerSession: mid },
+		};
+		writeFileSync(`${mid}.registry.json`, JSON.stringify([leafRecord]));
+		const pushes = [];
+		const closes = [];
+		const closeNotes = [];
+		let pushFails = true;
+		let closeFails = false;
+		const fleet = [{ paneId: "w1:leaf", status: "done" }];
+		const depsFor = (records) => ({
+			registry: () => new Map(records.map((r) => [r.name, r])),
+			load: () => ({ notifications: "normal" }),
+			list: async () => ({
+				ok: true,
+				data: fleet.map((f) => ({
+					paneId: f.paneId,
+					agentStatus: f.status,
+				})),
+			}),
+			readRegistry: (sessionPath) => {
+				const path = `${sessionPath}.registry.json`;
+				if (!existsSync(path)) return [];
+				return JSON.parse(readFileSync(path, "utf8"));
+			},
+			writeRegistry: (sessionPath, records) => {
+				writeFileSync(`${sessionPath}.registry.json`, JSON.stringify(records));
+			},
+			sessionPath: root,
+			push: (m) => {
+				if (pushFails) throw new Error("push failed");
+				pushes.push(m);
+			},
+			closePane: async (paneId) => {
+				if (closeFails) {
+					closeNotes.push({ paneId, failed: true });
+					throw new Error("orphan pane close failed");
+				}
+				closes.push(paneId);
+			},
+			now: () => 1_000_000,
+		});
+
+		await delivery.deliverOnce(depsFor(rootRecords));
+		assert(
+			pushes.length === 0 && closes.length === 0 && existsSync(leaf),
+			"a failed orphan push does not close the pane and keeps the session",
+		);
+		assert(
+			existsSync(`${mid}.registry.json`) &&
+				!JSON.parse(readFileSync(`${mid}.registry.json`, "utf8"))[0].delivery,
+			"a failed orphan push is not marked delivered",
+		);
+
+		// working / blocked: the letter may be ready, the pane is not empty
+		pushFails = false;
+		fleet[0].status = "working";
+		await delivery.deliverOnce(depsFor(rootRecords));
+		assert(
+			pushes.length === 0 && closes.length === 0,
+			"a working orphan pane is not delivered and not closed",
+		);
+		fleet[0].status = "blocked";
+		await delivery.deliverOnce(depsFor(rootRecords));
+		assert(
+			pushes.length === 0 && closes.length === 0,
+			"a blocked orphan pane is not delivered and not closed",
+		);
+
+		fleet[0].status = "done";
+
+		// confirmed delivery, then a failed close is visible and does not delete the session
+		closeFails = true;
+		await delivery.deliverOnce(depsFor(rootRecords));
+		assert(
+			pushes.length === 1 &&
+				pushes[0].content.includes(letter) &&
+				pushes[0].details.adopted === true,
+			"a confirmed orphan delivery pushes the letter once",
+		);
+		assert(
+			closes.length === 0 &&
+				closeNotes.some(
+					(n) => n.paneId === "w1:leaf" && n.failed === true,
+				),
+			"a failed orphan pane close is observable and does not claim the pane closed",
+		);
+		assert(existsSync(leaf), "a failed close still retains the session file");
+
+		// the empty pane is recycled only after the letter was delivered
+		closeFails = false;
+		await delivery.deliverOnce(depsFor(rootRecords));
+		assert(
+			closes.includes("w1:leaf") && pushes.length === 1 && existsSync(leaf),
+			"after the result is delivered the empty orphan pane is recycled and the session stays",
+		);
+
+		// takeover: the letter can be delivered, the pane is not recycled
+		const held = join(dir, "held.jsonl");
+		writeSession(held, [assistantMsg("human is driving")]);
+		writeFileSync(
+			`${held}.exit`,
+			JSON.stringify({
+				type: "done",
+				text: "human is driving",
+				rootSession: root,
+			}),
+		);
+		writeFileSync(
+			`${mid}.registry.json`,
+			JSON.stringify([
+				{
+					...leafRecord,
+					name: "held",
+					paneId: "w1:held",
+					sessionPath: held,
+					takenOver: true,
+				},
+			]),
+		);
+		fleet.push({ paneId: "w1:held", status: "done" });
+		const beforeHeld = pushes.length;
+		const beforeClose = closes.length;
+		await delivery.deliverOnce(depsFor(rootRecords));
+		await delivery.deliverOnce(depsFor(rootRecords));
+		assert(
+			pushes.length === beforeHeld + 1 &&
+				pushes.at(-1).content.includes("human is driving") &&
+				closes.length === beforeClose &&
+				existsSync(held),
+			"a taken-over orphan pane is not recycled after its result is delivered",
+		);
+
+		rmSync(dir, { recursive: true, force: true });
+	}
 }
 
 // ---------------------------------------------------------------------------

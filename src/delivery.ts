@@ -479,7 +479,19 @@ async function adoptOrphans(
 			if (child.sessionPath && child.paneId && !statusByPane.has(child.paneId)) {
 				pending.push(child);
 			}
-			if (child.delivery) continue;
+			if (child.delivery) {
+				// The letter was already confirmed. A rejected close stays pending
+				// and is retried here — working/blocked and takeover still hold the
+				// pane (the same guards as the first close).
+				if (child.paneClosePending && child.paneId) {
+					const again = statusByPane.get(child.paneId);
+					if (again !== "working" && again !== "blocked") {
+						await closeDeliveredPane(deps, child, false, false);
+						dirty = true;
+					}
+				}
+				continue;
+			}
 			const live = child.paneId ? statusByPane.get(child.paneId) : undefined;
 			if (live !== "done" && live !== "idle") continue;
 			if (!child.sessionPath || child.kind.toLowerCase() !== "pi") continue;
@@ -487,7 +499,7 @@ async function adoptOrphans(
 			const sidecar = (deps.readSidecar ?? readExitSidecar)(child.sessionPath);
 			if (sidecar.state !== "ok") continue;
 			if (sidecar.sidecar.rootSession && sidecar.sidecar.rootSession !== self) continue;
-			deliverSidecar(child, sidecar.sidecar, deps, false, true);
+			await deliverSidecar(child, sidecar.sidecar, deps, false, true);
 			dirty = true;
 		}
 		if (!dirty) continue;
@@ -499,7 +511,7 @@ async function adoptOrphans(
 	}
 }
 
-function deliverSidecar(
+async function deliverSidecar(
 	record: SpawnRecord,
 	sidecar:
 		| { type: "done"; rearm?: true; text?: string }
@@ -507,7 +519,7 @@ function deliverSidecar(
 	deps: DeliveryDeps,
 	paneLive = false,
 	adopted = false,
-): void {
+): Promise<void> {
 	const notes = notifications(deps);
 	const extracted = record.sessionPath
 		? (deps.extract ?? extractSessionResult)(record.sessionPath)
@@ -534,10 +546,11 @@ function deliverSidecar(
 				wake: terminalWake(notes),
 			},
 			paneLive,
+			adopted,
 		);
 		return;
 	}
-	deliverTerminal(
+	await deliverTerminal(
 		deps,
 		record,
 		"error",
@@ -555,6 +568,7 @@ function deliverSidecar(
 			wake: terminalWake(notes),
 		},
 		paneLive,
+		adopted,
 	);
 }
 
@@ -643,13 +657,18 @@ function deliverAsFor(
 	return "steer";
 }
 
-function deliverTerminal(
+async function deliverTerminal(
 	deps: DeliveryDeps,
 	record: SpawnRecord,
 	kind: DeliveryKind,
 	msg: SteeredMessage,
 	paneLive = false,
-): void {
+	adopted = false,
+): Promise<void> {
+	if (adopted) {
+		await deliverAdopted(deps, record, kind, msg, paneLive);
+		return;
+	}
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
 	closeRecordPane(deps, record, msg.details.rearm === true, paneLive);
 	if (record.workflow) return;
@@ -658,6 +677,58 @@ function deliverTerminal(
 		{ ...msg, deliverAs: msg.deliverAs ?? deliverAsFor(deps, kind) },
 		notifications(deps),
 	);
+}
+
+/**
+ * Orphan letter (issue 41): the push has to land before the pane is recycled.
+ * A rejected push leaves the record unmarked and the pane open. A rejected
+ * close is recorded on the record and retried later; the session file stays.
+ */
+async function deliverAdopted(
+	deps: DeliveryDeps,
+	record: SpawnRecord,
+	kind: DeliveryKind,
+	msg: SteeredMessage,
+	paneLive: boolean,
+): Promise<void> {
+	if (!record.workflow) {
+		try {
+			pushTerminal(
+				deps,
+				{ ...msg, deliverAs: msg.deliverAs ?? deliverAsFor(deps, kind) },
+				notifications(deps),
+			);
+		} catch (err) {
+			record.pushError = err instanceof Error ? err.message : String(err);
+			return;
+		}
+	}
+	record.pushError = undefined;
+	markTerminal(record, kind, deps.now ?? (() => Date.now()));
+	await closeDeliveredPane(deps, record, msg.details.rearm === true, paneLive);
+}
+
+/** Same guards as closeRecordPane, but the rejection is visible on the record. */
+async function closeDeliveredPane(
+	deps: DeliveryDeps,
+	record: SpawnRecord,
+	rearm: boolean,
+	paneLive: boolean,
+): Promise<void> {
+	if (!record.paneId) return;
+	if (record.takenOver && !rearm) return;
+	if (paneLive) {
+		record.paneClosePending = true;
+		return;
+	}
+	record.paneClosePending = false;
+	try {
+		await (deps.closePane ?? defaultClosePane)(record.paneId);
+		record.paneCloseError = undefined;
+	} catch (err) {
+		record.paneClosePending = true;
+		record.paneCloseError = err instanceof Error ? err.message : String(err);
+	}
 }
 
 function notifications(deps: DeliveryDeps): HerdrSettings["notifications"] {
