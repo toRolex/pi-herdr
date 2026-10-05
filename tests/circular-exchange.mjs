@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { createJiti } from 'jiti';
 
+// Strip inherited Herdr session state so the fixture always registers as the parent path.
+for (const key of Object.keys(process.env)) {
+ if (key.startsWith('PI_HERDR_')) delete process.env[key];
+}
+
 const jiti = createJiti(import.meta.url);
 const { default: register } = await jiti.import('./fixtures/circular-exchange.ts');
 let provider;
