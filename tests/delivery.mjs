@@ -218,10 +218,12 @@ console.log("\n[2] Child extension — takeover + idle re-arm");
 			type: "agent_end",
 			messages: [{ role: "assistant", stopReason }],
 		});
-		await registered.handlers.agent_settled[0](
-			{},
-			{ shutdown: () => shuts++ },
-		);
+		// pi fires every agent_settled listener; the activity recorder registers
+		// before the exit decision, so the last handler is the one that exits.
+		const settled = registered.handlers.agent_settled ?? [];
+		for (const handler of settled) {
+			await handler({}, { shutdown: () => shuts++ });
+		}
 	}
 
 	// --- takeover marking: human vs steering echo vs programmatic ---------
@@ -544,6 +546,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 						})),
 					}),
 			push: (m) => pushes.push(m),
+			busy: opts.busy,
 			now: () => clock,
 			goneGraceMs: opts.goneGraceMs ?? 10_000,
 			// `close` (feature-branch name) and `closePane` (upstream name) both
@@ -583,7 +586,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		);
 		assert(w.closes[0] === r.paneId, "autonomous done sidecar closes the pane after the result is pushed");
 		assert(
-			w.pushes[0].wake === true,
+			w.pushes[0].wake === true && w.pushes[0].deliverAs === "steer",
 			"notifications normal → the push wakes (triggerTurn via sink flags)",
 		);
 		assert(
@@ -705,7 +708,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
 		await w.tick();
 		assert(
-			w.pushes.length === 1 && w.pushes[0].wake === false,
+			w.pushes.length === 1 &&
+				w.pushes[0].wake === false &&
+				w.pushes[0].deliverAs === "nextTurn",
 			"notifications quiet → delivers on the next natural turn (no wake)",
 		);
 		rmSync(dir, { recursive: true, force: true });
@@ -867,7 +872,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			});
 			await w.tick();
 			assert(
-				w.pushes.length === 1 && w.pushes[0].wake === true,
+				w.pushes.length === 1 &&
+					w.pushes[0].wake === true &&
+					w.pushes[0].deliverAs === "steer",
 				`blocked wakes even under notifications ${notes}`,
 			);
 		}
@@ -1311,6 +1318,84 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		rmSync(dir, { recursive: true, force: true });
 	}
 
+	// --- exit-sidecar watcher: one event, one push; poll is the backstop ---
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-watch-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("watched result")]);
+		const r = rec("scout", { sessionPath: sess });
+		const w = world([r], { fleet: [{ paneId: r.paneId, status: "idle" }] });
+		const logs = [];
+		let notify;
+		w.deps.watchSidecar = (_path, onWrite) => {
+			notify = () => onWrite({ mtimeMs: 999_960 });
+			return { close() { notify = undefined; } };
+		};
+		w.deps.debug = (line) => logs.push(line);
+		w.deps.sidecarWrittenAt = () => 999_960;
+		const obs = delivery.observeExitSidecars(w.deps, () => w.tick());
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		notify();
+		notify();
+		await obs.whenIdle();
+		assert(
+			w.pushes.length === 1 &&
+				w.pushes[0].content.includes("watched result") &&
+				r.delivery?.kind === "done",
+			"sidecar write event triggers exactly one delivery tick",
+		);
+		assert(
+			logs.some(
+				(line) =>
+					line.includes("segment=sidecar→push") &&
+					line.includes("40ms") &&
+					line.includes("scout"),
+			),
+			"debug log records detect latency from sidecar write to push (40ms)",
+		);
+		await w.tick();
+		assert(
+			w.pushes.length === 1,
+			"the 2.5s poll backstop does not deliver the same sidecar event again",
+		);
+		obs.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-watch-down-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("polled after a blind watch")]);
+		const r = rec("scout", { sessionPath: sess });
+		const w = world([r], { fleet: [{ paneId: r.paneId, status: "idle" }] });
+		const logs = [];
+		let armed = 0;
+		w.deps.watchSidecar = () => {
+			armed += 1;
+			throw new Error("watch unsupported");
+		};
+		w.deps.debug = (line) => logs.push(line);
+		w.deps.sidecarWrittenAt = () => 997_500;
+		const obs = delivery.observeExitSidecars(w.deps, () => w.tick());
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		await w.tick();
+		assert(
+			armed >= 1 &&
+				w.pushes.length === 1 &&
+				w.pushes[0].content.includes("polled after a blind watch"),
+			"a failed sidecar watcher still leaves the poll backstop to deliver",
+		);
+		assert(
+			logs.some(
+				(line) => line.includes("segment=sidecar→push") && line.includes("2500ms"),
+			),
+			"poll delivery still logs detect latency when the watcher never fired",
+		);
+		await w.tick();
+		assert(w.pushes.length === 1, "poll backstop is still once per event");
+		obs.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+
 	// --- registration smoke: sink maps wake → sendMessage flags ------------
 	{
 		delivery.stopDeliveryLoop();
@@ -1323,6 +1408,201 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		delivery.registerDelivery(mockPi); // idempotent restart is fine
 		delivery.stopDeliveryLoop();
 		assert(sent.length === 0, "the loop ticks no-op on an empty registry");
+	}
+
+	// --- #32 orchestrator busy/idle at push time -----------------------------
+	// busy?: () => boolean is injected. Default (unset) stays idle, so older
+	// worlds keep steer. The sink is mocked: we assert the options it would
+	// pass to sendMessage, and we never abort a tool.
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-busy-"));
+		const doneSess = (label) => {
+			const sess = join(dir, `${label}.jsonl`);
+			writeSession(sess, [assistantMsg(`${label} letter`)]);
+			writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+			return sess;
+		};
+		const errorSess = (label) => {
+			const sess = join(dir, `${label}.jsonl`);
+			writeSession(sess, [assistantMsg("", { stopReason: "error" })]);
+			writeFileSync(
+				`${sess}.exit`,
+				JSON.stringify({ type: "error", errorMessage: "boom", stopReason: "error" }),
+			);
+			return sess;
+		};
+		const sinkOf = (w) => {
+			const sent = [];
+			const sink = delivery.makeDeliverySink({
+				sendMessage: (msg, opts) => sent.push({ msg, opts }),
+			});
+			w.deps.push = (m) => {
+				w.pushes.push(m);
+				sink(m);
+			};
+			return sent;
+		};
+
+		// idle done → steer + triggerTurn
+		{
+			const r = rec("idle-done", { sessionPath: doneSess("idle") });
+			const w = world([r], { busy: () => false });
+			const sent = sinkOf(w);
+			await w.tick();
+			assert(
+				sent.length === 1 &&
+					sent[0].opts.deliverAs === "steer" &&
+					sent[0].opts.triggerTurn === true,
+				"idle done → steer + triggerTurn",
+			);
+		}
+		// busy done → followUp + triggerTurn (queue; do not cancel the running tool)
+		{
+			const r = rec("busy-done", { sessionPath: doneSess("busy") });
+			const w = world([r], { busy: () => true });
+			const sent = sinkOf(w);
+			await w.tick();
+			assert(
+				sent.length === 1 &&
+					sent[0].opts.deliverAs === "followUp" &&
+					sent[0].opts.triggerTurn === true &&
+					w.pushes[0].deliverAs === "followUp",
+				"busy done → followUp + triggerTurn (queued, tools not cancelled)",
+			);
+		}
+		// unset busy stays the old idle path
+		{
+			const r = rec("default-idle", { sessionPath: doneSess("default") });
+			const w = world([r]);
+			const sent = sinkOf(w);
+			await w.tick();
+			assert(
+				sent[0]?.opts.deliverAs === "steer" && sent[0]?.opts.triggerTurn === true,
+				"busy unset → idle default (steer + triggerTurn)",
+			);
+		}
+		// blocked stays steer, even while the orchestrator is busy, and even under none
+		{
+			for (const notes of ["normal", "quiet", "none"]) {
+				const r = rec(`blocked-${notes}`, {
+					sessionPath: join(dir, `blocked-${notes}.jsonl`),
+				});
+				const w = world([r], {
+					notifications: notes,
+					busy: () => true,
+					fleet: [{ paneId: r.paneId, status: "blocked" }],
+				});
+				const sent = sinkOf(w);
+				await w.tick();
+				assert(
+					sent.length === 1 &&
+						sent[0].opts.deliverAs === "steer" &&
+						sent[0].opts.triggerTurn === true &&
+						w.pushes[0].details.kind === "blocked",
+					`blocked stays steer + triggerTurn while busy (notifications ${notes})`,
+				);
+			}
+		}
+		// stalled stays steer while busy (watchdog push, not a terminal kind)
+		{
+			const r = rec("stalled-one", { sessionPath: join(dir, "stalled.jsonl") });
+			const sent = [];
+			const sink = delivery.makeDeliverySink({
+				sendMessage: (msg, opts) => sent.push({ msg, opts }),
+			});
+			const pushes = [];
+			await delivery.watchdogOnce({
+				registry: () => new Map([[r.name, r]]),
+				fleet: { ok: true, data: [] },
+				readSidecar: () => ({ state: "missing" }),
+				extract: () => null,
+				busy: () => true,
+				now: () => 1_000_000,
+				push: (m) => {
+					pushes.push(m);
+					sink(m);
+				},
+			});
+			assert(
+				sent.length === 1 &&
+					sent[0].opts.deliverAs === "steer" &&
+					sent[0].opts.triggerTurn === true &&
+					pushes[0].details.kind === "stalled",
+				"stalled stays steer + triggerTurn while the orchestrator is busy",
+			);
+		}
+		// error respects notifications: quiet → nextTurn, none → no push, normal → steer
+		{
+			const quiet = rec("err-quiet", { sessionPath: errorSess("eq") });
+			const wq = world([quiet], { notifications: "quiet", busy: () => true });
+			const sq = sinkOf(wq);
+			await wq.tick();
+			assert(
+				sq.length === 1 &&
+					sq[0].opts.deliverAs === "nextTurn" &&
+					sq[0].opts.triggerTurn === false,
+				"error + quiet → nextTurn (no wake), even while busy",
+			);
+
+			const none = rec("err-none", { sessionPath: errorSess("en") });
+			const wn = world([none], { notifications: "none", busy: () => false });
+			const sn = sinkOf(wn);
+			await wn.tick();
+			assert(
+				sn.length === 0 && none.delivery?.kind === "error",
+				"error + none → no push, still marked delivered",
+			);
+
+			const normal = rec("err-normal", { sessionPath: errorSess("eo") });
+			const wo = world([normal], { notifications: "normal", busy: () => true });
+			const so = sinkOf(wo);
+			await wo.tick();
+			assert(
+				so.length === 1 &&
+					so[0].opts.deliverAs === "steer" &&
+					so[0].opts.triggerTurn === true,
+				"error + normal → steer + triggerTurn, even while busy",
+			);
+		}
+		// notifications matrix on done: quiet is nextTurn, none is silence, normal follows busy
+		{
+			const quiet = rec("done-quiet", { sessionPath: doneSess("dq") });
+			const wq = world([quiet], { notifications: "quiet", busy: () => true });
+			const sq = sinkOf(wq);
+			await wq.tick();
+			assert(
+				sq[0]?.opts.deliverAs === "nextTurn" && sq[0]?.opts.triggerTurn === false,
+				"done + quiet stays nextTurn even while busy",
+			);
+
+			const none = rec("done-none", { sessionPath: doneSess("dn") });
+			const wn = world([none], { notifications: "none", busy: () => true });
+			const sn = sinkOf(wn);
+			await wn.tick();
+			assert(
+				sn.length === 0 && none.delivery?.kind === "done",
+				"done + none → no push while busy",
+			);
+
+			const idle = rec("done-normal-idle", { sessionPath: doneSess("dni") });
+			const wi = world([idle], { notifications: "normal", busy: () => false });
+			const si = sinkOf(wi);
+			await wi.tick();
+			assert(
+				si[0]?.opts.deliverAs === "steer" && si[0]?.opts.triggerTurn === true,
+				"done + normal + idle → steer",
+			);
+
+			const busy = rec("done-normal-busy", { sessionPath: doneSess("dnb") });
+			const wb = world([busy], { notifications: "normal", busy: () => true });
+			const sb = sinkOf(wb);
+			await wb.tick();
+			assert(
+				sb[0]?.opts.deliverAs === "followUp" && sb[0]?.opts.triggerTurn === true,
+				"done + normal + busy → followUp",
+			);
+		}
+		rmSync(dir, { recursive: true, force: true });
 	}
 }
 

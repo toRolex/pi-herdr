@@ -17,9 +17,13 @@
 //
 // Wake governance (the `notifications` setting): `normal` → steer + wake,
 // `quiet` → next natural turn (no wake), `none` → no terminal push at all
-// (pull-only; results stay in the registry + JSONL). A BLOCKED child always
-// wakes regardless of the setting — unless a human took the pane over (no
-// mid-conversation pushes from a taken-over pane; the human is right there).
+// (pull-only; results stay in the registry + JSONL). A `done` push read while
+// the orchestrator is busy queues as followUp + wake instead of steer — the
+// running tool is not cancelled. blocked and stalled stay steer. error keeps
+// the notifications matrix (quiet → nextTurn, none → no push, normal → steer).
+// A BLOCKED child always wakes regardless of the setting — unless a human took
+// the pane over (no mid-conversation pushes from a taken-over pane; the human
+// is right there).
 //
 // User takeover arrives as the `<session>.takeover` marker written by the
 // child extension (human typing that is not the parent's own steer echo):
@@ -27,6 +31,8 @@
 // mid-conversation pushes for that record. A final result still lands —
 // declared (`agent_done`) or re-armed (idle re-arm, labeled).
 
+import { statSync, watch, type FSWatcher } from "node:fs";
+import { basename, dirname } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { fleetList, herdr } from "./herdr.js";
 import { extractText, type NormalizedAgent, type Result } from "./env.js";
@@ -40,6 +46,7 @@ import {
 	minedAssistantError,
 	readExitSidecar,
 	readTakeoverMarker,
+	sidecarPathFor,
 	type ExtractedResult,
 	type ReadSidecarResult,
 	type ReadTakeoverResult,
@@ -52,7 +59,15 @@ import {
 } from "./status.js";
 import { fleetWidgetOnce } from "./widget.js";
 import { spawnRecords, type DeliveryKind, type SpawnRecord } from "./spawn.js";
-import { type SteeredMessage, makeDeliverySink, terminalWake } from "./push.js";
+import {
+	type DeliverAs,
+	type SteeredMessage,
+	makeDeliverySink,
+	trackOrchestratorBusy,
+	terminalWake,
+} from "./push.js";
+
+export { makeDeliverySink };
 
 // ---- types -----------------------------------------------------------------
 
@@ -85,6 +100,24 @@ export interface DeliveryDeps {
 	 * Throws (or rejects) when the read itself failed; an empty string is a pane
 	 * that was read and held nothing. */
 	readTail?: (paneId: string) => Promise<string>;
+	/**
+	 * Orchestrator streaming state at the moment of a push. True while a run
+	 * (or compaction) is in progress. Default false — older callers stay on
+	 * the idle steer path. A true reading queues a `done` push as followUp;
+	 * it does not cancel a tool that is already running.
+	 */
+	busy?: () => boolean;
+	/** Sidecar appearance watcher. Default: fs.watch on the session's directory.
+	 * A throw means the watcher is unavailable; the 2.5s poll remains the backstop. */
+	watchSidecar?: (
+		path: string,
+		onWrite: (event: { mtimeMs?: number }) => void,
+	) => { close(): void };
+	/** Debug line (detect latency). Default: stderr, so a quiet parent stays quiet. */
+	debug?: (line: string) => void;
+	/** Sidecar mtime in ms epoch, measured when the push is about to land.
+	 * Default: the file's mtime. */
+	sidecarWrittenAt?: (sessionPath: string) => number | undefined;
 }
 
 // ---- push composition ---------------------------------------------------------
@@ -334,6 +367,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 						`answer with herdr_message_agent (raw text) or herdr_send_keys (option lists).`,
 					details: { name: record.name, kind: "blocked" },
 					wake: true,
+					deliverAs: "steer",
 				});
 			}
 			continue;
@@ -504,6 +538,32 @@ function closeRecordPane(
  * blocked wakes are NOT routed through here — a blocked workflow child still
  * wakes the orchestrator, whose answer via herdr_message_agent resumes it.
  */
+/** Busy read at push time. A throwing or missing probe stays idle. */
+function orchestratorIsBusy(deps: { busy?: () => boolean }): boolean {
+	try {
+		return deps.busy?.() === true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Delivery mode for one push. Only a waking `done` queues while busy
+ * (followUp). error/gone/start-error follow notifications. blocked and
+ * stalled are steer even when busy — followUp would wait out the run.
+ */
+function deliverAsFor(
+	deps: DeliveryDeps,
+	kind: DeliveryKind | "stalled" | "stall-recovered" | "blocked",
+): DeliverAs {
+	if (kind === "blocked" || kind === "stalled" || kind === "stall-recovered") {
+		return "steer";
+	}
+	if (!terminalWake(notifications(deps))) return "nextTurn";
+	if (kind === "done" && orchestratorIsBusy(deps)) return "followUp";
+	return "steer";
+}
+
 function deliverTerminal(
 	deps: DeliveryDeps,
 	record: SpawnRecord,
@@ -514,7 +574,11 @@ function deliverTerminal(
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
 	closeRecordPane(deps, record, msg.details.rearm === true, paneLive);
 	if (record.workflow) return;
-	pushTerminal(deps, msg, notifications(deps));
+	pushTerminal(
+		deps,
+		{ ...msg, deliverAs: msg.deliverAs ?? deliverAsFor(deps, kind) },
+		notifications(deps),
+	);
 }
 
 function notifications(deps: DeliveryDeps): HerdrSettings["notifications"] {
@@ -532,6 +596,7 @@ function pushTerminal(
 	notes: HerdrSettings["notifications"],
 ): void {
 	if (notes === "none") return;
+	logDetectLatency(deps, msg);
 	(deps.push ?? (() => {}))(msg);
 }
 
@@ -557,6 +622,8 @@ export interface WatchdogDeps {
 	extract?: (sessionPath: string) => ExtractedResult | null;
 	/** The steer sink — default: pi.sendMessage into THIS session. */
 	push?: (msg: SteeredMessage) => void;
+	/** Accepted so a tick can pass the same probe. Stall pings stay steer. */
+	busy?: () => boolean;
 	now?: () => number;
 	/** How long a broken-substrate problem must hold before `stalled`.
 	 * Default STALL_AFTER_MS (60s, prior art). */
@@ -664,12 +731,14 @@ export async function watchdogOnce(deps: WatchdogDeps = {}): Promise<void> {
 					`Steer it with herdr_message_agent, or inspect with herdr_get_agent_result.`,
 				details: { name: record.name, kind: "stalled", reason },
 				wake: true,
+				deliverAs: "steer",
 			});
 		} else {
 			push({
 				content: `Agent "${record.name}" recovered from a stall — responsive again.`,
 				details: { name: record.name, kind: "stall-recovered" },
 				wake: true,
+				deliverAs: "steer",
 			});
 		}
 	}
@@ -680,15 +749,138 @@ export async function watchdogOnce(deps: WatchdogDeps = {}): Promise<void> {
 const DELIVERY_INTERVAL_MS = 2_500;
 
 let deliveryTimer: NodeJS.Timeout | null = null;
+let exitWatch: ReturnType<typeof observeExitSidecars> | null = null;
+
+/** Sidecar mtime at the moment a push is composed. Missing file → no sample. */
+function sidecarWrittenAt(sessionPath: string): number | undefined {
+	try {
+		return statSync(sidecarPathFor(sessionPath)).mtimeMs;
+	} catch {
+		return undefined;
+	}
+}
+
+function debugLine(deps: DeliveryDeps, line: string): void {
+	(deps.debug ?? ((text) => process.stderr.write(`${text}\n`)))(line);
+}
+
+/**
+ * Detect latency for a terminal sidecar push: sidecar mtime → this push.
+ * Busy-queue delay is a different clock and is not folded into this number.
+ * Only done/error pushes that carry a session path are sampled.
+ */
+function logDetectLatency(deps: DeliveryDeps, msg: SteeredMessage): void {
+	const sessionPath = msg.details.sessionPath;
+	if (typeof sessionPath !== "string") return;
+	if (msg.details.kind !== "done" && msg.details.kind !== "error") return;
+	const written = (deps.sidecarWrittenAt ?? sidecarWrittenAt)(sessionPath);
+	if (written === undefined) return;
+	const now = deps.now ?? (() => Date.now());
+	const latencyMs = Math.max(0, Math.round(now() - written));
+	debugLine(
+		deps,
+		`pi-herdr delivery detect segment=sidecar→push name=${String(msg.details.name)} ${latencyMs}ms`,
+	);
+}
+
+/** Watch one pi child's `<session>.exit`. A throw leaves that child to the poll. */
+function watchOneSidecar(
+	deps: DeliveryDeps,
+	record: SpawnRecord,
+	onWrite: (event: { mtimeMs?: number }) => void,
+): { close(): void } | undefined {
+	if (!record.sessionPath || record.kind.toLowerCase() !== "pi") return undefined;
+	const path = sidecarPathFor(record.sessionPath);
+	const watchSidecar =
+		deps.watchSidecar ??
+		((target, cb): { close(): void } => {
+			const dir = dirname(target);
+			const file = basename(target);
+			let w: FSWatcher;
+			try {
+				w = watch(dir, (_event: string, name: string | null) => {
+					if (name !== file && name !== null) return;
+					cb({ mtimeMs: sidecarWrittenAt(record.sessionPath!) });
+				});
+			} catch {
+				// The file itself may not exist yet; watching it directly fails on
+				// some platforms until the child creates it. Directory watch is the
+				// primary path — this is only the last attempt.
+				w = watch(target, () => {
+					cb({ mtimeMs: sidecarWrittenAt(record.sessionPath!) });
+				});
+			}
+			return { close: () => w.close() };
+		});
+	return watchSidecar(path, onWrite);
+}
+
+/**
+ * Arm one watcher per undelivered pi sidecar. A write wakes exactly one tick;
+ * the existing delivery mark keeps a later poll from pushing the same event.
+ * Watcher failure is per record — the 2.5s loop still delivers that child.
+ */
+export function observeExitSidecars(
+	deps: DeliveryDeps,
+	tick: () => Promise<void>,
+): { close(): void; whenIdle(): Promise<void>; sync(): void } {
+	const watches = new Map<string, { close(): void }>();
+	let chain: Promise<void> = Promise.resolve();
+	const wake = (): void => {
+		chain = chain.then(() => tick()).catch(() => {});
+	};
+	const sync = (): void => {
+		const registry = (deps.registry ?? spawnRecords)();
+		const live = new Set<string>();
+		for (const record of registry.values()) {
+			if (record.delivery || !record.paneId || !record.sessionPath) continue;
+			if (record.kind.toLowerCase() !== "pi") continue;
+			live.add(record.sessionPath);
+			if (watches.has(record.sessionPath)) continue;
+			try {
+				const one = watchOneSidecar(deps, record, () => wake());
+				if (one) watches.set(record.sessionPath, one);
+			} catch {
+				/* this child's poll backstop still runs */
+			}
+		}
+		for (const [path, one] of watches) {
+			if (live.has(path)) continue;
+			watches.delete(path);
+			try {
+				one.close();
+			} catch {
+				/* best-effort */
+			}
+		}
+	};
+	sync();
+	return {
+		close(): void {
+			for (const one of watches.values()) {
+				try {
+					one.close();
+				} catch {
+					/* best-effort */
+				}
+			}
+			watches.clear();
+		},
+		whenIdle: () => chain,
+		sync,
+	};
+}
 
 /**
  * Register the steer sink + start the shared loop (orchestrator side).
  * Idempotent; ticks no-op when the registry is empty. 07/11 attach their own
- * consumers to the same tick later.
+ * consumers to the same tick later. Sidecar writes wake one tick immediately;
+ * the interval stays as the idempotent backstop.
  */
 export function registerDelivery(pi: ExtensionAPI): void {
 	if (deliveryTimer) return;
 	const push = makeDeliverySink(pi);
+	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {
 		try {
 			// An idle registry costs nothing — no fleet call. But a stale
@@ -699,15 +891,21 @@ export function registerDelivery(pi: ExtensionAPI): void {
 			}
 			// ONE fleet observation per tick, shared by every pass (deliver,
 			// watchdog, widget — the one-poll-loop-many-consumers ruling).
+			// busy is read at push time, not at tick start.
 			const fleet = await fleetList();
-			await deliverOnce({ push, fleet });
-			await watchdogOnce({ push, fleet });
+			await deliverOnce({ push, fleet, busy });
+			await watchdogOnce({ push, fleet, busy });
 			await fleetWidgetOnce({ fleet });
 		} catch {
 			/* best-effort */
 		}
 	};
-	deliveryTimer = setInterval(() => void tick(), DELIVERY_INTERVAL_MS);
+	exitWatch = observeExitSidecars({ push, busy }, tick);
+	deliveryTimer = setInterval(() => {
+		exitWatch?.sync();
+		void tick();
+	}, DELIVERY_INTERVAL_MS);
+	if (typeof deliveryTimer.ref === "function") deliveryTimer.ref();
 	deliveryTimer.unref?.();
 }
 
@@ -717,4 +915,6 @@ export function stopDeliveryLoop(): void {
 		clearInterval(deliveryTimer);
 		deliveryTimer = null;
 	}
+	exitWatch?.close();
+	exitWatch = null;
 }
