@@ -23,6 +23,7 @@ import { registerPaneSync } from "./tools/sync.js";
 import { registerWorkflowTool } from "./tools/workflow.js";
 import { stopAllWorkflowRuns } from "./workflow/runs.js";
 import { registerDelivery, stopDeliveryLoop } from "./delivery.js";
+import { registerDeliveryRenderer } from "./delivery-render.js";
 import { registerFleetWidget } from "./widget.js";
 import { registerSelfReport } from "./selfreport.js";
 import { registerSubagentsCommand } from "./menu.js";
@@ -57,6 +58,9 @@ export default function (pi: ExtensionAPI): void {
 	// messages, takeover notes, blocked wakes — with wake governed by the
 	// `notifications` setting (blocked always wakes).
 	registerDelivery(pi);
+	// Transcript fold only (issue #30). pi.registerMessageRenderer replaces
+	// display; the steered content the model reads stays the full push.
+	registerDeliveryRenderer(pi);
 	pi.on("session_shutdown", () => {
 		stopDeliveryLoop();
 		// Workflow runs do not outlive their session (issue 12): terminate the
