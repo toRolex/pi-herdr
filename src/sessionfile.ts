@@ -407,10 +407,25 @@ export function sidecarPathFor(sessionPath: string): string {
  * (issue 06): the run completed AFTER a human takeover — the parent labels
  * the delivery "auto-delivered after user steer". `structured` (issue 14)
  * carries the validated StructuredOutput payload of a schema'd workflow
- * child — canonical JSON, captured child-side, verbatim here. */
+ * child — canonical JSON, captured child-side, verbatim here. `text`
+ * (issue 33) is the final assistant body committed with a declared done;
+ * old sidecars omit it and delivery falls back to the session JSONL. */
 export type ExitSidecar =
-	| { type: "done"; rearm?: true; structured?: string }
+	| { type: "done"; rearm?: true; structured?: string; text?: string }
 	| { type: "error"; errorMessage: string; stopReason: string; rearm?: true };
+
+/**
+ * Bare `agent_done` is refused when the session holds no assistant text.
+ * Null means the declaration may proceed. The string is the tool error the
+ * model corrects from — the child stays up, and no sidecar is written.
+ */
+export function refuseBareDone(text: string | undefined): string | null {
+	if (typeof text === "string" && text.trim()) return null;
+	return (
+		"agent_done refused: this session has no assistant text yet. " +
+		"Write the full final summary as a normal assistant message first, then call agent_done again."
+	);
+}
 
 /** Parse sidecar text. Anything malformed or of an unknown shape is invalid. */
 export function parseExitSidecar(
@@ -431,8 +446,15 @@ export function parseExitSidecar(
 	// child extension writes it: a JSON string of the validated payload.
 	const structured =
 		typeof o.structured === "string" ? { structured: o.structured } : {};
+	// Final body committed with the declaration (issue 33). Blank and
+	// non-string values are absent so delivery falls back to the JSONL,
+	// including the empty-assistant sentence.
+	const text =
+		o.type === "done" && typeof o.text === "string" && o.text.trim()
+			? { text: o.text }
+			: {};
 	if (o.type === "done")
-		return { ok: true, sidecar: { type: "done", ...rearm, ...structured } };
+		return { ok: true, sidecar: { type: "done", ...rearm, ...structured, ...text } };
 	if (o.type === "error") {
 		const message =
 			typeof o.errorMessage === "string" && o.errorMessage.trim()

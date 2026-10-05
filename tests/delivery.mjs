@@ -76,6 +76,49 @@ console.log("\n[1] Sidecar rearm + takeover/steer markers");
 		sf.parseExitSidecar('{"type":"done","unknown":{"x":1}}').ok === true,
 		"unknown fields tolerated (forward compat)",
 	);
+	const withText = sf.parseExitSidecar(
+		'{"type":"done","text":"The scan found 3 issues."}',
+	).sidecar;
+	assert(
+		withText.type === "done" && withText.text === "The scan found 3 issues.",
+		"done sidecar keeps the committed final text",
+	);
+	assert(
+		sf.parseExitSidecar('{"type":"done"}').sidecar.text === undefined,
+		"old done sidecar without text still parses",
+	);
+	assert(
+		sf.parseExitSidecar('{"type":"done","text":""}').sidecar.text === undefined &&
+			sf.parseExitSidecar('{"type":"done","text":"   "}').sidecar.text ===
+				undefined &&
+			sf.parseExitSidecar('{"type":"done","text":12}').sidecar.text ===
+				undefined,
+		"blank or non-string sidecar text is treated as absent",
+	);
+	const withBoth = sf.parseExitSidecar(
+		'{"type":"done","text":"final","rearm":true,"structured":"{\\"ok\\":true}"}',
+	).sidecar;
+	assert(
+		withBoth.text === "final" &&
+			withBoth.rearm === true &&
+			withBoth.structured === '{"ok":true}',
+		"sidecar text rides alongside rearm and structured",
+	);
+	assert(
+		sf.refuseBareDone("") !== null &&
+			sf.refuseBareDone("   ") !== null &&
+			sf.refuseBareDone(undefined) !== null,
+		"bare agent_done is refused when the session has no assistant text",
+	);
+	assert(
+		typeof sf.refuseBareDone("") === "string" &&
+			sf.refuseBareDone("").length > 0,
+		"the refusal is a non-empty message the model can correct from",
+	);
+	assert(
+		sf.refuseBareDone("The scan found 3 issues.") === null,
+		"agent_done is allowed once assistant text exists",
+	);
 
 	// takeover marker
 	const sess = join(tmp, "a.jsonl");
@@ -1206,6 +1249,46 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				w2.pushes[0].content.startsWith("auto-delivered after user steer: ") &&
 				w2.closes.includes(r2.paneId),
 			"the rearm-labeled delivery closes the taken-over pane (the promise)",
+		);
+		rmSync(dir, { recursive: true, force: true });
+	}
+	{
+		// Sidecar text wins over a later (or different) JSONL assistant message.
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-text-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("stale jsonl body")]);
+		const r = rec("scout", { sessionPath: sess });
+		const w = world([r], { fleet: [{ paneId: r.paneId, status: "done" }] });
+		writeFileSync(
+			`${sess}.exit`,
+			JSON.stringify({ type: "done", text: "committed final letter" }),
+		);
+		await w.tick();
+		assert(
+			w.pushes.length === 1 &&
+				w.pushes[0].content.includes("committed final letter") &&
+				!w.pushes[0].content.includes("stale jsonl body") &&
+				w.pushes[0].details.result === "committed final letter",
+			"done push prefers the sidecar text over the session JSONL",
+		);
+		rmSync(dir, { recursive: true, force: true });
+	}
+	{
+		// A done sidecar with no text and an empty session still uses the
+		// existing empty-body sentence (#30 matches it).
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-empty-"));
+		const sess = join(dir, "s.jsonl");
+		writeFileSync(sess, "");
+		const r = rec("scout", { sessionPath: sess });
+		const w = world([r], { fleet: [{ paneId: r.paneId, status: "done" }] });
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", text: "   " }));
+		await w.tick();
+		assert(
+			w.pushes.length === 1 &&
+				w.pushes[0].content.includes(
+					"(the child finished but its session file holds no assistant message)",
+				),
+			"blank sidecar text still uses the empty-assistant sentence",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
