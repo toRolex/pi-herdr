@@ -8,7 +8,7 @@ This is the [toRolex/pi-herdr](https://github.com/toRolex/pi-herdr) fork of [And
 
 ## Requirements
 
-- Node.js 20 or newer, as declared in [package.json](package.json).
+- Node.js 22.19.0 or newer, as declared in [package.json](package.json).
 - A working pi installation with at least one authenticated model. See [pi](https://pi.dev) for setup. Child pi processes use your pi configuration.
 - herdr 0.9.0 or newer, installed separately from [herdr.dev](https://herdr.dev), available on `PATH`, with its server running.
 - The CLI for any other agent kind that you want to launch. Valid kinds come from herdr's live kind list.

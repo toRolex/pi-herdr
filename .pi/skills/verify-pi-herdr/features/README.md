@@ -7,6 +7,7 @@ Use an isolated workspace created by `scripts/verify.mjs launch`. Run Doctor bef
 - [Spawn and result](spawn-result.md) covers acceptance, a mid-flight snapshot, and retained child output.
 - [Agent message and ACK](message-ack.md) covers the question, ACK, child completion, and normal terminal input.
 - [Workflow exchange](workflow.md) covers dispatch through the real parent TUI and child exchange.
+- [Roster](roster.md) covers the effective agent menu: layer precedence and deterministic render.
 
 ## Proof reporting
 

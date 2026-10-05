@@ -4,7 +4,7 @@ Read the current guides in [English](../README.md) or [简体中文](../README.z
 
 ## Quick start
 
-Install pi and herdr separately. Configure an authenticated pi model, ensure Node.js 20 or newer is available, and run herdr 0.9.0 or newer from your terminal.
+Install pi and herdr separately. Configure an authenticated pi model, ensure Node.js 22.19.0 or newer is available, and run herdr 0.9.0 or newer from your terminal.
 
 ```bash
 herdr --version

@@ -2,7 +2,7 @@
 
 Thanks for considering a contribution! This extension turns pi into an orchestrator
 over herdr agent panes, so most changes touch either the spawn/envelope layer
-(`src/herdr.ts`, `src/launcher.ts`, `src/config.ts`) or the tool surface
+(`src/herdr.ts`, `src/spawn.ts`, `src/config.ts`) or the tool surface
 (`src/tools/*.ts`).
 
 ## Setup
@@ -46,8 +46,6 @@ You do **not** need a build step — pi loads TypeScript via jiti. Edit `src/` a
 - **Don't infer agent state from the rendered spinner.** Tool-call output replaces
   it. Completion is read only from herdr's state events (self-report + transition
   waits). See README › "How completion is detected".
-- **Platform differences stay in the launcher.** New presets go through the
-  `HERDR_PRESET_*` map; the `cmd /c` wrapper is the launcher's job, not the LLM's.
 - **Branch on herdr version when a CLI command changes.** herdr 0.7.5 redesigned
   several commands (`agent start`, removed `agent send` → `agent prompt`, and now
   emits error envelopes on stderr). The extension detects the version once

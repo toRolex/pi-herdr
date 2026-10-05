@@ -187,7 +187,23 @@ export async function startHerdrAgent(
 		}
 	}
 
-	// 2. attach the agent to the pane by kind. `agent start --kind` can fail
+	// 2. put the shell in the spawn's directory before the agent attaches, so
+	//    the agent CLI inherits the cwd. herdr 0.9.3 accepts --cwd on `tab
+	//    create` / `pane split` but ignores it: the shell still boots in the
+	//    daemon's or the split source's cwd (verified: pane run pwd → daemon
+	//    cwd despite --cwd). Typing a cd works on every version; when a future
+	//    herdr honors --cwd this is a no-op (the shell is already in the
+	//    target). Best-effort: a failed cd leaves the spawn in the inherited
+	//    cwd.
+	if (input.cwd) {
+		const quoted = input.cwd.replace(/'/g, "'\\''");
+		await herdr<unknown>(
+			["pane", "send-text", paneId, `cd '${quoted}'\n`],
+			{ timeoutMs: 5_000, signal: input.signal },
+		);
+	}
+
+	// 3. attach the agent to the pane by kind. `agent start --kind` can fail
 	//    fast with `agent_pane_busy` while the freshly-split shell reaches its
 	//    prompt, so retry briefly.
 	const startArgs = [

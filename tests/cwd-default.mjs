@@ -44,3 +44,34 @@ try {
 } finally {
 	await herdr(["pane", "close", paneId], { timeoutMs: 10_000 });
 }
+
+// Explicit cwd: herdr 0.9.3 accepts --cwd on tab create / pane split but
+// ignores it, so startHerdrAgent types a cd into the shell before the agent
+// attaches. Compare realpaths — /tmp is a symlink on macOS.
+{
+	const { mkdtempSync, realpathSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const target = mkdtempSync(join(tmpdir(), "spawn-cwd-live-"));
+	const NAME2 = `cwd-explicit-${Date.now()}`;
+	const r = await orch.startHerdrAgent({ name: NAME2, agent: "pi", cwd: target });
+	const agentObj = r.ok && r.data?.agent ? r.data.agent : {};
+	const paneId = agentObj.pane_id ?? agentObj.paneId ?? null;
+	if (!r.ok || !paneId) {
+		console.log("✗ explicit-cwd spawn failed:", JSON.stringify(r.ok ? r.data : r.error));
+		process.exitCode = 1;
+	} else {
+		try {
+			// Give the shell time to process the typed cd and boot the agent.
+			await new Promise((res) => setTimeout(res, 4_000));
+			const get = await herdr(["pane", "get", paneId], { timeoutMs: 10_000 });
+			const pane = get.ok ? get.data?.pane : undefined;
+			const cwd = pane?.foreground_cwd ?? pane?.cwd;
+			const pass = cwd && realpathSync(cwd) === realpathSync(target);
+			console.log(`${pass ? "✓" : "✗"} explicit cwd: pane cwd=${cwd} (expected ${target})`);
+			if (!pass) process.exitCode = 1;
+		} finally {
+			await herdr(["pane", "close", paneId, "--force"], { timeoutMs: 10_000 });
+		}
+	}
+}

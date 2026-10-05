@@ -17,8 +17,8 @@ export interface GridSeat {
 	at: GridCell;
 }
 
-export function createGridTabArgs(workspace?: string, label?: string, env: Record<string, string> = {}): string[] {
-	return ["tab", "create", ...(workspace ? ["--workspace", workspace] : []), ...(label ? ["--label", label] : []), "--no-focus", ...Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`])];
+export function createGridTabArgs(workspace?: string, label?: string, env: Record<string, string> = {}, cwd?: string): string[] {
+	return ["tab", "create", ...(workspace ? ["--workspace", workspace] : []), ...(label ? ["--label", label] : []), "--no-focus", ...(cwd ? ["--cwd", cwd] : []), ...Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`])];
 }
 
 export interface GridOccupant {

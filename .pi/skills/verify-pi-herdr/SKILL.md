@@ -9,7 +9,9 @@ Read [the feature index](features/README.md), then select a mapped entry point. 
 
 ## Launch
 
-Require Node >=20, checkout dependencies, `pi`, a running Herdr >=0.9.0, and `HERDR_ENV=1`. The extension is TypeScript loaded by pi through jiti. There is no build script or standalone app binary in `package.json`. If `node_modules/jiti` is missing, install the checkout dependencies before this recipe. Do not change global pi package registration.
+Require Node >=22.19, checkout dependencies, `pi`, a running Herdr >=0.9.0, and `HERDR_ENV=1`. The extension is TypeScript loaded by pi through jiti. There is no build script or standalone app binary in `package.json`. If `node_modules/jiti` is missing, install the checkout dependencies before this recipe. Do not change global pi package registration.
+
+The installed extension checkout lives at `~/.pi/agent/git/<host>/<owner>/<repo>` (this repo: `~/.pi/agent/git/github.com/toRolex/pi-herdr`). Verify the actual path with `ls ~/.pi/agent/git/` before driving the installed copy.
 
 ```bash
 V=.pi/skills/verify-pi-herdr/scripts/verify.mjs
