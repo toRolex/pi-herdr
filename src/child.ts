@@ -31,9 +31,12 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import { Type } from "typebox";
 import { readFileSync, writeFileSync } from "node:fs";
 import {
+	assistantText,
 	clearSteerWatermark,
+	extractSessionResult,
 	inputMatchesSteer,
 	readSteerWatermark,
+	refuseBareDone,
 	takeoverPathFor,
 } from "./sessionfile.js";
 import { compileJsonSchema, type CompiledSchema } from "./workflow/json-schema.js";
@@ -202,6 +205,17 @@ export function buildCompletionSidecar(
 	const error = findLatestAssistantError(messages);
 	return error ? { type: "error", ...error } : { type: "done" };
 }
+
+/**
+ * Final assistant body to commit on a declared `agent_done`. Empty when the
+ * session has none — the caller refuses the tool instead of writing a sidecar.
+ * Reads the session file (the delivered letter), not the in-flight tool turn.
+ */
+export function finalAssistantText(sessionPath: string): string {
+	return extractSessionResult(sessionPath)?.text ?? "";
+}
+
+export { assistantText, refuseBareDone };
 
 /** Parse the parent-stamped denied-tools env value. */
 export function parseDeniedTools(rawValue: string | undefined): string[] {
@@ -443,7 +457,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	 * delivery "auto-delivered after user steer". */
 	function writeSidecar(
 		payload:
-			| { type: "done" }
+			| { type: "done"; text?: string }
 			| { type: "error"; errorMessage: string; stopReason: string },
 		rearm = false,
 	): void {
@@ -506,7 +520,18 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			"Never call it mid-task.",
 		parameters: Type.Object({}),
 		async execute(_id, _params, _signal, _onUpdate, ctx) {
-			writeSidecar({ type: "done" });
+			const text = finalAssistantText(session);
+			const refusal = refuseBareDone(text);
+			// A validated StructuredOutput payload is itself the result (prose
+			// outside that call is discarded). Refuse only when there is neither.
+			if (refusal && structured?.json === undefined) {
+				return {
+					content: [{ type: "text", text: refusal }],
+					isError: true,
+					details: {},
+				};
+			}
+			writeSidecar(refusal ? { type: "done" } : { type: "done", text });
 			ctx.shutdown();
 			return {
 				content: [

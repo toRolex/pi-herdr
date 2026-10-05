@@ -13,20 +13,22 @@ task prompts.
 
 | Param | Type | Required | Notes |
 |-------|------|----------|-------|
-| `target` | string | yes | Always explicit: pane id → herdr name → spawn-registry handle → reserved `orchestrator` role. Real names win over the reserved role. |
+| `target` | string | yes | Always explicit: pane id → herdr name → spawn-registry handle. The reserved role `orchestrator` is only the sender's direct parent and is not stolen by a same-name agent. |
 | `text` | string | yes | Message text to deliver. |
 | `submit` | boolean | no | Press Enter after typing (default `true`). |
 
 ## Resolution chain
 
-`agent get <target>` resolves pane-id / herdr name / label first (and yields
-the state the physics branch needs); then the spawn registry (handles of this
-session's spawns); then the reserved role `orchestrator` via
-`PI_HERDR_ORCHESTRATOR_PANE` (stamped when a pi-herdr agent spawned this
-session). A session no agent spawned gets the honest error: *no orchestrator
-above you, answer in-conversation*. A `gone` target errors naming the handle
-and pointing at `herdr_list_agents`; a queued (accepted-over-the-cap, no pane
-yet) spawn has nothing to deliver to and errors the same way.
+The reserved role `orchestrator` is resolved before any name lookup, and only
+to `PI_HERDR_ORCHESTRATOR_PANE` (the pane of the agent that spawned this
+session — the direct parent). A live agent or spawn handle named
+`orchestrator` does not take the alias. Unset env: *no orchestrator above
+you, answer in-conversation*. A parent pane that is no longer live names that
+pane id and points at `herdr_list_agents`. Any other target goes through
+`agent get` (pane-id / herdr name / label, which also yields the state the
+physics branch needs) and then the spawn registry. A `gone` target errors
+naming the handle; a queued (accepted-over-the-cap, no pane yet) spawn has
+nothing to deliver to and errors the same way.
 
 ## Physics-adaptive delivery
 
@@ -48,3 +50,13 @@ child queues natively), no `wait` (that is `herdr_get_agent_result(wait)`),
 and no read receipt: **delivered to the pane ≠ consumed by the model**.
 Replies arrive as injected `<agent-message>` text or the next completion
 notification.
+
+## Inbound limit
+
+Each sender label may deliver **20 messages per 10 seconds** into this
+process. The 21st is not typed into the target. The refusal returned to the
+sender is one aggregate receipt (`RATE_LIMITED`); further refusals in that
+window fold into it and are not delivered, so the receipt is never itself a
+new inbound message. The receipt states the limit and the identity scope:
+local, same OS user — the label is spawner-declared and never verified.
+A **blocked** target's overlay answer does not count and is not refused.

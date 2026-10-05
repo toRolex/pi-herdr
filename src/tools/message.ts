@@ -5,11 +5,13 @@
 // wayfinder/archive/v0.5-tickets/11-message-channel-surface.md, ruling
 // unchanged per the surface-cut keeper table (#3):
 //   - target always explicit, resolved by the shared chain:
-//     exact pane-id → herdr name → spawn-registry handle → reserved roles,
-//     real names winning over reserved (reserved is tried last);
+//     exact pane-id → herdr name → spawn-registry handle, except the
+//     reserved role `orchestrator`, which is resolved first and only as
+//     the sender's direct parent;
 //   - `orchestrator` resolves via PI_HERDR_ORCHESTRATOR_PANE (stamped by
-//     spawn when the spawner itself runs in a pane); unset → the honest
-//     "no orchestrator above you, answer in-conversation" error;
+//     spawn when the spawner itself runs in a pane). A live agent or
+//     spawn handle of that name does not take the alias. Unset or a
+//     missing parent pane → the honest error;
 //   - delivery = text injection through the existing send machinery — one
 //     code path, no pane-metadata channel, no file+notice;
 //   - physics-adaptive: a BLOCKED target gets the RAW text typed into its
@@ -86,6 +88,8 @@ export interface MessageDeps {
 	/** Env view — default: process.env. */
 	env?: Record<string, string | undefined>;
 	signal?: AbortSignal;
+	/** Clock for the inbound window — default: Date.now. */
+	now?: () => number;
 }
 
 /** The bare error payload a Result carries (env.ts's Err.error). */
@@ -192,9 +196,42 @@ async function resolveTarget(
 	const registry = deps.registry ?? spawnRecords;
 	const env = deps.env ?? process.env;
 
+	// Reserved role, before any name lookup. The string "orchestrator" is
+	// only the sender's direct parent (PI_HERDR_ORCHESTRATOR_PANE). A fleet
+	// agent or spawn handle of the same name must not take the alias.
+	// No generation check here — that is a separate ticket.
+	if (target === "orchestrator") {
+		const orchestratorPane = env.PI_HERDR_ORCHESTRATOR_PANE;
+		if (!orchestratorPane) {
+			return {
+				kind: "err",
+				error: err(
+					"NOT_FOUND",
+					`no orchestrator above you: this session was not spawned by a pi-herdr agent (PI_HERDR_ORCHESTRATOR_PANE unset), so there is nothing to message as "orchestrator" — answer in-conversation, or address a peer via herdr_list_agents.`,
+				),
+			};
+		}
+		const above = await agentGet(orchestratorPane, deps.signal);
+		if (above.ok) {
+			return {
+				kind: "live",
+				paneId: above.data.paneId,
+				state: above.data.status,
+				to: "orchestrator",
+			};
+		}
+		return {
+			kind: "err",
+			error: err(
+				"NOT_FOUND",
+				`the orchestrator pane (${orchestratorPane}) is gone — see herdr_list_agents.`,
+				{ orchestratorPane },
+			),
+		};
+	}
+
 	// 1. exact pane-id / herdr name / label (herdr resolves all three; this
-	//    also fetches the state the physics branch needs). Real names — any
-	//    live herdr agent named "orchestrator" included — win here.
+	//    also fetches the state the physics branch needs).
 	const live = await agentGet(target, deps.signal);
 	if (live.ok) {
 		const records = registry();
@@ -244,40 +281,7 @@ async function resolveTarget(
 		};
 	}
 
-	// 3. reserved role — last, so real names beat it. spawn stamps
-	//    PI_HERDR_ORCHESTRATOR_PANE when the spawner runs in a pane; a
-	//    human-spawned session honestly has no orchestrator above it.
-	if (target === "orchestrator") {
-		const orchestratorPane = env.PI_HERDR_ORCHESTRATOR_PANE;
-		if (!orchestratorPane) {
-			return {
-				kind: "err",
-				error: err(
-					"NOT_FOUND",
-					`no orchestrator above you: this session was not spawned by a pi-herdr agent (PI_HERDR_ORCHESTRATOR_PANE unset), so there is nothing to message as "orchestrator" — answer in-conversation, or address a peer via herdr_list_agents.`,
-				),
-			};
-		}
-		const above = await agentGet(orchestratorPane, deps.signal);
-		if (above.ok) {
-			return {
-				kind: "live",
-				paneId: above.data.paneId,
-				state: above.data.status,
-				to: "orchestrator",
-			};
-		}
-		return {
-			kind: "err",
-			error: err(
-				"NOT_FOUND",
-				`the orchestrator pane (${orchestratorPane}) is gone — see herdr_list_agents.`,
-				{ orchestratorPane },
-			),
-		};
-	}
-
-	// 4. nothing matched.
+	// 3. nothing matched.
 	return {
 		kind: "err",
 		error: err(
@@ -287,11 +291,98 @@ async function resolveTarget(
 	};
 }
 
+// ---- inbound rate limit ------------------------------------------------------------
+
+/** pi fleet budget: one declared sender, one receiving process. */
+export const INBOUND_LIMIT = 20;
+export const INBOUND_WINDOW_MS = 10_000;
+
+/**
+ * What the limit is actually about. Labels are spawner-declared and never
+ * verified, and every pane on this machine shares one OS user — so the
+ * bucket is local courtesy, not an identity boundary.
+ */
+const IDENTITY_SCOPE =
+	"Identity scope: local, same OS user. The sender label is spawner-declared and never verified; panes on this machine share one OS account, so this limit is not a trust boundary.";
+
+interface SenderBucket {
+	times: number[];
+	/** Refusals waiting to be named on the next aggregate receipt. */
+	pending: number;
+	/** When the current window's one receipt was returned. */
+	lastReceiptAt?: number;
+}
+
+const buckets = new Map<string, SenderBucket>();
+
+/** Test seam: drop every sender's window. */
+export function resetInboundRateLimit(): void {
+	buckets.clear();
+}
+
+/**
+ * Admit one inbound send, or refuse it. A refusal is itself the aggregate
+ * receipt for every refusal since the previous receipt — the refused send
+ * is not delivered anywhere, so a receipt cannot spawn another refusal.
+ *
+ * Blocked-overlay answers do not enter here: that path is the target's
+ * question, and starving it would leave the pane stuck.
+ */
+export function admitInbound(
+	sender: string,
+	now: number,
+): { ok: true } | { ok: false; error: SendError } {
+	const cutoff = now - INBOUND_WINDOW_MS;
+	let bucket = buckets.get(sender);
+	if (!bucket) {
+		bucket = { times: [], pending: 0 };
+		buckets.set(sender, bucket);
+	}
+	bucket.times = bucket.times.filter((t) => t > cutoff);
+	if (bucket.times.length < INBOUND_LIMIT) {
+		bucket.times.push(now);
+		bucket.pending = 0;
+		bucket.lastReceiptAt = undefined;
+		return { ok: true };
+	}
+	bucket.pending += 1;
+	const cooled =
+		bucket.lastReceiptAt == null ||
+		now - bucket.lastReceiptAt >= INBOUND_WINDOW_MS;
+	if (!cooled) {
+		return {
+			ok: false,
+			error: err(
+				"RATE_LIMITED",
+				`Folded into the open aggregate receipt: refused ${bucket.pending} more inbound message${bucket.pending === 1 ? "" : "s"} from "${sender}" — not delivered, and no additional receipt. Limit is ${INBOUND_LIMIT} messages per ${INBOUND_WINDOW_MS / 1000} seconds per sender. ${IDENTITY_SCOPE}`,
+				{ sender, refused: bucket.pending, folded: true },
+			),
+		};
+	}
+	const refused = bucket.pending;
+	bucket.pending = 0;
+	bucket.lastReceiptAt = now;
+	return {
+		ok: false,
+		error: err(
+			"RATE_LIMITED",
+			`Aggregate receipt: refused ${refused} inbound message${refused === 1 ? "" : "s"} from "${sender}" — not delivered. Limit is ${INBOUND_LIMIT} messages per ${INBOUND_WINDOW_MS / 1000} seconds per sender. ${IDENTITY_SCOPE}`,
+			{
+				sender,
+				refused,
+				limit: INBOUND_LIMIT,
+				windowSeconds: INBOUND_WINDOW_MS / 1000,
+			},
+		),
+	};
+}
+
 // ---- the engine ----------------------------------------------------------------
 
 /**
  * message_agent, end to end: resolve → physics branch → inject → receipt.
- * Fire-and-forget by design; no state gates.
+ * Fire-and-forget by design; no state gates. Inbound sends (everything
+ * except a blocked-overlay answer) are capped per sender label.
  */
 export async function messageAgent(
 	params: MessageParams,
@@ -303,6 +394,10 @@ export async function messageAgent(
 	const submit = params.submit !== false;
 	const blocked = resolved.state === "blocked";
 	const from = await senderLabel(deps);
+	if (!blocked) {
+		const admitted = admitInbound(from, (deps.now ?? Date.now)());
+		if (!admitted.ok) return admitted;
+	}
 	const payload = blocked
 		? params.text
 		: envelope(from, resolved.to, params.text);
@@ -344,8 +439,9 @@ export async function messageAgent(
 const DESCRIPTION =
 	"Send a message to a herdr agent pane — the open channel, anyone ↔ anyone, no broker. " +
 	"The target is always explicit and resolves as: exact pane-id → herdr name → spawn-registry handle " +
-	"(the name herdr_spawn_agent returned) → the reserved role \"orchestrator\" (your spawner's pane, via " +
-	"PI_HERDR_ORCHESTRATOR_PANE). Real names beat the reserved role. Delivery is physics-adaptive: a BLOCKED " +
+	"(the name herdr_spawn_agent returned). The reserved role \"orchestrator\" is only your direct parent's pane " +
+	"(PI_HERDR_ORCHESTRATOR_PANE) — a live agent of that name does not take the alias; unset or a gone parent " +
+	"errors honestly. Delivery is physics-adaptive: a BLOCKED " +
 	"target (waiting on a question overlay) gets the raw text typed in as its ANSWER — the message is the answer; " +
 	"for option-list questions use herdr_send_keys instead, typed text never reaches option rows. Any other state " +
 	"gets the text wrapped as <agent-message from=\"…\" to=\"…\">…</agent-message> — when YOU receive that tag it is a " +
@@ -354,7 +450,10 @@ const DESCRIPTION =
 	"{delivered, target, state, delivery: \"message\"|\"answer\"}, but delivered-to-the-pane ≠ consumed-by-the-model — " +
 	"there is no read receipt. Replies arrive as injected <agent-message> text or the next completion notification " +
 	"(herdr_get_agent_result(wait) is the wait). A gone target errors naming the handle — see herdr_list_agents; " +
-	"a queued spawn (accepted over the parallel cap, no pane yet) has nothing to deliver to and errors the same way.";
+	"a queued spawn (accepted over the parallel cap, no pane yet) has nothing to deliver to and errors the same way. " +
+	"Inbound sends are limited to 20 messages per 10 seconds per sender label. The label is spawner-declared and never verified, and the scope is local (same OS user) — not a trust boundary. " +
+	"Over the limit, nothing is typed into the target; the error is one aggregate receipt for the refused sends, not a message back (that would loop). " +
+	"A BLOCKED overlay answer does not count and is never refused by this limit.";
 
 export function registerMessageTool(pi: ExtensionAPI): void {
 	pi.registerTool({
