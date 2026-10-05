@@ -417,6 +417,8 @@ export type ExitSidecar =
 			structured?: string;
 			text?: string;
 			rootSession?: string;
+			/** One business event (issue 38). Absent on sidecars written before it. */
+			eventId?: string;
 	  }
 	| {
 			type: "error";
@@ -424,6 +426,7 @@ export type ExitSidecar =
 			stopReason: string;
 			rearm?: true;
 			rootSession?: string;
+			eventId?: string;
 	  };
 
 /**
@@ -471,10 +474,23 @@ export function parseExitSidecar(
 		typeof o.rootSession === "string" && o.rootSession.trim()
 			? { rootSession: o.rootSession }
 			: {};
+	// Business event id (issue 38). Blank and non-string values are absent so
+	// an old sidecar still parses and delivery does not invent an id.
+	const eventId =
+		typeof o.eventId === "string" && o.eventId.trim()
+			? { eventId: o.eventId }
+			: {};
 	if (o.type === "done")
 		return {
 			ok: true,
-			sidecar: { type: "done", ...rearm, ...structured, ...text, ...rootSession },
+			sidecar: {
+				type: "done",
+				...rearm,
+				...structured,
+				...text,
+				...rootSession,
+				...eventId,
+			},
 		};
 	if (o.type === "error") {
 		const message =
@@ -490,6 +506,7 @@ export function parseExitSidecar(
 				stopReason,
 				...rearm,
 				...rootSession,
+				...eventId,
 			},
 		};
 	}

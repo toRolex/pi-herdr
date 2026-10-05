@@ -29,6 +29,7 @@
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import {
 	assistantText,
@@ -202,11 +203,19 @@ export function findLatestAssistantError(
 /** The typed completion sidecar payload for a settled run. */
 export function buildCompletionSidecar(
 	messages: AgentMessageLike[] | undefined,
+	eventId: string = randomUUID(),
 ):
-	| { type: "done" }
-	| { type: "error"; errorMessage: string; stopReason: "error" } {
+	| { type: "done"; eventId: string }
+	| {
+			type: "error";
+			errorMessage: string;
+			stopReason: "error";
+			eventId: string;
+	  } {
 	const error = findLatestAssistantError(messages);
-	return error ? { type: "error", ...error } : { type: "done" };
+	return error
+		? { type: "error", ...error, eventId }
+		: { type: "done", eventId };
 }
 
 /**
@@ -459,10 +468,17 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	 * break the exit path (the session JSONL remains the readable truth).
 	 * `rearm` marks an idle-re-arm exit (issue 06) — the parent labels the
 	 * delivery "auto-delivered after user steer". */
+	const completionEventId = randomUUID();
+
 	function writeSidecar(
 		payload:
-			| { type: "done"; text?: string }
-			| { type: "error"; errorMessage: string; stopReason: string },
+			| { type: "done"; text?: string; eventId?: string }
+			| {
+					type: "error";
+					errorMessage: string;
+					stopReason: string;
+					eventId?: string;
+			  },
 		rearm = false,
 	): void {
 		try {
@@ -473,12 +489,24 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 					? { structured: structured.json }
 					: {};
 			const rootField = rootSession ? { rootSession } : {};
+			// One business event for this child run (issue 38). A payload that
+			// already names one (buildCompletionSidecar) wins; agent_done uses
+			// the id minted when this extension registered.
+			const eventField = {
+				eventId: payload.eventId ?? completionEventId,
+			};
 			writeFileSync(
 				sidecarPath,
 				JSON.stringify(
 					rearm
-						? { ...payload, ...structuredField, ...rootField, rearm: true }
-						: { ...payload, ...structuredField, ...rootField },
+						? {
+								...payload,
+								...structuredField,
+								...rootField,
+								...eventField,
+								rearm: true,
+						  }
+						: { ...payload, ...structuredField, ...rootField, ...eventField },
 				),
 			);
 		} catch {
