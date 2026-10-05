@@ -702,10 +702,18 @@ export interface SpawnRecord {
 	delivery?: { kind: DeliveryKind; at: number };
 	/** Pane close pending (manual e2e F2): the terminal delivery found the
 	 * pane still listed actively live (the auto-exit race) — the close is
-	 * retried on later ticks once the fleet stops listing it. Never set for
-	 * taken-over panes that have not re-arm-delivered, or workflow children
-	 * (the run owns their panes). */
+	 * retried on later ticks once the fleet stops listing it. Also set when
+	 * an adopted orphan's close was rejected after the result was delivered,
+	 * so a later tick can retry without pushing the letter again. Never set
+	 * for taken-over panes that have not re-arm-delivered, or workflow
+	 * children (the run owns their panes). */
 	paneClosePending?: boolean;
+	/** Why the last pane close was rejected (issue 41). Cleared when a later
+	 * close succeeds. The session file is never deleted because of it. */
+	paneCloseError?: string;
+	/** Why the last orphan push was rejected (issue 41). The pane stays up
+	 * and the result is not marked delivered. */
+	pushError?: string;
 	/** A human took the pane over (child-reported <session>.takeover). */
 	takenOver?: boolean;
 	/** Turn cancelled (issue 10): when the parent sent Escape to the pane.
