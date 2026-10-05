@@ -65,6 +65,22 @@ export function makeDeliverySink(pi: ExtensionAPI): (msg: SteeredMessage) => voi
  * `session_before_compact` until it succeeds or fails. No event yet means
  * idle, which keeps the historical steer path.
  */
+let orchestratorSessionPath: string | undefined;
+
+/** This process's session file, once `session_start` has fired. */
+export function currentOrchestratorSession(): string | undefined {
+	return orchestratorSessionPath;
+}
+
+/** Remember the session file the delivery loop is running inside. */
+export function rememberOrchestratorSession(pi: ExtensionAPI): void {
+	if (typeof pi.on !== "function") return;
+	pi.on("session_start", (_event, ctx) => {
+		const file = ctx?.sessionManager?.getSessionFile?.();
+		if (typeof file === "string" && file.trim()) orchestratorSessionPath = file;
+	});
+}
+
 export function trackOrchestratorBusy(pi: ExtensionAPI): () => boolean {
 	let running = false;
 	let compacting = false;

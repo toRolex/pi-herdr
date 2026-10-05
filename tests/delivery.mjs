@@ -104,6 +104,30 @@ console.log("\n[1] Sidecar rearm + takeover/steer markers");
 			withBoth.structured === '{"ok":true}',
 		"sidecar text rides alongside rearm and structured",
 	);
+	const withRoot = sf.parseExitSidecar(
+		'{"type":"done","text":"grandchild letter","rootSession":"/root/session.jsonl"}',
+	).sidecar;
+	assert(
+		withRoot.rootSession === "/root/session.jsonl" &&
+			withRoot.text === "grandchild letter",
+		"done sidecar keeps the root session pointer with the committed text",
+	);
+	assert(
+		sf.parseExitSidecar('{"type":"done"}').sidecar.rootSession === undefined &&
+			sf.parseExitSidecar('{"type":"done","rootSession":""}').sidecar
+				.rootSession === undefined &&
+			sf.parseExitSidecar('{"type":"done","rootSession":12}').sidecar
+				.rootSession === undefined,
+		"a missing, blank, or non-string root pointer is absent",
+	);
+	const errRoot = sf.parseExitSidecar(
+		'{"type":"error","errorMessage":"boom","stopReason":"error","rootSession":"/root/session.jsonl"}',
+	).sidecar;
+	assert(
+		errRoot.rootSession === "/root/session.jsonl" &&
+			errRoot.errorMessage === "boom",
+		"error sidecar keeps the root session pointer",
+	);
 	assert(
 		sf.refuseBareDone("") !== null &&
 			sf.refuseBareDone("   ") !== null &&
@@ -473,6 +497,7 @@ console.log("\n[2] Child extension — takeover + idle re-arm");
 		process.env.PI_HERDR_SESSION = sess;
 		process.env.PI_HERDR_AUTO_EXIT = "1";
 		process.env.PI_HERDR_IDLE_REARM_MS = "40";
+		process.env.PI_HERDR_ROOT_SESSION = "/sessions/root.jsonl";
 		const { mockPi, registered } = makePi();
 		child.registerChildExtension(mockPi);
 		try {
@@ -482,9 +507,49 @@ console.log("\n[2] Child extension — takeover + idle re-arm");
 				shuts === 1 && sidecar(sess)?.type === "done" && !sidecar(sess)?.rearm,
 				"no takeover: autonomous clean settle still exits immediately (unlabeled)",
 			);
+			assert(
+				sidecar(sess)?.rootSession === "/sessions/root.jsonl",
+				"settle sidecar carries the stamped root session pointer",
+			);
 		} finally {
-			for (const k of ["PI_HERDR_SESSION", "PI_HERDR_AUTO_EXIT", "PI_HERDR_IDLE_REARM_MS"])
+			for (const k of ["PI_HERDR_SESSION", "PI_HERDR_AUTO_EXIT", "PI_HERDR_IDLE_REARM_MS", "PI_HERDR_ROOT_SESSION"])
 				delete process.env[k];
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}
+
+	// --- declared done also commits the root pointer ---------------------
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-root-done-"));
+		const sess = join(dir, "s.jsonl");
+		writeFileSync(
+			sess,
+			JSON.stringify({
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "declared letter" }],
+					stopReason: "stop",
+				},
+			}) + "\n",
+		);
+		process.env.PI_HERDR_SESSION = sess;
+		process.env.PI_HERDR_ROOT_SESSION = "/sessions/root.jsonl";
+		const { mockPi, registered } = makePi();
+		child.registerChildExtension(mockPi);
+		try {
+			const tool = registered.tools.find((t) => t.name === "agent_done");
+			await tool.execute("1", {}, undefined, undefined, { shutdown() {} });
+			const s = sidecar(sess);
+			assert(
+				s?.type === "done" &&
+					s.text === "declared letter" &&
+					s.rootSession === "/sessions/root.jsonl",
+				"agent_done sidecar carries the final text and the root session pointer",
+			);
+		} finally {
+			delete process.env.PI_HERDR_SESSION;
+			delete process.env.PI_HERDR_ROOT_SESSION;
 			rmSync(dir, { recursive: true, force: true });
 		}
 	}
@@ -1602,6 +1667,176 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				"done + normal + busy → followUp",
 			);
 		}
+			rmSync(dir, { recursive: true, force: true });
+	}
+
+	// --- #39 orphan adoption: dead owner, fleet still done/idle ----------
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-orphan-"));
+		const root = join(dir, "root.jsonl");
+		const mid = join(dir, "mid.jsonl");
+		const leaf = join(dir, "leaf.jsonl");
+		const letter = "grandchild finished the scan: 3 issues, all fixed.";
+		writeSession(leaf, [assistantMsg(letter)]);
+		writeFileSync(
+			`${leaf}.exit`,
+			JSON.stringify({ type: "done", text: letter, rootSession: root }),
+		);
+		const rootRecords = [
+			rec("mid", {
+				sessionPath: mid,
+				lineage: { rootSession: root, ownerSession: root },
+			}),
+		];
+		const midFile = `${mid}.registry.json`;
+		writeFileSync(
+			midFile,
+			JSON.stringify([
+				{
+					name: "leaf",
+					kind: "pi",
+					paneId: "w1:leaf",
+					sessionPath: leaf,
+					stance: "autonomous",
+					lineage: { rootSession: root, ownerSession: mid },
+				},
+			]),
+		);
+		const pushes = [];
+		const closes = [];
+		const fleet = [{ paneId: "w1:leaf", status: "done" }];
+		const depsFor = (selfPath, records) => ({
+			registry: () => new Map(records.map((r) => [r.name, r])),
+			load: () => ({ notifications: "normal" }),
+			list: async () => ({
+				ok: true,
+				data: fleet.map((f) => ({
+					paneId: f.paneId,
+					agentStatus: f.status,
+				})),
+			}),
+			readRegistry: (sessionPath) => {
+				const path = `${sessionPath}.registry.json`;
+				if (!existsSync(path)) return [];
+				return JSON.parse(readFileSync(path, "utf8"));
+			},
+			sessionPath: selfPath,
+			push: (m) => pushes.push(m),
+			closePane: async (paneId) => {
+				closes.push(paneId);
+			},
+			now: () => 1_000_000,
+		});
+
+		// middle process is gone (not in the fleet). Its registry file still
+		// lists the leaf, and the fleet still lists that leaf done.
+		await delivery.deliverOnce(depsFor(root, rootRecords));
+		assert(
+			pushes.length === 1 &&
+				pushes[0].content.includes(letter) &&
+				pushes[0].content.includes('Agent "leaf" finished'),
+			"dead middle layer: the root push carries the grandchild's full letter",
+		);
+		assert(
+			pushes[0].details.kind === "done" && pushes[0].details.adopted === true,
+			"the adopted push is a done event marked adopted",
+		);
+		assert(closes.includes("w1:leaf"), "adopting the orphan still closes its pane");
+
+		// resume of the root session does not push the same letter again
+		await delivery.deliverOnce(depsFor(root, rootRecords));
+		assert(
+			pushes.length === 1,
+			"a later tick, including resume, does not deliver the orphan twice",
+		);
+
+		// parent still alive: its registry file still lists the leaf
+		const liveSess = join(dir, "live.jsonl");
+		writeSession(liveSess, [assistantMsg("still the parent's")]);
+		writeFileSync(
+			`${liveSess}.exit`,
+			JSON.stringify({
+				type: "done",
+				text: "still the parent's",
+				rootSession: root,
+			}),
+		);
+		writeFileSync(
+			midFile,
+			JSON.stringify([
+				{
+					name: "leaf-live",
+					kind: "pi",
+					paneId: "w1:leaf-live",
+					sessionPath: liveSess,
+					stance: "autonomous",
+					lineage: { rootSession: root, ownerSession: mid },
+				},
+			]),
+		);
+		fleet.push({ paneId: "w1:mid", status: "idle" });
+		fleet.push({ paneId: "w1:leaf-live", status: "idle" });
+		const before = pushes.length;
+		await delivery.deliverOnce(depsFor(root, rootRecords));
+		assert(
+			pushes.length === before,
+			"a living parent keeps the result: the root does not adopt it",
+		);
+
+		// a failed registry observation is not proof the owner died
+		const lost = rec("leaf-unobserved", {
+			sessionPath: join(dir, "unobserved.jsonl"),
+			lineage: { rootSession: root, ownerSession: mid },
+		});
+		writeSession(lost.sessionPath, [assistantMsg("do not adopt me")]);
+		writeFileSync(
+			`${lost.sessionPath}.exit`,
+			JSON.stringify({
+				type: "done",
+				text: "do not adopt me",
+				rootSession: root,
+			}),
+		);
+		fleet.push({ paneId: lost.paneId, status: "done" });
+		writeFileSync(
+			midFile,
+			JSON.stringify([
+				{
+					name: lost.name,
+					kind: "pi",
+					paneId: lost.paneId,
+					sessionPath: lost.sessionPath,
+					stance: "autonomous",
+					lineage: lost.lineage,
+				},
+			]),
+		);
+		const blind = depsFor(root, rootRecords);
+		blind.readRegistry = () => {
+			throw new Error("registry unreadable");
+		};
+		await delivery.deliverOnce(blind);
+		assert(
+			pushes.every((p) => !String(p.content).includes("do not adopt me")),
+			"a failed registry observation is not treated as an orphan",
+		);
+
+		// wrong root: another orchestrator must not receive this letter
+		const strangerPushes = [];
+		const strangerDeps = depsFor(join(dir, "stranger.jsonl"), [
+			rec("mid", {
+				sessionPath: mid,
+				lineage: { rootSession: root, ownerSession: root },
+			}),
+		]);
+		strangerDeps.push = (m) => strangerPushes.push(m);
+		strangerDeps.readRegistry = () => [];
+		await delivery.deliverOnce(strangerDeps);
+		assert(
+			strangerPushes.length === 0,
+			"a session that is not the recorded root does not receive the orphan",
+		);
+
 		rmSync(dir, { recursive: true, force: true });
 	}
 }

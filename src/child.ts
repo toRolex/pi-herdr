@@ -67,6 +67,9 @@ export const ENV_IDLE_REARM_MS = "PI_HERDR_IDLE_REARM_MS";
  * env var with its path — a path, not inline JSON (Windows env-block limits).
  * Set only for `agent(prompt, { schema })` children of a workflow run. */
 export const ENV_SCHEMA = "PI_HERDR_SCHEMA";
+/** Root orchestrator session file (issue 39). Stamped at spawn so a
+ * completion sidecar can name the session that may adopt an orphan. */
+export const ENV_ROOT_SESSION = "PI_HERDR_ROOT_SESSION";
 
 /** What the child produced, filled in as StructuredOutput is called.
  * PORTED from upstream `structured-output.ts` (MIT) — the capture box the
@@ -407,6 +410,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	const childName = process.env[ENV_NAME] ?? "";
 	const agentType = process.env[ENV_AGENT] ?? "";
 	const autoExit = process.env[ENV_AUTO_EXIT] === "1";
+	const rootSession = process.env[ENV_ROOT_SESSION]?.trim() || undefined;
 	const denied = parseDeniedTools(process.env[ENV_DENIED_TOOLS]);
 	const label = agentType || childName;
 
@@ -468,12 +472,13 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 				payload.type === "done" && structured?.json !== undefined
 					? { structured: structured.json }
 					: {};
+			const rootField = rootSession ? { rootSession } : {};
 			writeFileSync(
 				sidecarPath,
 				JSON.stringify(
 					rearm
-						? { ...payload, ...structuredField, rearm: true }
-						: { ...payload, ...structuredField },
+						? { ...payload, ...structuredField, ...rootField, rearm: true }
+						: { ...payload, ...structuredField, ...rootField },
 				),
 			);
 		} catch {
