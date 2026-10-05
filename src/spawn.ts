@@ -747,6 +747,8 @@ export interface SpawnRecord {
 	 * The stalled STATE itself is always derived (src/status.ts), never
 	 * stored — this only dedupes pings and ages problems. */
 	watch?: { stalled?: boolean; problemSince?: number };
+	/** Prompt readback (issue #35). Absent until a prompt is sent. */
+	promptSubmission?: PromptSubmission;
 }
 
 const spawnRegistry = new Map<string, SpawnRecord>();
@@ -810,6 +812,18 @@ export interface SpawnDeps {
 		paneId: string,
 		text: string,
 		deadline: number,
+		signal?: AbortSignal,
+	) => Promise<Result<true>>;
+	/** Read the child's editor and agent status after a prompt is sent.
+	 * Default: `agent get`. Tests inject a fixture. */
+	readEditor?: (
+		paneId: string,
+		signal?: AbortSignal,
+	) => Promise<Result<EditorReadback>>;
+	/** Press Enter once — default: `pane send-keys Enter`. The task text
+	 * is never sent again. */
+	pressEnter?: (
+		paneId: string,
 		signal?: AbortSignal,
 	) => Promise<Result<true>>;
 	/** Live agent_status — default: getAgentStatus. */
@@ -886,6 +900,30 @@ const defaultSubmit = async (
 	deadline: number,
 	signal?: AbortSignal,
 ): Promise<Result<true>> => submitAndWait(paneId, text, { deadline, signal });
+
+/** `agent get` has no editor buffer (herdr 0.9.3 AgentInfo). Status is
+ * observed; `text` stays unset unless a future field actually carries it. */
+const defaultReadEditor = async (
+	paneId: string,
+	signal?: AbortSignal,
+): Promise<Result<EditorReadback>> => {
+	const r = await herdr<{
+		agent?: { agent_status?: string };
+		agent_status?: string;
+	}>(["agent", "get", paneId], { timeoutMs: 10_000, signal });
+	if (!r.ok) return r;
+	const status = (r.data?.agent ?? r.data)?.agent_status;
+	return { ok: true, data: status ? { status } : {} };
+};
+
+const defaultPressEnter = (
+	paneId: string,
+	signal?: AbortSignal,
+): Promise<Result<true>> =>
+	herdr(["pane", "send-keys", paneId, "Enter"], {
+		timeoutMs: 10_000,
+		signal,
+	}).then((r) => (r.ok ? { ok: true, data: true as const } : r));
 
 const defaultWorktree = async (projectCwd: string): Promise<Result<string>> => {
 	const r = await herdr<unknown>(
@@ -1217,9 +1255,9 @@ export async function startRecordNow(
 	}
 	await submitRecordPrompt(record, deps);
 	const status = await currentStatus(record, deps);
-	if (status === "idle") {
-		// submission failed outright — surface it with the pane id so the
-		// caller can steer/close by handle
+	// idle here means the prompt was never marked submitted. An uncertain
+	// readback is not that failure — and not a confirmation either.
+	if (status === "idle" && record.promptSubmission !== "uncertain") {
 		return spawnErr(
 			"AGENT_START_FAILED",
 			`prompt could not be submitted to pane ${record.paneId} (${record.name}); the pane exists — retry via the agent surface`,
@@ -1452,17 +1490,78 @@ async function submitRecordPrompt(
 	if (!record.paneId) return;
 	const submit = deps.submit ?? defaultSubmit;
 	const deadline = Date.now() + SUBMIT_CHUNK_MS;
-	for (let attempt = 0; attempt < 2; attempt++) {
-		if (attempt > 0) await sleep(2_000);
-		// Steer watermark (issue 06), stamped PER ATTEMPT: the exact text about
-		// to be typed. The child matches its input event against it so the
-		// parent's own steering is never mistaken for a human takeover — and a
-		// re-submit after a lost turn re-stamps, so the retry is not misread.
-		if (record.sessionPath) writeSteerWatermark(record.sessionPath, record.prompt);
-		const r = await submit(record.paneId, record.prompt, deadline, deps.signal);
-		if (r.ok || r.error.message !== "NOT_STARTED") break; // only retry lost turns
+	// Steer watermark (issue 06): the exact text about to be typed. The child
+	// matches its input event against it so the parent's own steering is never
+	// mistaken for a human takeover. The task is pasted once; a missing Enter
+	// is a key, not a second paste.
+	if (record.sessionPath) writeSteerWatermark(record.sessionPath, record.prompt);
+	const r = await submit(record.paneId, record.prompt, deadline, deps.signal);
+	if (deps.signal?.aborted) {
+		record.submitted = false;
+		record.promptSubmission = "uncertain";
+		return;
+	}
+	// A hard submit error is a failure, not an unconfirmed prompt. NOT_STARTED
+	// means the text may be sitting in the editor — read it back.
+	if (!r.ok && r.error.message !== "NOT_STARTED") {
+		record.submitted = false;
+		return;
 	}
 	record.submitted = true;
+	await confirmPromptSubmission(record, deps);
+}
+
+/** Working, or a cleared editor that is not a settled or queued agent.
+ * `done` is a turn that already finished. `queued` has no editor yet.
+ * A missing buffer is not "cleared". */
+function editorConfirms(read: Result<EditorReadback>): boolean {
+	if (!read.ok) return false;
+	const status = read.data.status;
+	if (status === "done" || status === "queued") return false;
+	if (status === "working") return true;
+	return typeof read.data.text === "string" && read.data.text.trim() === "";
+}
+
+/** An empty editor on an already-finished or still-queued agent is not a
+ * prompt waiting for Enter. Another Enter would start a different turn. */
+function readbackSettled(read: Result<EditorReadback>): boolean {
+	if (!read.ok) return false;
+	return read.data.status === "queued" || read.data.status === "done";
+}
+
+/** One readback. If the prompt is still unconfirmed, press Enter once
+ * and read again. Never pastes the task. */
+async function confirmPromptSubmission(
+	record: SpawnRecord,
+	deps: SpawnDeps,
+): Promise<void> {
+	if (!record.paneId || deps.signal?.aborted) {
+		record.promptSubmission = "uncertain";
+		record.submitted = false;
+		return;
+	}
+	const read = deps.readEditor ?? defaultReadEditor;
+	const first = await read(record.paneId, deps.signal);
+	if (editorConfirms(first)) {
+		record.promptSubmission = "confirmed";
+		return;
+	}
+	if (readbackSettled(first)) {
+		record.promptSubmission = "uncertain";
+		record.submitted = false;
+		return;
+	}
+	if (deps.signal?.aborted) {
+		record.promptSubmission = "uncertain";
+		record.submitted = false;
+		return;
+	}
+	const press = deps.pressEnter ?? defaultPressEnter;
+	await press(record.paneId, deps.signal);
+	const second = await read(record.paneId, deps.signal);
+	const confirmed = editorConfirms(second);
+	record.promptSubmission = confirmed ? "confirmed" : "uncertain";
+	record.submitted = confirmed;
 }
 
 // ---- queue drain ---------------------------------------------------------------------
@@ -1614,7 +1713,22 @@ export interface SpawnResultData {
 	/** Manual e2e F12: set when the specifier was shape-coerced (agent string →
 	 * type, type object → inline definition) — the receipt surfaces it. */
 	coercedNote?: string;
+	/** Prompt readback (issue #35). Absent when the prompt was not sent
+	 * (queued, cancelled, or a silent resume). */
+	promptSubmission?: PromptSubmission;
 }
+
+/** What a post-submit readback saw. */
+export interface EditorReadback {
+	/** Editor buffer. Absent when herdr did not report one. Whitespace-only
+	 * counts as cleared. A missing buffer is not "cleared". */
+	text?: string;
+	/** Live agent_status at the same read, when herdr reported one. */
+	status?: string;
+}
+
+/** Whether the prompt was observed to leave the editor. */
+export type PromptSubmission = "confirmed" | "uncertain";
 
 export type SpawnResult = Result<SpawnResultData>;
 
@@ -1648,6 +1762,9 @@ function substrateResultFields(
 		...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 		...(record.activityPath ? { activityPath: record.activityPath } : {}),
 		...(coercedNote !== undefined ? { coercedNote } : {}),
+		...(record.promptSubmission
+			? { promptSubmission: record.promptSubmission }
+			: {}),
 	};
 }
 
@@ -1935,7 +2052,13 @@ export async function spawnAgent(
 	// before the prompt is in would leave the caller unable to trust the task
 	// ever started). true = done-or-blocked; ms = current state on expiry
 	// (queued records wait through the queue — handled in 8a).
-	if (params.wait === undefined || params.wait === false) {
+	// Uncertain submission is not a settled turn. Skip only the
+	// unbounded wait. A finite wait still expires on the clock.
+	if (
+		params.wait === undefined ||
+		params.wait === false ||
+		(record.promptSubmission === "uncertain" && params.wait === true)
+	) {
 		return {
 			ok: true,
 			data: {

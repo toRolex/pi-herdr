@@ -160,6 +160,16 @@ const AGENT_DEF_SCHEMA = Type.Object({
 	),
 });
 
+/** Caller-facing sentence for an unconfirmed prompt. Empty when the
+ * prompt was confirmed or was not sent yet (queued / still starting). */
+export function promptSubmissionNote(
+	submission: "confirmed" | "uncertain" | undefined,
+): string {
+	return submission === "uncertain"
+		? " Prompt submission uncertain: the task was pasted once; it was not pasted again."
+		: "";
+}
+
 /** The call the tool's execute makes. Exported so tests drive the same
  * path (detach, wait stripped) without a pi session. */
 export function spawnFromTool(
@@ -328,11 +338,12 @@ export function registerAgents(
 			// Manual e2e F12: a fired specifier coercion is surfaced, not silent —
 			// the caller should know the shape it passed was not taken literally.
 			const coerced = d.coercedNote ? ` Note: ${d.coercedNote}.` : "";
+			const submission = promptSubmissionNote(d.promptSubmission);
 			// starting/queued are accept-time facts. Do not report a pane id or
 			// session path here — those would claim the child has booted.
 			const text = d.queued
 				? `Spawn accepted as QUEUED: "${d.name}"${type} — fleet is at max_parallel_agents; the pane starts when a slot frees. The child is not started yet.${stance}${coerced}`
-				: `Spawn accepted as STARTING: "${d.name}"${type} (${d.kind}). The child is not promised to have booted; status: ${d.status}.${stance}${coerced}`;
+				: `Spawn accepted as STARTING: "${d.name}"${type} (${d.kind}). The child is not promised to have booted; status: ${d.status}.${stance}${coerced}${submission}`;
 			return {
 				content: [{ type: "text", text }],
 				details: d,

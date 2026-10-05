@@ -534,8 +534,9 @@ console.log("\n[8] Gate order — kill-switch before depth before cap");
 // Engine harness: every herdr-facing seam injected; autodrain off so queue
 // tests drive drains explicitly (no timers, no wall-clock dependence).
 function makeDeps(opts = {}) {
-	const calls = { start: [], submit: [], worktree: [] };
+	const calls = { start: [], submit: [], worktree: [], enter: [] };
 	const live = opts.live ?? []; // [{name, paneId, agent_status}]
+	const editor = { text: "" };
 	const panesBox = { current: opts.panes ?? null }; // [paneId,...] — null → derive from live
 	return {
 		calls,
@@ -561,8 +562,23 @@ function makeDeps(opts = {}) {
 			boot: async () => ({ ok: true, data: true }),
 			submit: async (paneId, text) => {
 				calls.submit.push({ paneId, text });
+				editor.text = "";
 				const a = live.find((x) => x.paneId === paneId);
 				if (a) a.agent_status = "working";
+				return { ok: true, data: true };
+			},
+			readEditor: async (paneId) => {
+				const a = live.find((x) => x.paneId === paneId);
+				return {
+					ok: true,
+					data: { text: editor.text, status: a?.agent_status },
+				};
+			},
+			pressEnter: async (paneId) => {
+				calls.enter.push(paneId);
+				editor.text = "";
+				const a = live.find((x) => x.paneId === paneId);
+				if (a && a.agent_status === "idle") a.agent_status = "working";
 				return { ok: true, data: true };
 			},
 			status: async (paneId) => {
@@ -1005,22 +1021,27 @@ console.log(
 		!r2.ok && r2.error.details?.paneId === "p1",
 		"boot failure reports the pane id (pane exists)",
 	);
-	// lost prompt (NOT_STARTED) is retried once
+	// lost Enter (NOT_STARTED): the task stays pasted once; Enter is the retry
 	const h3 = makeDeps();
-	let n = 0;
 	h3.deps.submit = async (paneId, text) => {
 		h3.calls.submit.push({ paneId, text });
-		n++;
-		if (n === 1)
-			return { ok: false, error: { code: "TIMEOUT", message: "NOT_STARTED" } };
-		h3.live[0].agent_status = "working";
-		return { ok: true, data: true };
+		return { ok: false, error: { code: "TIMEOUT", message: "NOT_STARTED" } };
 	};
+	h3.deps.readEditor = async () => ({
+		ok: true,
+		data: {
+			text: h3.calls.enter.length ? "" : "x",
+			status: h3.calls.enter.length ? "working" : "idle",
+		},
+	});
 	const r3 = await spawn.spawnAgent(
 		{ prompt: "x", type: "Plan", name: "retry" },
 		h3.deps,
 	);
-	assert(r3.ok && h3.calls.submit.length === 2, "NOT_STARTED is retried once");
+	assert(
+		r3.ok && h3.calls.submit.length === 1 && h3.calls.enter.length === 1,
+		"NOT_STARTED pastes once and presses Enter once",
+	);
 }
 
 // ---------------------------------------------------------------------------
@@ -1984,6 +2005,179 @@ console.log(
 	reset();
 	rmSync(project, { recursive: true, force: true });
 	rmSync(global, { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
+// Issue #35: after the prompt is sent, read the editor back. Cleared text
+// confirms submission. The task is pasted once.
+console.log("\n[35] prompt readback — editor already clear confirms");
+{
+	reset();
+	const h = makeDeps();
+	const task = "do the thing once";
+	let editor = task;
+	const enters = [];
+	h.deps.submit = async (paneId, text) => {
+		h.calls.submit.push({ paneId, text });
+		editor = "";
+		return { ok: true, data: true };
+	};
+	h.deps.readEditor = async () => ({
+		ok: true,
+		data: { text: editor, status: "idle" },
+	});
+	h.deps.pressEnter = async (paneId) => {
+		enters.push(paneId);
+		return { ok: true, data: true };
+	};
+	const r = await spawn.spawnAgent(
+		{ prompt: task, type: "Plan", name: "clear-editor" },
+		h.deps,
+	);
+	assert(r.ok, `spawn ok (${r.ok ? "" : r.error.message})`);
+	assert(r.data.promptSubmission === "confirmed", "cleared editor confirms the prompt");
+	assert(h.calls.submit.length === 1, "task pasted once");
+	assert(h.calls.submit[0].text === task, "pasted text is the task");
+	assert(enters.length === 0, "no extra Enter when the editor already cleared");
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[35] unconfirmed prompt — one Enter, then the editor clears");
+{
+	reset();
+	const h = makeDeps();
+	const task = "do the thing once";
+	let editor = "";
+	let reads = 0;
+	h.deps.submit = async (paneId, text) => {
+		h.calls.submit.push({ paneId, text });
+		editor = task;
+		const a = h.live.find((x) => x.paneId === paneId);
+		if (a) a.agent_status = "idle";
+		return { ok: true, data: true };
+	};
+	h.deps.readEditor = async (paneId) => {
+		reads++;
+		const a = h.live.find((x) => x.paneId === paneId);
+		return { ok: true, data: { text: editor, status: a?.agent_status } };
+	};
+	h.deps.pressEnter = async (paneId) => {
+		h.calls.enter.push(paneId);
+		editor = "";
+		const a = h.live.find((x) => x.paneId === paneId);
+		if (a) a.agent_status = "working";
+		return { ok: true, data: true };
+	};
+	const r = await spawn.spawnAgent(
+		{ prompt: task, type: "Plan", name: "retry-enter" },
+		h.deps,
+	);
+	assert(r.ok, `spawn ok (${r.ok ? "" : r.error.message})`);
+	assert(r.data.promptSubmission === "confirmed", "second readback confirms");
+	assert(h.calls.submit.length === 1, "task still pasted once");
+	assert(h.calls.enter.length === 1, "Enter pressed once");
+	assert(reads === 2, "read before the Enter and once after");
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[35] still unconfirmed — report uncertain, paste once");
+{
+	reset();
+	const h = makeDeps();
+	const task = "do the thing once";
+	h.deps.submit = async (paneId, text) => {
+		h.calls.submit.push({ paneId, text });
+		return { ok: true, data: true };
+	};
+	h.deps.readEditor = async () => ({
+		ok: true,
+		data: { text: task, status: "idle" },
+	});
+	h.deps.pressEnter = async (paneId) => {
+		h.calls.enter.push(paneId);
+		return { ok: true, data: true };
+	};
+	const r = await spawn.spawnAgent(
+		{ prompt: task, type: "Plan", name: "unsure" },
+		h.deps,
+	);
+	const pastes = h.calls.submit.filter((c) => c.text === task);
+	const note = agentsTool.promptSubmissionNote(r.ok ? r.data.promptSubmission : undefined);
+	assert(r.ok, `uncertain spawn still returns (${r.ok ? "" : r.error.message})`);
+	assert(r.data.promptSubmission === "uncertain", "receipt says uncertain");
+	assert(/uncertain/i.test(note), "caller-facing text says uncertain");
+	assert(pastes.length === 1, "task pasted once");
+	assert(h.calls.enter.length === 1, "one Enter was tried");
+	assert(
+		(note.match(new RegExp(task, "g")) ?? []).length === 0,
+		"the uncertain note does not repeat the task text",
+	);
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[35] queued, finishing, and cancelled are not a verdict");
+{
+	reset();
+	const queued = makeDeps({ settings: { max_parallel_agents: 1 } });
+	const first = await spawn.spawnAgent(
+		{ prompt: "holds the slot", type: "Plan", name: "holds" },
+		queued.deps,
+	);
+	assert(first.ok, "slot holder started");
+	const held = spawn.spawnRecords().get("holds");
+	held.paneId = "p-held";
+	queued.live.push({ name: "holds", paneId: "p-held", agent_status: "working" });
+	const waiting = await spawn.spawnAgent(
+		{ prompt: "not yet", type: "Plan", name: "still-queued" },
+		queued.deps,
+	);
+	assert(
+		waiting.ok &&
+			waiting.data.status === "queued" &&
+			waiting.data.promptSubmission === undefined &&
+			queued.calls.submit.length === 1,
+		"queued spawn is not reported as submitted or failed",
+	);
+
+	reset();
+	const finishing = makeDeps();
+	const task = "almost done";
+	finishing.deps.readEditor = async () => ({
+		ok: true,
+		data: { text: "", status: "done" },
+	});
+	const done = await spawn.spawnAgent(
+		{ prompt: task, type: "Plan", name: "finishing" },
+		finishing.deps,
+	);
+	assert(
+		done.ok &&
+			done.data.promptSubmission === "uncertain" &&
+			finishing.calls.submit.length === 1 &&
+			finishing.calls.enter.length === 0,
+		"an already-done empty editor is not a submission and gets no Enter",
+	);
+
+	reset();
+	const cancelled = makeDeps();
+	const ctrl = new AbortController();
+	cancelled.deps.signal = ctrl.signal;
+	cancelled.deps.submit = async (paneId, text) => {
+		cancelled.calls.submit.push({ paneId, text });
+		ctrl.abort();
+		return { ok: false, error: { code: "TIMEOUT", message: "aborted" } };
+	};
+	const stopped = await spawn.spawnAgent(
+		{ prompt: "stop", type: "Plan", name: "cancelled" },
+		cancelled.deps,
+	);
+	assert(
+		stopped.ok &&
+			stopped.data.promptSubmission === "uncertain" &&
+			cancelled.calls.submit.length === 1 &&
+			cancelled.calls.enter.length === 0,
+		"cancellation is uncertain, not a failed submit, and sends no Enter",
+	);
 }
 
 // ---------------------------------------------------------------------------
