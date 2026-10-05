@@ -15,7 +15,8 @@ export type HerdrErrorCode =
 	| "HERDR_UNAVAILABLE"
 	| "HERDR_TOO_OLD"
 	| "PANE_GONE"
-	| "SPAWN_REFUSED";
+	| "SPAWN_REFUSED"
+	| "RATE_LIMITED";
 
 export interface Ok<T> {
 	ok: true;

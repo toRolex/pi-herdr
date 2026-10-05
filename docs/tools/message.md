@@ -48,3 +48,13 @@ child queues natively), no `wait` (that is `herdr_get_agent_result(wait)`),
 and no read receipt: **delivered to the pane ≠ consumed by the model**.
 Replies arrive as injected `<agent-message>` text or the next completion
 notification.
+
+## Inbound limit
+
+Each sender label may deliver **20 messages per 10 seconds** into this
+process. The 21st is not typed into the target. The refusal returned to the
+sender is one aggregate receipt (`RATE_LIMITED`); further refusals in that
+window fold into it and are not delivered, so the receipt is never itself a
+new inbound message. The receipt states the limit and the identity scope:
+local, same OS user — the label is spawner-declared and never verified.
+A **blocked** target's overlay answer does not count and is not refused.

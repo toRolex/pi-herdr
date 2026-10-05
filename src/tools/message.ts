@@ -86,6 +86,8 @@ export interface MessageDeps {
 	/** Env view — default: process.env. */
 	env?: Record<string, string | undefined>;
 	signal?: AbortSignal;
+	/** Clock for the inbound window — default: Date.now. */
+	now?: () => number;
 }
 
 /** The bare error payload a Result carries (env.ts's Err.error). */
@@ -287,11 +289,98 @@ async function resolveTarget(
 	};
 }
 
+// ---- inbound rate limit ------------------------------------------------------------
+
+/** pi fleet budget: one declared sender, one receiving process. */
+export const INBOUND_LIMIT = 20;
+export const INBOUND_WINDOW_MS = 10_000;
+
+/**
+ * What the limit is actually about. Labels are spawner-declared and never
+ * verified, and every pane on this machine shares one OS user — so the
+ * bucket is local courtesy, not an identity boundary.
+ */
+const IDENTITY_SCOPE =
+	"Identity scope: local, same OS user. The sender label is spawner-declared and never verified; panes on this machine share one OS account, so this limit is not a trust boundary.";
+
+interface SenderBucket {
+	times: number[];
+	/** Refusals waiting to be named on the next aggregate receipt. */
+	pending: number;
+	/** When the current window's one receipt was returned. */
+	lastReceiptAt?: number;
+}
+
+const buckets = new Map<string, SenderBucket>();
+
+/** Test seam: drop every sender's window. */
+export function resetInboundRateLimit(): void {
+	buckets.clear();
+}
+
+/**
+ * Admit one inbound send, or refuse it. A refusal is itself the aggregate
+ * receipt for every refusal since the previous receipt — the refused send
+ * is not delivered anywhere, so a receipt cannot spawn another refusal.
+ *
+ * Blocked-overlay answers do not enter here: that path is the target's
+ * question, and starving it would leave the pane stuck.
+ */
+export function admitInbound(
+	sender: string,
+	now: number,
+): { ok: true } | { ok: false; error: SendError } {
+	const cutoff = now - INBOUND_WINDOW_MS;
+	let bucket = buckets.get(sender);
+	if (!bucket) {
+		bucket = { times: [], pending: 0 };
+		buckets.set(sender, bucket);
+	}
+	bucket.times = bucket.times.filter((t) => t > cutoff);
+	if (bucket.times.length < INBOUND_LIMIT) {
+		bucket.times.push(now);
+		bucket.pending = 0;
+		bucket.lastReceiptAt = undefined;
+		return { ok: true };
+	}
+	bucket.pending += 1;
+	const cooled =
+		bucket.lastReceiptAt == null ||
+		now - bucket.lastReceiptAt >= INBOUND_WINDOW_MS;
+	if (!cooled) {
+		return {
+			ok: false,
+			error: err(
+				"RATE_LIMITED",
+				`Folded into the open aggregate receipt: refused ${bucket.pending} more inbound message${bucket.pending === 1 ? "" : "s"} from "${sender}" — not delivered, and no additional receipt. Limit is ${INBOUND_LIMIT} messages per ${INBOUND_WINDOW_MS / 1000} seconds per sender. ${IDENTITY_SCOPE}`,
+				{ sender, refused: bucket.pending, folded: true },
+			),
+		};
+	}
+	const refused = bucket.pending;
+	bucket.pending = 0;
+	bucket.lastReceiptAt = now;
+	return {
+		ok: false,
+		error: err(
+			"RATE_LIMITED",
+			`Aggregate receipt: refused ${refused} inbound message${refused === 1 ? "" : "s"} from "${sender}" — not delivered. Limit is ${INBOUND_LIMIT} messages per ${INBOUND_WINDOW_MS / 1000} seconds per sender. ${IDENTITY_SCOPE}`,
+			{
+				sender,
+				refused,
+				limit: INBOUND_LIMIT,
+				windowSeconds: INBOUND_WINDOW_MS / 1000,
+			},
+		),
+	};
+}
+
 // ---- the engine ----------------------------------------------------------------
 
 /**
  * message_agent, end to end: resolve → physics branch → inject → receipt.
- * Fire-and-forget by design; no state gates.
+ * Fire-and-forget by design; no state gates. Inbound sends (everything
+ * except a blocked-overlay answer) are capped per sender label.
  */
 export async function messageAgent(
 	params: MessageParams,
@@ -303,6 +392,10 @@ export async function messageAgent(
 	const submit = params.submit !== false;
 	const blocked = resolved.state === "blocked";
 	const from = await senderLabel(deps);
+	if (!blocked) {
+		const admitted = admitInbound(from, (deps.now ?? Date.now)());
+		if (!admitted.ok) return admitted;
+	}
 	const payload = blocked
 		? params.text
 		: envelope(from, resolved.to, params.text);
@@ -354,7 +447,10 @@ const DESCRIPTION =
 	"{delivered, target, state, delivery: \"message\"|\"answer\"}, but delivered-to-the-pane ≠ consumed-by-the-model — " +
 	"there is no read receipt. Replies arrive as injected <agent-message> text or the next completion notification " +
 	"(herdr_get_agent_result(wait) is the wait). A gone target errors naming the handle — see herdr_list_agents; " +
-	"a queued spawn (accepted over the parallel cap, no pane yet) has nothing to deliver to and errors the same way.";
+	"a queued spawn (accepted over the parallel cap, no pane yet) has nothing to deliver to and errors the same way. " +
+	"Inbound sends are limited to 20 messages per 10 seconds per sender label. The label is spawner-declared and never verified, and the scope is local (same OS user) — not a trust boundary. " +
+	"Over the limit, nothing is typed into the target; the error is one aggregate receipt for the refused sends, not a message back (that would loop). " +
+	"A BLOCKED overlay answer does not count and is never refused by this limit.";
 
 export function registerMessageTool(pi: ExtensionAPI): void {
 	pi.registerTool({
