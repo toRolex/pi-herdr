@@ -5,11 +5,13 @@
 // wayfinder/archive/v0.5-tickets/11-message-channel-surface.md, ruling
 // unchanged per the surface-cut keeper table (#3):
 //   - target always explicit, resolved by the shared chain:
-//     exact pane-id → herdr name → spawn-registry handle → reserved roles,
-//     real names winning over reserved (reserved is tried last);
+//     exact pane-id → herdr name → spawn-registry handle, except the
+//     reserved role `orchestrator`, which is resolved first and only as
+//     the sender's direct parent;
 //   - `orchestrator` resolves via PI_HERDR_ORCHESTRATOR_PANE (stamped by
-//     spawn when the spawner itself runs in a pane); unset → the honest
-//     "no orchestrator above you, answer in-conversation" error;
+//     spawn when the spawner itself runs in a pane). A live agent or
+//     spawn handle of that name does not take the alias. Unset or a
+//     missing parent pane → the honest error;
 //   - delivery = text injection through the existing send machinery — one
 //     code path, no pane-metadata channel, no file+notice;
 //   - physics-adaptive: a BLOCKED target gets the RAW text typed into its
@@ -194,9 +196,42 @@ async function resolveTarget(
 	const registry = deps.registry ?? spawnRecords;
 	const env = deps.env ?? process.env;
 
+	// Reserved role, before any name lookup. The string "orchestrator" is
+	// only the sender's direct parent (PI_HERDR_ORCHESTRATOR_PANE). A fleet
+	// agent or spawn handle of the same name must not take the alias.
+	// No generation check here — that is a separate ticket.
+	if (target === "orchestrator") {
+		const orchestratorPane = env.PI_HERDR_ORCHESTRATOR_PANE;
+		if (!orchestratorPane) {
+			return {
+				kind: "err",
+				error: err(
+					"NOT_FOUND",
+					`no orchestrator above you: this session was not spawned by a pi-herdr agent (PI_HERDR_ORCHESTRATOR_PANE unset), so there is nothing to message as "orchestrator" — answer in-conversation, or address a peer via herdr_list_agents.`,
+				),
+			};
+		}
+		const above = await agentGet(orchestratorPane, deps.signal);
+		if (above.ok) {
+			return {
+				kind: "live",
+				paneId: above.data.paneId,
+				state: above.data.status,
+				to: "orchestrator",
+			};
+		}
+		return {
+			kind: "err",
+			error: err(
+				"NOT_FOUND",
+				`the orchestrator pane (${orchestratorPane}) is gone — see herdr_list_agents.`,
+				{ orchestratorPane },
+			),
+		};
+	}
+
 	// 1. exact pane-id / herdr name / label (herdr resolves all three; this
-	//    also fetches the state the physics branch needs). Real names — any
-	//    live herdr agent named "orchestrator" included — win here.
+	//    also fetches the state the physics branch needs).
 	const live = await agentGet(target, deps.signal);
 	if (live.ok) {
 		const records = registry();
@@ -246,40 +281,7 @@ async function resolveTarget(
 		};
 	}
 
-	// 3. reserved role — last, so real names beat it. spawn stamps
-	//    PI_HERDR_ORCHESTRATOR_PANE when the spawner runs in a pane; a
-	//    human-spawned session honestly has no orchestrator above it.
-	if (target === "orchestrator") {
-		const orchestratorPane = env.PI_HERDR_ORCHESTRATOR_PANE;
-		if (!orchestratorPane) {
-			return {
-				kind: "err",
-				error: err(
-					"NOT_FOUND",
-					`no orchestrator above you: this session was not spawned by a pi-herdr agent (PI_HERDR_ORCHESTRATOR_PANE unset), so there is nothing to message as "orchestrator" — answer in-conversation, or address a peer via herdr_list_agents.`,
-				),
-			};
-		}
-		const above = await agentGet(orchestratorPane, deps.signal);
-		if (above.ok) {
-			return {
-				kind: "live",
-				paneId: above.data.paneId,
-				state: above.data.status,
-				to: "orchestrator",
-			};
-		}
-		return {
-			kind: "err",
-			error: err(
-				"NOT_FOUND",
-				`the orchestrator pane (${orchestratorPane}) is gone — see herdr_list_agents.`,
-				{ orchestratorPane },
-			),
-		};
-	}
-
-	// 4. nothing matched.
+	// 3. nothing matched.
 	return {
 		kind: "err",
 		error: err(
@@ -437,8 +439,9 @@ export async function messageAgent(
 const DESCRIPTION =
 	"Send a message to a herdr agent pane — the open channel, anyone ↔ anyone, no broker. " +
 	"The target is always explicit and resolves as: exact pane-id → herdr name → spawn-registry handle " +
-	"(the name herdr_spawn_agent returned) → the reserved role \"orchestrator\" (your spawner's pane, via " +
-	"PI_HERDR_ORCHESTRATOR_PANE). Real names beat the reserved role. Delivery is physics-adaptive: a BLOCKED " +
+	"(the name herdr_spawn_agent returned). The reserved role \"orchestrator\" is only your direct parent's pane " +
+	"(PI_HERDR_ORCHESTRATOR_PANE) — a live agent of that name does not take the alias; unset or a gone parent " +
+	"errors honestly. Delivery is physics-adaptive: a BLOCKED " +
 	"target (waiting on a question overlay) gets the raw text typed in as its ANSWER — the message is the answer; " +
 	"for option-list questions use herdr_send_keys instead, typed text never reaches option rows. Any other state " +
 	"gets the text wrapped as <agent-message from=\"…\" to=\"…\">…</agent-message> — when YOU receive that tag it is a " +

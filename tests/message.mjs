@@ -1,6 +1,8 @@
 // Offline tests for the open message channel (issue 05): the resolution chain
-// (pane-id / herdr name / registry handle / reserved orchestrator role, real
-// names beating reserved), physics-adaptive delivery (blocked → raw answer,
+// (pane-id / herdr name / registry handle). The reserved role "orchestrator"
+// is only the direct parent pane (PI_HERDR_ORCHESTRATOR_PANE) — a live agent
+// or spawn handle of that name does not take it. Physics-adaptive delivery
+// (blocked → raw answer,
 // otherwise enveloped), the receipt shapes, and the spawner-declared `from`
 // identity chain.
 //
@@ -219,16 +221,44 @@ console.log("\n[3] Reserved role — orchestrator");
 		"dead orchestrator pane errors naming the pane",
 	);
 
-	// a REAL agent named orchestrator beats the reserved role
-	const real = await msg.messageAgent(
+	// a live agent named orchestrator must not take the reserved role
+	const sendNamed = recorder();
+	const named = await msg.messageAgent(
 		{ target: "orchestrator", text: "hello" },
-		DEPS({ agentGet: okGet("w1:p7", "orchestrator", "idle") }),
+		DEPS({
+			agentGet: async (t) => {
+				if (t === "orchestrator")
+					return { ok: true, data: { paneId: "w1:p7", name: "orchestrator", status: "idle" } };
+				if (t === "w1:p0")
+					return { ok: true, data: { paneId: "w1:p0", name: "the-boss", status: "working" } };
+				return { ok: false, error: { code: "NOT_FOUND", message: "no such agent" } };
+			},
+			env,
+			send: sendNamed,
+		}),
 	);
 	assert(
-		real.ok && real.data.target === "w1:p7" && real.data.to === "orchestrator",
-		"real herdr agent named orchestrator wins (resolved before env consult)",
+		named.ok && named.data.target === "w1:p0" && named.data.to === "orchestrator",
+		"same-name agent does not steal the alias; it still resolves to the parent pane",
 	);
-	assert(!("name" in real.data), "no registry handle claimed for a foreign agent");
+	assert(sendNamed.calls.length === 1 && sendNamed.calls[0].paneId === "w1:p0", "text went to the parent, not w1:p7");
+	assert(!("name" in named.data), "no registry handle claimed for the role");
+
+	// unset env stays the honest error even when that name is live in the fleet
+	const sendUnset = recorder();
+	const unsetNamed = await msg.messageAgent(
+		{ target: "orchestrator", text: "hello" },
+		DEPS({
+			agentGet: okGet("w1:p7", "orchestrator", "idle"),
+			send: sendUnset,
+		}),
+	);
+	assert(
+		unsetNamed.ok === false &&
+			unsetNamed.error.message.includes("no orchestrator above you"),
+		"unset env still says there is no orchestrator above you when a namesake is live",
+	);
+	assert(sendUnset.calls.length === 0, "unset env does not deliver to the namesake");
 }
 
 console.log("\n[4] No match");

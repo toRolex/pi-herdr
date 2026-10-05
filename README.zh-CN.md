@@ -148,7 +148,7 @@ Spawn 门禁按 kill-switch、spawn depth、parallel cap 顺序执行。超过�
 
 本会话启动的 pi 子代理从保留的 session JSONL 读取精确最终 assistant 文本，不抓屏。运行中的响应为 interim 快照，失败暴露带类型的错误。非 pi 子代理与其他会话启动的窗格回退到可能截断的 pane-tail 输出。
 
-消息先解析窗格 ID 或 herdr 名称，再解析 spawn handle，最后解析保留角色 `orchestrator`。真实名称优先于角色。普通消息使用 `<agent-message from="…" to="…">` 包装，身份由 spawner 声明，不经过验证。
+消息先解析窗格 ID 或 herdr 名称，再解析 spawn handle。保留角色 `orchestrator` 只指发送者的直接父，同名 agent 不能抢占。普通消息使用 `<agent-message from="…" to="…">` 包装，身份由 spawner 声明，不经过验证。
 
 阻塞的自由文本问题通过 `herdr_message_agent` 接收原始回答；选项列表问题通过 `herdr_send_keys` 接收逻辑按键。排队中的子代理没有可接收消息的窗格，已消失目标会拒绝投递。
 
