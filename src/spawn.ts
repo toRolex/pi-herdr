@@ -1262,6 +1262,7 @@ export async function startRecordNow(
 			}
 			const paneId = normalizeAgent(startR.data.agent).paneId;
 			record.paneId = paneId;
+			persistOwnRegistry(deps);
 			if (placed && paneId) {
 				const run = deps.herdr ?? herdr;
 				for (const command of placed.commands) {

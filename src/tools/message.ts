@@ -397,10 +397,15 @@ async function generationGate(
 	if (!self) return undefined;
 	const read = deps.readRegistry ?? readPersistedRegistry;
 	const root = env.PI_HERDR_ROOT_SESSION?.trim() || self;
+	const parentPane = env.PI_HERDR_ORCHESTRATOR_PANE;
+	if (parentPane && resolved.paneId === parentPane) return undefined;
+	if (resolved.record?.lineage?.ownerSession === self) return undefined;
 
 	let fleet: FleetHandle[];
 	try {
-		fleet = await (deps.list ?? defaultFleetList)();
+		fleet = await (deps.list ?? ((signal?: AbortSignal) => defaultFleetList(signal)))(
+			deps.signal,
+		);
 	} catch (e) {
 		const message = e instanceof Error ? e.message : String(e);
 		return err(
@@ -425,15 +430,9 @@ async function generationGate(
 	const target = known.get(resolved.paneId);
 	if (!target?.lineage?.ownerSession) return undefined;
 
-	const parentPane = env.PI_HERDR_ORCHESTRATOR_PANE;
-	const directParent = parentPane != null && resolved.paneId === parentPane;
 	const directChild = target.lineage.ownerSession === self;
-	// A root has no record of its own, so its generation is the sessions it
-	// spawned: a target owned by this session is a peer of those children.
-	const peer =
-		(mine != null && target.lineage.ownerSession === mine) ||
-		(mine == null && target.lineage.ownerSession === self);
-	if (directParent || directChild || peer) return undefined;
+	const peer = mine != null && target.lineage.ownerSession === mine;
+	if (directChild || peer) return undefined;
 
 	const usable = [...known.values()].flatMap((rec) => {
 		if (rec.paneId === resolved.paneId) return [];
@@ -441,8 +440,7 @@ async function generationGate(
 		const reachable =
 			rec.paneId === parentPane ||
 			owner === self ||
-			(mine != null && owner === mine) ||
-			owner === target.lineage?.ownerSession;
+			(mine != null && owner === mine);
 		return reachable ? [handleOf(rec, fleet)] : [];
 	});
 	const who = target.name || resolved.to;
@@ -454,8 +452,8 @@ async function generationGate(
 	);
 }
 
-async function defaultFleetList(): Promise<FleetHandle[]> {
-	const r = await fleetList();
+async function defaultFleetList(signal?: AbortSignal): Promise<FleetHandle[]> {
+	const r = await fleetList(signal);
 	if (!r.ok) throw new Error(r.error.message);
 	return r.data.map((a) => ({ name: a.name, paneId: a.paneId }));
 }

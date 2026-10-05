@@ -51,8 +51,10 @@ export function makeDeliverySink(pi: ExtensionAPI): (msg: SteeredMessage) => voi
 					deliverAs,
 				},
 			);
-		} catch {
-		/* best-effort — delivery must never break its caller */
+		} catch (err) {
+			// Surface the failure. Callers that recycle a pane (orphan
+			// delivery) must see a rejected push and leave the pane open.
+			throw err instanceof Error ? err : new Error(String(err));
 		}
 	};
 }
