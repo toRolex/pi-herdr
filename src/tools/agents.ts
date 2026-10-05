@@ -22,10 +22,10 @@ import type { ToolReturn } from "../env.js";
 
 const ROSTER_TOOL_NAME = "herdr_spawn_agent";
 
-/** The full model-visible description: static mechanics + the live Roster. */
-function renderSpawnDescription(dirs: AgentDirs = defaultAgentDirs()): string {
-	return `${DESCRIPTION}\n\n${renderRoster(dirs)}`;
-}
+/** The system-prompt section key the Roster is delivered under (spec 22,
+ * ticket 25). pi renders each section as `<key>…</key>`, so the model sees
+ * `<agent-roster>…</agent-roster>`. */
+const ROSTER_SECTION = "agent-roster";
 
 function fail(message: string, code: string, details?: unknown): ToolReturn {
 	return {
@@ -46,8 +46,8 @@ const DESCRIPTION =
 	"Specify the agent by `type` (registry), an inline `agent` definition, or NEITHER — " +
 	"a prompt-only spawn (just `prompt`, optionally `name`) defaults to the built-in general-purpose " +
 	"type (pi kind, autonomous stance). `type` and `agent` are mutually exclusive — never both. " +
-	"The current agent menu (the effective Roster) is appended below by prepareLoadout on every " +
-	"request — choose types from it, not from a static list. " +
+	"The current agent menu (the effective Roster) is delivered in the `<agent-roster>` " +
+	"section of the system prompt every turn — choose types from it, not from a static list. " +
 	"Inline `agent` fields: name, description, kind, model, thinking, system_prompt, prompt_mode " +
 	"(replace|append, default replace), tools, exclude_tools, skills (pi-only), agent_args " +
 	"(raw CLI flags), session_mode (standalone|lineage-only|fork), auto_exit, interactive, " +
@@ -200,14 +200,33 @@ export function registerAgents(
 	opts: { dirs?: AgentDirs } = {},
 ): void {
 	const dirs = opts.dirs ?? defaultAgentDirs();
+	// The Roster's delivery path (spec 22 / ticket 25): a dedicated
+	// `<agent-roster>` system-prompt section, (re)written every turn on
+	// before_agent_start — assignment is naturally idempotent. Rendering goes
+	// through the unchanged renderRoster contract (layer order, sorting,
+	// lossless names, 512-byte description budget, deterministic bytes).
+	// Gating: only when the spawn tool is active this turn; and only this
+	// key is touched — other extensions' sections pass through untouched.
+	pi.on("before_agent_start", (event) => {
+		const sections = event.systemPromptOptions.sections;
+		if (!event.systemPromptOptions.selectedTools.includes(ROSTER_TOOL_NAME)) {
+			// Never leave a stale roster behind when the tool is inactive.
+			delete sections[ROSTER_SECTION];
+			return;
+		}
+		const roster = renderRoster(dirs);
+		if (roster.length === 0) {
+			// Defensive: an empty registry should not produce an empty XML section.
+			delete sections[ROSTER_SECTION];
+			return;
+		}
+		sections[ROSTER_SECTION] = roster;
+	});
 	pi.registerTool({
 		name: "herdr_spawn_agent",
 		label: "Spawn herdr agent",
 		description: DESCRIPTION,
 		promptSnippet: "Spawn a background herdr agent pane running a task prompt",
-		prepareLoadout: () => ({
-			descriptions: { [ROSTER_TOOL_NAME]: renderSpawnDescription(dirs) },
-		}),
 		promptGuidelines: [
 			"Use herdr_spawn_agent to fan out background work: it spawns the pane, submits the prompt, and returns a handle you address later.",
 			"For herdr_spawn_agent, choose an agent by matching the task to the responsibilities in the current roster.",
