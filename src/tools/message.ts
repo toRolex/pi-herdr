@@ -58,11 +58,17 @@ export interface MessageParams {
 	target: string;
 	text: string;
 	submit?: boolean;
+	/**
+	 * Accept into the pending inbox instead of typing now. Only an idle
+	 * target holds; any other state still delivers immediately and drains
+	 * what was pending.
+	 */
+	pending?: boolean;
 }
 
 /** Structured receipt (tool `details`). */
 export interface MessageReceipt {
-	delivered: true;
+	delivered: boolean;
 	/** Resolved pane id. */
 	target: string;
 	/** Envelope `to` — the address the message is labeled with. */
@@ -75,6 +81,10 @@ export interface MessageReceipt {
 	/** Registry handle when the target is one of this session's spawns. */
 	name?: string;
 	submit: boolean;
+	/** Accepted into the pending inbox; not typed into the pane yet. */
+	queued?: boolean;
+	/** Drop notice for the sender of this call and for the receiver. */
+	notice?: string;
 }
 
 /** Injectable seams (offline red-green; defaults hit herdr + disk). */
@@ -377,6 +387,119 @@ export function admitInbound(
 	};
 }
 
+// ---- pending inbox ----------------------------------------------------------------
+
+/**
+ * How many accepted-but-not-yet-typed messages one pane holds. A pi fleet
+ * is a handful of panes; eight is already a burst waiting on one busy
+ * agent. Not the CC 50/100 figures.
+ */
+export const PENDING_CAP = 8;
+
+interface PendingItem {
+	from: string;
+	text: string;
+	submit: boolean;
+	name?: string;
+	to: string;
+}
+
+interface Inbox {
+	items: PendingItem[];
+	/** Dropped senders still waiting to be named on the open aggregate receipt. */
+	dropped: string[];
+	/** The one aggregate receipt for the current burst, returned to whoever caused it. */
+	aggregate?: string;
+	/** Senders who have already been shown that receipt. */
+	told: Set<string>;
+}
+
+const inboxes = new Map<string, Inbox>();
+
+/** Test seam: drop every pane's pending inbox. */
+export function resetPendingInbox(): void {
+	inboxes.clear();
+}
+
+function inboxFor(paneId: string): Inbox {
+	let inbox = inboxes.get(paneId);
+	if (!inbox) {
+		inbox = { items: [], dropped: [], told: new Set() };
+		inboxes.set(paneId, inbox);
+	}
+	return inbox;
+}
+
+function dropNotice(dropped: readonly string[], fresh: boolean): string {
+	const who = dropped.map((s) => `"${s}"`).join(", ");
+	const noun = dropped.length === 1 ? "message" : "messages";
+	if (fresh) {
+		return (
+			`Aggregate receipt: dropped ${dropped.length} oldest pending ${noun} from ${who} — not delivered. ` +
+			`Pending inbox holds ${PENDING_CAP}. The receiver is told on this receipt; the dropped sender is told here if they caused it, otherwise on their next call. ` +
+			`already-delivered text is kept. This receipt is the call result, not a new inbound message.`
+		);
+	}
+	return (
+		`Folded into the open aggregate inbox receipt: dropped ${dropped.length} oldest pending ${noun} from ${who} — not delivered, and no additional receipt. ` +
+		`Pending inbox holds ${PENDING_CAP}. The receiver is told on this receipt. already-delivered text is kept.`
+	);
+}
+
+function personalDrop(sender: string, dropped: readonly string[]): string {
+	const who = dropped.map((s) => `"${s}"`).join(", ");
+	return (
+		`Pending message from "${sender}" was dropped (oldest pending, senders ${who}) — not delivered. ` +
+		`Pending inbox holds ${PENDING_CAP}; already-delivered text is kept. ` +
+		`The receiver was told on the open aggregate inbox receipt; this is not a new receipt.`
+	);
+}
+
+/**
+ * Accept one message into the pane's pending inbox. Over the cap, the
+ * oldest pending item is dropped. The first drop of a burst is the one
+ * aggregate receipt; later drops in that burst fold into it. Nothing here
+ * is typed into a pane, so the receipt cannot loop.
+ */
+function enqueuePending(paneId: string, item: PendingItem): { dropped: boolean; notice?: string } {
+	const inbox = inboxFor(paneId);
+	inbox.items.push(item);
+	if (inbox.items.length <= PENDING_CAP) return { dropped: false };
+	const oldest = inbox.items.shift();
+	if (!oldest) return { dropped: false };
+	inbox.dropped.push(oldest.from);
+	const fresh = inbox.aggregate == null;
+	inbox.aggregate = dropNotice(inbox.dropped, fresh);
+	inbox.told.add(item.from);
+	return { dropped: true, notice: inbox.aggregate };
+}
+
+/** Notice owed to this sender from an earlier drop, without opening a new receipt. */
+function owedNotice(paneId: string, sender: string): string | undefined {
+	const inbox = inboxes.get(paneId);
+	if (!inbox || inbox.told.has(sender) || !inbox.dropped.includes(sender)) return undefined;
+	inbox.told.add(sender);
+	const notice = personalDrop(sender, inbox.dropped);
+	if (inbox.items.length === 0 && inbox.dropped.every((s) => inbox.told.has(s))) {
+		inboxes.delete(paneId);
+	}
+	return notice;
+}
+
+function clearInbox(paneId: string): PendingItem[] {
+	const inbox = inboxes.get(paneId);
+	if (!inbox) return [];
+	const items = inbox.items;
+	inbox.items = [];
+	inbox.aggregate = undefined;
+	// Dropped senders who have not been told yet still get the personal
+	// note on their next call. Senders already told do not get another.
+	if (inbox.dropped.length === 0 || inbox.dropped.every((s) => inbox.told.has(s))) {
+		inboxes.delete(paneId);
+	}
+	return items;
+}
+
 // ---- the engine ----------------------------------------------------------------
 
 /**
@@ -393,33 +516,40 @@ export async function messageAgent(
 
 	const submit = params.submit !== false;
 	const blocked = resolved.state === "blocked";
+	// A burst is held only while the pane is idle and the caller asked to
+	// queue it. Working, blocked, and done type immediately.
+	const holding = resolved.state === "idle" && params.pending === true;
 	const from = await senderLabel(deps);
 	if (!blocked) {
 		const admitted = admitInbound(from, (deps.now ?? Date.now)());
 		if (!admitted.ok) return admitted;
 	}
-	const payload = blocked
-		? params.text
-		: envelope(from, resolved.to, params.text);
 
 	const send = deps.send ?? sendAgentPrompt;
-	// Steer watermark (issue 06): the exact text about to be typed into a
-	// registry child. The child matches its input event against it so the
-	// orchestrator's own follow-up is never mistaken for a human takeover.
-	// A delivery to a registry record is also NEW WORK (issue 10): it ends
-	// the interrupted state — stop-and-redirect in one live flow.
-	if (resolved.kind === "live" && resolved.record) {
-		resolved.record.interruptedAt = undefined;
-		if (resolved.record.sessionPath)
-			writeSteerWatermark(resolved.record.sessionPath, payload);
-	}
-	const r = await send(resolved.paneId, payload, {
-		submit,
-		signal: deps.signal,
-	});
-	if (!r.ok) return r;
+	const deliver = async (
+		item: PendingItem,
+		asAnswer: boolean,
+	): Promise<Result<true>> => {
+		const payload = asAnswer
+			? item.text
+			: envelope(item.from, item.to, item.text);
+		// Steer watermark (issue 06): the exact text about to be typed into a
+		// registry child. The child matches its input event against it so the
+		// orchestrator's own follow-up is never mistaken for a human takeover.
+		// A delivery to a registry record is also NEW WORK (issue 10): it ends
+		// the interrupted state — stop-and-redirect in one live flow.
+		if (resolved.kind === "live" && resolved.record) {
+			resolved.record.interruptedAt = undefined;
+			if (resolved.record.sessionPath)
+				writeSteerWatermark(resolved.record.sessionPath, payload);
+		}
+		return send(resolved.paneId, payload, {
+			submit: item.submit,
+			signal: deps.signal,
+		});
+	};
 
-	return {
+	const receipt = (over: Partial<MessageReceipt>): Result<MessageReceipt> => ({
 		ok: true,
 		data: {
 			delivered: true,
@@ -430,8 +560,41 @@ export async function messageAgent(
 			delivery: blocked ? "answer" : "message",
 			...(resolved.name ? { name: resolved.name } : {}),
 			submit,
+			...over,
 		},
+	});
+
+	const item: PendingItem = {
+		from,
+		text: params.text,
+		submit,
+		to: resolved.to,
+		...(resolved.name ? { name: resolved.name } : {}),
 	};
+
+	// Idle: the pane has not started on this burst. Hold it. Over the cap,
+	// drop the oldest pending item. The receipt stays on this call — it is
+	// never typed into the pane, so it cannot loop.
+	if (holding) {
+		const held = enqueuePending(resolved.paneId, item);
+		const notice = held.notice ?? owedNotice(resolved.paneId, from);
+		return receipt({
+			delivered: false,
+			queued: true,
+			...(notice ? { notice } : {}),
+		});
+	}
+
+	// Leaving idle (done drains; working / blocked type now). Pending text
+	// goes out oldest-first, then this message. Already-typed text stays.
+	const waiting = clearInbox(resolved.paneId);
+	for (const pending of waiting) {
+		const drained = await deliver(pending, false);
+		if (!drained.ok) return drained;
+	}
+	const r = await deliver(item, blocked);
+	if (!r.ok) return r;
+	return receipt({});
 }
 
 // ---- registration --------------------------------------------------------------
@@ -453,7 +616,8 @@ const DESCRIPTION =
 	"a queued spawn (accepted over the parallel cap, no pane yet) has nothing to deliver to and errors the same way. " +
 	"Inbound sends are limited to 20 messages per 10 seconds per sender label. The label is spawner-declared and never verified, and the scope is local (same OS user) — not a trust boundary. " +
 	"Over the limit, nothing is typed into the target; the error is one aggregate receipt for the refused sends, not a message back (that would loop). " +
-	"A BLOCKED overlay answer does not count and is never refused by this limit.";
+	"A BLOCKED overlay answer does not count and is never refused by this limit. " +
+	"An idle target can accept a pending burst of 8; over that, the oldest pending message is dropped and both sides hear one aggregate receipt. Already-typed text is kept.";
 
 export function registerMessageTool(pi: ExtensionAPI): void {
 	pi.registerTool({

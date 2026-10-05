@@ -539,6 +539,150 @@ console.log("\n[11] The window is per sender, and it reopens");
 	assert(reopened.ok === true, "alpha is admitted again once the 10 second window has passed");
 }
 
+console.log("\n[12] Pending inbox — overflow drops the oldest, one aggregate receipt, drain keeps what was already typed");
+{
+	msg.resetPendingInbox();
+	msg.resetInboundRateLimit();
+	let clock = 5_000_000;
+	const send = recorder();
+	const from = (label, status) =>
+		DEPS({
+			agentGet: okGet("w1:p1", "scout", status),
+			send,
+			env: { PI_HERDR_AGENT_LABEL: label },
+			now: () => clock,
+		});
+
+	const early = await msg.messageAgent(
+		{ target: "scout", text: "already-in", pending: true },
+		from("early", "working"),
+	);
+	assert(
+		early.ok === true && early.data.delivered === true && early.data.queued !== true,
+		"a working send is typed immediately and is not pending",
+	);
+	assert(
+		send.calls.length === 1 && send.calls[0].text.includes("already-in"),
+		"that delivery is already in the pane",
+	);
+
+	for (let i = 0; i < 8; i++) {
+		clock += 1;
+		const held = await msg.messageAgent(
+			{ target: "scout", text: `payload-s${i}-end`, pending: true },
+			from(`s${i}`, "idle"),
+		);
+		assert(
+			held.ok === true && held.data.queued === true && held.data.delivered === false,
+			`idle send s${i} is accepted pending and not typed`,
+		);
+	}
+	assert(send.calls.length === 1, "eight pending messages are not typed while the target stays idle");
+
+	clock += 1;
+	const ninth = await msg.messageAgent(
+		{ target: "scout", text: "payload-s8-end", pending: true },
+		from("s8", "idle"),
+	);
+	assert(ninth.ok === true && ninth.data.queued === true, "the newest idle send is still accepted");
+	const notice = ninth.ok ? ninth.data.notice ?? "" : "";
+	assert(
+		notice.includes("Aggregate receipt") &&
+			notice.includes("dropped 1") &&
+			notice.includes("oldest") &&
+			notice.includes('"s0"') &&
+			notice.includes("holds 8") &&
+			notice.includes("not delivered") &&
+			notice.includes("already-delivered text is kept") &&
+			notice.includes("receiver"),
+		"the first overflow is one aggregate receipt: dropped sender, cap 8, both sides, already-delivered kept",
+	);
+	assert(
+		send.calls.length === 1 && !send.calls.some((c) => c.text.includes("Aggregate receipt") || c.text.includes("dropped")),
+		"the receipt is not typed into the pane (no receipt loop)",
+	);
+
+	let folded = null;
+	for (const label of ["s9", "s10", "s11"]) {
+		clock += 1;
+		const n = Number(label.slice(1));
+		folded = await msg.messageAgent(
+			{ target: "scout", text: `payload-s${n}-end`, pending: true },
+			from(label, "idle"),
+		);
+	}
+	const foldedNotice = folded && folded.ok ? folded.data.notice ?? "" : "";
+	assert(
+		folded.ok === true &&
+			foldedNotice.includes("Folded into the open aggregate inbox receipt") &&
+			foldedNotice.includes("dropped 4") &&
+			foldedNotice.includes("no additional receipt") &&
+			foldedNotice.includes('"s0"') &&
+			foldedNotice.includes('"s3"') &&
+			!foldedNotice.includes("Aggregate receipt"),
+		"later drops in the same frozen burst fold into that one receipt",
+	);
+	assert(send.calls.length === 1, "folded receipts never become outbound sends");
+	assert(send.calls[0].text.includes("already-in"), "the already-typed message is unchanged");
+
+	clock += 1;
+	const after = await msg.messageAgent(
+		{ target: "scout", text: "after-drain", pending: true },
+		from("tail", "done"),
+	);
+	assert(
+		after.ok === true && after.data.delivered === true && after.data.queued !== true,
+		"once the target is done the pending inbox drains and the new message is delivered",
+	);
+	assert(send.calls.length === 10, "drain types the eight survivors, then the new message");
+	const survived = send.calls.slice(1, 9).map((c) => c.text);
+	assert(
+		[0, 1, 2, 3].every((i) => survived.every((t) => !t.includes(`payload-s${i}-end`))),
+		"the four oldest pending messages are gone",
+	);
+	assert(
+		survived[0].includes("payload-s4-end") && survived[7].includes("payload-s11-end"),
+		"the survivors are typed oldest-first",
+	);
+	assert(send.calls[9].text.includes("after-drain"), "the post-drain message is typed last");
+	assert(send.calls[0].text.includes("already-in"), "drain does not rewrite the earlier delivery");
+
+	clock += 1;
+	const fresh = await msg.messageAgent(
+		{ target: "scout", text: "payload-new-end", pending: true },
+		from("newcomer", "idle"),
+	);
+	assert(
+		fresh.ok === true && fresh.data.queued === true && fresh.data.notice === undefined,
+		"after drain the inbox is empty, so the next idle send is not a drop",
+	);
+	clock += 1;
+	const owed = await msg.messageAgent(
+		{ target: "scout", text: "payload-again-end", pending: true },
+		from("s0", "idle"),
+	);
+	const owedNotice = owed.ok ? owed.data.notice ?? "" : "";
+	assert(
+		owed.ok === true &&
+			owedNotice.includes('"s0"') &&
+			owedNotice.includes("not delivered") &&
+			owedNotice.includes("holds 8") &&
+			owedNotice.includes("already-delivered text is kept") &&
+			owedNotice.includes("not a new receipt") &&
+			!owedNotice.startsWith("Aggregate receipt"),
+		"the dropped sender hears it on their next call, still not as a second aggregate receipt",
+	);
+	assert(send.calls.length === 10, "that notice is not typed into the pane either");
+
+	const tools = [];
+	msg.registerMessageTool({ registerTool: (d) => tools.push(d), on: () => {} });
+	const tool = tools.find((t) => t.name === "herdr_message_agent");
+	assert(
+		msg.PENDING_CAP === 8,
+		"the pending cap is 8, the number the receipt names",
+	);
+}
+
 console.log("\n[8] Registry contract — spawnRecords stays the shared home");
 {
 	spawnMod.clearSpawnRegistry();
