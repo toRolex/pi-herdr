@@ -7,6 +7,7 @@
 // Run: node tests/smoke.mjs
 
 import { createJiti } from "jiti";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -28,6 +29,16 @@ function assert(cond, msg) {
 function eq(a, b) {
 	return JSON.stringify(a) === JSON.stringify(b);
 }
+
+// Package compatibility is a public installation contract: the roster requires
+// the prepareLoadout host API verified in 1.0.2, with that host's pi-ai/Node floor.
+const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+assert(manifest.peerDependencies["@earendil-works/pi-coding-agent"] === ">=1.0.2",
+	"package rejects hosts older than the verified prepareLoadout floor 1.0.2");
+assert(manifest.peerDependencies["@earendil-works/pi-ai"] === "^1.0.2",
+	"package pi-ai peer follows the supported host's compatible 1.x range");
+assert(manifest.engines.node === ">=22.19.0",
+	"package Node floor matches its required host and pi-ai");
 
 // ---------------------------------------------------------------------------
 console.log("\n[1] Extension load + tool registration (AC1, AC7)");

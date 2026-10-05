@@ -1,7 +1,7 @@
 {
   "name": "@torolex/pi-herdr",
   "version": "1.0.0",
-  "description": "herdr integration for the pi coding agent \u2014 spawn, drive, wait for, and harvest AI agent panes running in herdr.",
+  "description": "herdr integration for the pi coding agent — spawn, drive, wait for, and harvest AI agent panes running in herdr.",
   "type": "module",
   "keywords": [
     "pi-package",
@@ -27,7 +27,7 @@
     "url": "https://github.com/toRolex/pi-herdr/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "pi": {
     "extensions": [
@@ -49,16 +49,16 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-ai": "^1.0.2",
+    "@earendil-works/pi-coding-agent": ">=1.0.2",
     "typebox": "*"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.80.6",
-    "@earendil-works/pi-coding-agent": "^0.80.6",
+    "@earendil-works/pi-ai": "^1.0.2",
+    "@earendil-works/pi-coding-agent": "^1.0.2",
     "@types/node": "^22.20.1",
     "jiti": "^2.7.0",
     "typebox": "^1.3.6",

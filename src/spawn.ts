@@ -92,6 +92,8 @@ export {
 	registerSessionAgent,
 	resolveAgentType,
 	resolveSpecifier,
+	effectiveRoster,
+	renderRoster,
 } from "./agentdefs.js";
 import {
 	getAgentStatus,
