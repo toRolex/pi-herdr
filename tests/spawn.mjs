@@ -938,12 +938,29 @@ console.log(
 		h3.deps,
 	);
 	assert(r3.ok && r3.data.status === "blocked", "wait: true returns on blocked");
-	// wait: 0 → immediate expiry returns the CURRENT state (working)
+	// wait: 0 → expiry returns the CURRENT state (working). The clock is
+	// injected: real Date.now advances during the 1.5s settle, so a
+	// literal 0 would already be past before the wait loop starts.
 	const h4 = makeDeps();
-	const r4 = await spawn.spawnAgent(
-		{ prompt: "x", type: "Plan", name: "w4", wait: 0 },
-		h4.deps,
-	);
+	const realNow = Date.now;
+	let now = realNow();
+	Date.now = () => now;
+	h4.deps.status = async (paneId) => {
+		now += 1;
+		const a = h4.live.find((x) => x.paneId === paneId);
+		return a
+			? { ok: true, data: a.agent_status }
+			: { ok: false, error: { code: "NOT_FOUND", message: "agent gone" } };
+	};
+	let r4;
+	try {
+		r4 = await spawn.spawnAgent(
+			{ prompt: "x", type: "Plan", name: "w4", wait: 0 },
+			h4.deps,
+		);
+	} finally {
+		Date.now = realNow;
+	}
 	assert(
 		r4.ok && r4.data.status === "working" && r4.data.waited === true,
 		"wait: ms returns working on expiry",
