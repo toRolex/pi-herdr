@@ -150,10 +150,11 @@ const selfReportActive =
 // Footer wiring (v0.6 issue 11): the footer no longer polls the fleet per
 // turn — the widget owns the agent counts; the footer is probe-diagnostics,
 // set once at session_start alongside the widget's UI capture. agent_start
-// is self-report's (when in-pane), never the footer's.
+// is self-report's (when in-pane) plus the delivery busy tracker, never the
+// footer's.
 assert(
-	(events.agent_start?.length ?? 0) === (selfReportActive ? 1 : 0),
-	"agent_start: self-report only — the footer hook is gone",
+	(events.agent_start?.length ?? 0) === (selfReportActive ? 2 : 1),
+	"agent_start: self-report plus the delivery busy tracker — the footer hook is gone",
 );
 assert(
 	!events.turn_end?.length,
