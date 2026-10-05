@@ -417,10 +417,20 @@ process.env.HERDR_BIN = cfg.resolveHerdrBin();
 const schemaOut = await herdrMod.herdr(["api", "schema", "--json"], {
 	timeoutMs: 10_000,
 });
-assert(
-	schemaOut.ok && typeof schemaOut.data === "object" && schemaOut.data?.schemas,
-	"real herdr.exe 'api schema --json' parsed as JSON (validates native spawn + parse)",
-);
+if (!schemaOut.ok && schemaOut.error?.code === "HERDR_UNAVAILABLE") {
+	// The offline gate runs where herdr is not installed (CI). The native
+	// spawn + parse check only applies where the binary exists.
+	console.log(
+		"  - real herdr binary absent; skipping the native spawn + parse check",
+	);
+} else {
+	assert(
+		schemaOut.ok &&
+			typeof schemaOut.data === "object" &&
+			schemaOut.data?.schemas,
+		"real herdr.exe 'api schema --json' parsed as JSON (validates native spawn + parse)",
+	);
+}
 
 // ---------------------------------------------------------------------------
 console.log(
