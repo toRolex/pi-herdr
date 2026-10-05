@@ -723,7 +723,18 @@ async function closeDeliveredPane(
 	}
 	record.paneClosePending = false;
 	try {
-		await (deps.closePane ?? defaultClosePane)(record.paneId);
+		const closed = await (deps.closePane ?? defaultClosePane)(record.paneId);
+		if (
+			closed &&
+			typeof closed === "object" &&
+			"ok" in closed &&
+			(closed as { ok: boolean }).ok === false
+		) {
+			const error = (closed as { error?: { message?: string } }).error;
+			record.paneClosePending = true;
+			record.paneCloseError = error?.message ?? "pane close failed";
+			return;
+		}
 		record.paneCloseError = undefined;
 	} catch (err) {
 		record.paneClosePending = true;

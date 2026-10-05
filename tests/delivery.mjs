@@ -1899,9 +1899,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			closePane: async (paneId) => {
 				if (closeFails) {
 					closeNotes.push({ paneId, failed: true });
-					throw new Error("orphan pane close failed");
+					return { ok: false, error: { message: "orphan pane close failed" } };
 				}
 				closes.push(paneId);
+				return { ok: true };
 			},
 			now: () => 1_000_000,
 		});
