@@ -119,10 +119,10 @@ A tool's `target` (or `paneId`) identifies a pane. For agent-surface tools,
 - a **label**.
 
 `herdr_message_agent` resolves a flexible `target` down the shared chain:
-exact pane-id → herdr name → spawn-registry handle → the reserved role
-`orchestrator` (via `PI_HERDR_ORCHESTRATOR_PANE`; real names win over the
-reserved role, and a session no agent spawned gets the honest "no orchestrator
-above you" error). `herdr_get_agent_result` resolves `target` against the
+exact pane-id → herdr name → spawn-registry handle. The reserved role
+`orchestrator` is only the direct parent (`PI_HERDR_ORCHESTRATOR_PANE`); a
+live agent of that name does not take the alias, and a session no agent
+spawned gets the honest "no orchestrator above you" error. `herdr_get_agent_result` resolves `target` against the
 spawn registry first (handle, then pane id) and only falls back to herdr's
 own resolution for panes this session did not spawn.
 
