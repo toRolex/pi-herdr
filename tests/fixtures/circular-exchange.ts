@@ -17,6 +17,7 @@ export default function (pi: ExtensionAPI) {
    queueMicrotask(() => {
     const messages = context.messages as any[];
     const last = messages.at(-1);
+    const lastNonSystem = messages.findLast(m => m.role !== "system");
     const text = (m: any) => typeof m?.content === "string" ? m.content : (m?.content ?? []).map((c: any) => c.text ?? "").join("");
     const inbound = messages.filter(m => m.role === "user" || m.role === "custom").map(text).join("\n");
     let content: any[];
@@ -35,8 +36,8 @@ export default function (pi: ExtensionAPI) {
     } else if (last?.role === "user" && text(last) === "exchange-workflow") {
      content = call("herdr_run_workflow", { script: `export const meta = { name: 'circular-workflow', description: 'Circular exchange regression' }; return await agent('exchange-child', { label: '${process.env.TURN_PROBE_CHILD_NAME}', agentType: '${process.env.TURN_PROBE_CHILD_NAME}', model: 'circular-exchange/deterministic', effort: 'off' });` });
     } else if (last?.role === "user" && text(last) === "exchange-start") {
-     content = call("herdr_spawn_agent", { name: process.env.TURN_PROBE_CHILD_NAME, prompt: "exchange-child", model: "circular-exchange/deterministic", thinking: "off", group: process.env.TURN_PROBE_CHILD_NAME, agent: { name: process.env.TURN_PROBE_CHILD_NAME, agent_args: ["-ne", "-e", process.env.TURN_PROBE_EXTENSION] } });
-    } else if (last?.role === "toolResult" && last.toolName === "herdr_spawn_agent") {
+     content = call("herdr_spawn_agent", { name: process.env.TURN_PROBE_CHILD_NAME, prompt: "exchange-child", model: "circular-exchange/deterministic", thinking: "off", group: process.env.TURN_PROBE_CHILD_NAME, agent: { name: process.env.TURN_PROBE_CHILD_NAME, description: "Circular exchange session fixture.", agent_args: ["-ne", "-e", process.env.TURN_PROBE_EXTENSION] } });
+    } else if (lastNonSystem?.role === "toolResult" && lastNonSystem.toolName === "herdr_spawn_agent") {
      content = call("herdr_get_agent_result", { target: process.env.TURN_PROBE_CHILD_NAME, wait: true });
      if (process.env.CIRCULAR_BUSY === "1") content.push({ type: "toolCall", id: "independent-busy", name: "bash", arguments: { command: "sleep 7; printf UNRELATED_TOOL_FINISHED" } });
     } else {
