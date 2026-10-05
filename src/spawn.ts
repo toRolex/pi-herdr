@@ -34,11 +34,12 @@
 import { getAgentKinds } from "./config.js";
 import { createGridTabArgs, planGridPlacement, splitFor, type GridCell, type GridSeat } from "./grid.js";
 import { herdr } from "./herdr.js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { seedSessionFile, writeSteerWatermark } from "./sessionfile.js";
+import { currentOrchestratorSession } from "./push.js";
 import {
 	type Err,
 	type HerdrErrorCode,
@@ -747,9 +748,67 @@ export interface SpawnRecord {
 	 * The stalled STATE itself is always derived (src/status.ts), never
 	 * stored — this only dedupes pings and ages problems. */
 	watch?: { stalled?: boolean; problemSince?: number };
+	/** Lineage for orphan adoption (issue 39). `rootSession` is the root
+	 * orchestrator session file; `ownerSession` is the session that spawned
+	 * this record. Both are absent when the spawner has no session file. */
+	lineage?: { rootSession: string; ownerSession: string };
 }
 
 const spawnRegistry = new Map<string, SpawnRecord>();
+
+/** Root pointer + this session as owner. Absent when this pi has no session file. */
+function lineageFor(deps: SpawnDeps): { lineage: SpawnRecord["lineage"] } | Record<string, never> {
+	const owner = deps.parentSession ?? currentOrchestratorSession();
+	if (!owner) return {};
+	const env = deps.env ?? process.env;
+	const stamped = env.PI_HERDR_ROOT_SESSION?.trim();
+	return { lineage: { rootSession: stamped || owner, ownerSession: owner } };
+}
+
+/** Persisted spawn registry for one orchestrator session (issue 39). */
+export function registryPathFor(sessionPath: string): string {
+	return `${sessionPath}.registry.json`;
+}
+
+/** Read a session's registry. Missing file = no children. Unreadable or
+ * malformed input throws — a failed observation is not an empty registry. */
+export function readPersistedRegistry(sessionPath: string): SpawnRecord[] {
+	const path = registryPathFor(sessionPath);
+	if (!existsSync(path)) return [];
+	let raw: string;
+	try {
+		raw = readFileSync(path, "utf8");
+	} catch (e) {
+		throw new Error(
+			`spawn registry unreadable: ${e instanceof Error ? e.message : String(e)}`,
+		);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		throw new Error("invalid spawn registry");
+	}
+	if (!Array.isArray(parsed)) throw new Error("invalid spawn registry");
+	return parsed as SpawnRecord[];
+}
+
+export function writePersistedRegistry(
+	sessionPath: string,
+	records: readonly SpawnRecord[],
+): void {
+	writeFileSync(registryPathFor(sessionPath), JSON.stringify(records));
+}
+
+function persistOwnRegistry(deps: SpawnDeps): void {
+	const owner = deps.parentSession ?? currentOrchestratorSession();
+	if (!owner) return;
+	try {
+		writePersistedRegistry(owner, [...spawnRegistry.values()]);
+	} catch {
+		/* best-effort — a missing sessions dir must not fail the spawn */
+	}
+}
 
 /** Terminal (or one-shot) events the delivery loop steers to the
  * orchestrator (issue 06). `blocked` is an episode wake, not terminal — the
@@ -1071,6 +1130,7 @@ export async function startRecordNow(
 	if (isPiKind(record.kind)) {
 		const seedErr = seedRecordSession(record, cwd ?? process.cwd(), deps);
 		if (seedErr) return seedErr;
+		persistOwnRegistry(deps);
 		// A message-less resume (issue 10) skips the task artifact: the
 		// original prompt is already in the replayed session, not the task.
 		if (!record.resumeSilent) {
@@ -1417,6 +1477,7 @@ function buildChildEnv(record: SpawnRecord, idleRearmMinutes: number): Record<st
 		stamp("PI_HERDR_DENIED_TOOLS", (record.deniedTools ?? []).join(","));
 		stamp("PI_HERDR_ACTIVITY_FILE", record.activityPath);
 		stamp("PI_HERDR_IDLE_REARM_MS", String(Math.max(0, idleRearmMinutes) * 60_000));
+		stamp("PI_HERDR_ROOT_SESSION", record.lineage?.rootSession);
 	}
 	for (const [k, v] of Object.entries(record.extraEnv ?? {})) stamp(k, v);
 	return env;
@@ -1820,8 +1881,10 @@ export async function spawnAgent(
 		group: params.group?.trim() || undefined,
 		...(params.extraEnv !== undefined ? { extraEnv: params.extraEnv } : {}),
 		definition: definitionSnapshot,
+		...lineageFor(deps),
 	};
 	spawnRegistry.set(handle, record);
+	persistOwnRegistry(deps);
 
 	// Tool layer (ticket #2): accepted now, start later. `wait` is ignored
 	// so a stale caller cannot re-block. Status is queued or starting —

@@ -411,8 +411,20 @@ export function sidecarPathFor(sessionPath: string): string {
  * (issue 33) is the final assistant body committed with a declared done;
  * old sidecars omit it and delivery falls back to the session JSONL. */
 export type ExitSidecar =
-	| { type: "done"; rearm?: true; structured?: string; text?: string }
-	| { type: "error"; errorMessage: string; stopReason: string; rearm?: true };
+	| {
+			type: "done";
+			rearm?: true;
+			structured?: string;
+			text?: string;
+			rootSession?: string;
+	  }
+	| {
+			type: "error";
+			errorMessage: string;
+			stopReason: string;
+			rearm?: true;
+			rootSession?: string;
+	  };
 
 /**
  * Bare `agent_done` is refused when the session holds no assistant text.
@@ -453,8 +465,17 @@ export function parseExitSidecar(
 		o.type === "done" && typeof o.text === "string" && o.text.trim()
 			? { text: o.text }
 			: {};
+	// Root session pointer (issue 39). Blank and non-string values are absent
+	// so an old sidecar still parses and is not adoptable across layers.
+	const rootSession =
+		typeof o.rootSession === "string" && o.rootSession.trim()
+			? { rootSession: o.rootSession }
+			: {};
 	if (o.type === "done")
-		return { ok: true, sidecar: { type: "done", ...rearm, ...structured, ...text } };
+		return {
+			ok: true,
+			sidecar: { type: "done", ...rearm, ...structured, ...text, ...rootSession },
+		};
 	if (o.type === "error") {
 		const message =
 			typeof o.errorMessage === "string" && o.errorMessage.trim()
@@ -463,7 +484,13 @@ export function parseExitSidecar(
 		const stopReason = typeof o.stopReason === "string" ? o.stopReason : "error";
 		return {
 			ok: true,
-			sidecar: { type: "error", errorMessage: message, stopReason, ...rearm },
+			sidecar: {
+				type: "error",
+				errorMessage: message,
+				stopReason,
+				...rearm,
+				...rootSession,
+			},
 		};
 	}
 	return { ok: false };

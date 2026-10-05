@@ -58,11 +58,19 @@ import {
 	type ActivityRead,
 } from "./status.js";
 import { fleetWidgetOnce } from "./widget.js";
-import { spawnRecords, type DeliveryKind, type SpawnRecord } from "./spawn.js";
 import {
+	readPersistedRegistry,
+	spawnRecords,
+	writePersistedRegistry,
+	type DeliveryKind,
+	type SpawnRecord,
+} from "./spawn.js";
+import {
+	currentOrchestratorSession,
 	type DeliverAs,
 	type SteeredMessage,
 	makeDeliverySink,
+	rememberOrchestratorSession,
 	trackOrchestratorBusy,
 	terminalWake,
 } from "./push.js";
@@ -118,6 +126,15 @@ export interface DeliveryDeps {
 	/** Sidecar mtime in ms epoch, measured when the push is about to land.
 	 * Default: the file's mtime. */
 	sidecarWrittenAt?: (sessionPath: string) => number | undefined;
+	/** This orchestrator's session file. Default: the path remembered at
+	 * session_start. Adoption only delivers into this session. */
+	sessionPath?: string;
+	/** Another session's persisted spawn registry. A throw is a failed
+	 * observation — not an empty registry, and not an orphan. */
+	readRegistry?: (sessionPath: string) => readonly SpawnRecord[];
+	/** Write a registry back after an adopted delivery so resume does not
+	 * push the same letter again. */
+	writeRegistry?: (sessionPath: string, records: readonly SpawnRecord[]) => void;
 }
 
 // ---- push composition ---------------------------------------------------------
@@ -422,6 +439,64 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 			}
 		}
 	}
+
+	await adoptOrphans(deps, records, statusByPane);
+}
+
+/**
+ * Claim a settled child whose registry owner is gone (issue 39). The owner
+ * is gone only when this tick's fleet does not list its pane. A registry
+ * read that throws is a failed observation, not an empty registry, and is
+ * not a claim. A living owner keeps the result. The letter is pushed into
+ * THIS session only when the record and sidecar name it as the root.
+ * The owner's registry is written back with the delivery mark so a later
+ * tick — including resume — does not push the same letter again.
+ */
+async function adoptOrphans(
+	deps: DeliveryDeps,
+	records: SpawnRecord[],
+	statusByPane: Map<string, string>,
+): Promise<void> {
+	const self = deps.sessionPath ?? currentOrchestratorSession();
+	if (!self) return;
+	const read = deps.readRegistry ?? readPersistedRegistry;
+	const write = deps.writeRegistry ?? writePersistedRegistry;
+	const seen = new Set<string>();
+	const pending = [...records];
+	while (pending.length > 0) {
+		const owner = pending.shift();
+		if (!owner?.sessionPath || !owner.paneId || seen.has(owner.sessionPath)) continue;
+		if (statusByPane.has(owner.paneId)) continue;
+		seen.add(owner.sessionPath);
+		let children: SpawnRecord[];
+		try {
+			children = [...read(owner.sessionPath)];
+		} catch {
+			continue;
+		}
+		let dirty = false;
+		for (const child of children) {
+			if (child.sessionPath && child.paneId && !statusByPane.has(child.paneId)) {
+				pending.push(child);
+			}
+			if (child.delivery) continue;
+			const live = child.paneId ? statusByPane.get(child.paneId) : undefined;
+			if (live !== "done" && live !== "idle") continue;
+			if (!child.sessionPath || child.kind.toLowerCase() !== "pi") continue;
+			if (child.lineage?.rootSession !== self) continue;
+			const sidecar = (deps.readSidecar ?? readExitSidecar)(child.sessionPath);
+			if (sidecar.state !== "ok") continue;
+			if (sidecar.sidecar.rootSession && sidecar.sidecar.rootSession !== self) continue;
+			deliverSidecar(child, sidecar.sidecar, deps, false, true);
+			dirty = true;
+		}
+		if (!dirty) continue;
+		try {
+			write(owner.sessionPath, children);
+		} catch {
+			/* the in-memory mark is lost with this read; the next tick retries */
+		}
+	}
 }
 
 function deliverSidecar(
@@ -431,12 +506,14 @@ function deliverSidecar(
 		| { type: "error"; errorMessage: string; stopReason: string; rearm?: true },
 	deps: DeliveryDeps,
 	paneLive = false,
+	adopted = false,
 ): void {
 	const notes = notifications(deps);
 	const extracted = record.sessionPath
 		? (deps.extract ?? extractSessionResult)(record.sessionPath)
 		: null;
 	const rearm = sidecar.rearm === true;
+	const adoptedFlag = adopted ? { adopted: true as const } : {};
 	if (sidecar.type === "done") {
 		const committed = sidecar.text?.trim() ? sidecar.text : undefined;
 		deliverTerminal(
@@ -448,6 +525,7 @@ function deliverSidecar(
 				details: {
 					name: record.name,
 					kind: "done",
+					...adoptedFlag,
 					...(rearm ? { rearm: true } : {}),
 					result: committed ?? extracted?.text,
 					...(extracted ? { message: extracted.message } : {}),
@@ -468,6 +546,7 @@ function deliverSidecar(
 			details: {
 				name: record.name,
 				kind: "error",
+				...adoptedFlag,
 				...(rearm ? { rearm: true } : {}),
 				error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
 				...(extracted ? { message: extracted.message } : {}),
@@ -879,6 +958,7 @@ export function observeExitSidecars(
  */
 export function registerDelivery(pi: ExtensionAPI): void {
 	if (deliveryTimer) return;
+	rememberOrchestratorSession(pi);
 	const push = makeDeliverySink(pi);
 	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {
@@ -893,7 +973,12 @@ export function registerDelivery(pi: ExtensionAPI): void {
 			// watchdog, widget — the one-poll-loop-many-consumers ruling).
 			// busy is read at push time, not at tick start.
 			const fleet = await fleetList();
-			await deliverOnce({ push, fleet, busy });
+			await deliverOnce({
+				push,
+				fleet,
+				busy,
+				sessionPath: currentOrchestratorSession(),
+			});
 			await watchdogOnce({ push, fleet, busy });
 			await fleetWidgetOnce({ fleet });
 		} catch {

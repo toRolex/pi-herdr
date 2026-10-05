@@ -590,6 +590,7 @@ console.log("\n[8] Launch plan — --session + -e injection and registry growth"
 		},
 		worktree: async () => ({ ok: true, data: "D:/wt/auto-branch" }),
 		childExtension: "/ext/child.ts",
+		parentSession: "/sessions/root.jsonl",
 		// Accept-all registry: this suite is about the substrate, not routing —
 		// but a model pin must validate against SOME registry to spawn at all.
 		registry: {
@@ -635,8 +636,14 @@ console.log("\n[8] Launch plan — --session + -e injection and registry growth"
 			started[0].env.PI_HERDR_AGENT === "scout" &&
 			started[0].env.PI_HERDR_AUTO_EXIT === "1" &&
 			started[0].env.PI_HERDR_DENIED_TOOLS === "write" &&
-			started[0].env.PI_HERDR_SPAWN_DEPTH === "2",
-		"child env carries the substrate contract (PI_HERDR_*)",
+			started[0].env.PI_HERDR_SPAWN_DEPTH === "2" &&
+			started[0].env.PI_HERDR_ROOT_SESSION === "/sessions/root.jsonl",
+		"child env carries the substrate contract (PI_HERDR_*) and the root session pointer",
+	);
+	assert(
+		rec.lineage?.rootSession === "/sessions/root.jsonl" &&
+			rec.lineage?.ownerSession === "/sessions/root.jsonl",
+		"the spawn record stores lineage: root pointer and this session as owner",
 	);
 	assert(
 		r.data.stance === "autonomous" && r.data.sessionPath === rec.sessionPath,
