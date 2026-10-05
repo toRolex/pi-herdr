@@ -30,9 +30,14 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { herdr } from "../herdr.js";
+import { fleetList, herdr } from "../herdr.js";
 import { sendAgentPrompt } from "./orchestration.js";
-import { spawnRecords, type SpawnRecord } from "../spawn.js";
+import {
+	readPersistedRegistry,
+	spawnRecords,
+	type SpawnRecord,
+} from "../spawn.js";
+import { currentOrchestratorSession } from "../push.js";
 import { writeSteerWatermark } from "../sessionfile.js";
 import {
 	normalizeAgent,
@@ -97,6 +102,11 @@ export interface MessageDeps {
 	send?: typeof sendAgentPrompt;
 	/** Env view — default: process.env. */
 	env?: Record<string, string | undefined>;
+	/** Fleet names for the generation check — default: `herdr agent list`. */
+	list?: () => Promise<{ name?: string; paneId?: string }[]>;
+	/** Another session's spawn registry — default: readPersistedRegistry.
+	 * A throw is a failed observation, not an empty registry. */
+	readRegistry?: (sessionPath: string) => readonly SpawnRecord[];
 	signal?: AbortSignal;
 	/** Clock for the inbound window — default: Date.now. */
 	now?: () => number;
@@ -209,7 +219,6 @@ async function resolveTarget(
 	// Reserved role, before any name lookup. The string "orchestrator" is
 	// only the sender's direct parent (PI_HERDR_ORCHESTRATOR_PANE). A fleet
 	// agent or spawn handle of the same name must not take the alias.
-	// No generation check here — that is a separate ticket.
 	if (target === "orchestrator") {
 		const orchestratorPane = env.PI_HERDR_ORCHESTRATOR_PANE;
 		if (!orchestratorPane) {
@@ -299,6 +308,156 @@ async function resolveTarget(
 			`no live agent matches "${target}" — see herdr_list_agents for the fleet.`,
 		),
 	};
+}
+
+// ---- generation gate (issue 40) ------------------------------------------------
+
+/** A fleet row the generation check can name. */
+interface FleetHandle {
+	name?: string;
+	paneId?: string;
+}
+
+/** The sender's own session file. Absent means this process has no lineage. */
+function senderSession(env: Record<string, string | undefined>): string | undefined {
+	return env.PI_HERDR_SESSION?.trim() || currentOrchestratorSession();
+}
+
+/** Where this sender sits: the ownerSession of the record that is this session. */
+function senderOwner(
+	self: string | undefined,
+	root: string | undefined,
+	read: (sessionPath: string) => readonly SpawnRecord[],
+): string | undefined {
+	if (!self || !root || root === self) return undefined;
+	const seen = new Set<string>();
+	const pending = [root];
+	while (pending.length > 0) {
+		const session = pending.shift();
+		if (!session || seen.has(session)) continue;
+		seen.add(session);
+		for (const rec of read(session)) {
+			if (rec.sessionPath === self) return rec.lineage?.ownerSession;
+			if (rec.sessionPath) pending.push(rec.sessionPath);
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Walk registry lineage and attach each known record to the fleet pane that
+ * is still live. A registry read that throws is a failed observation — it
+ * propagates, it is not an empty registry and it is not permission to send.
+ */
+function knownLive(
+	root: string,
+	fleet: readonly FleetHandle[],
+	read: (sessionPath: string) => readonly SpawnRecord[],
+): Map<string, SpawnRecord> {
+	const byPane = new Map<string, SpawnRecord>();
+	const seen = new Set<string>();
+	const pending = [root];
+	while (pending.length > 0) {
+		const session = pending.shift();
+		if (!session || seen.has(session)) continue;
+		seen.add(session);
+		for (const rec of read(session)) {
+			if (rec.sessionPath) pending.push(rec.sessionPath);
+			if (!rec.paneId || !rec.lineage?.ownerSession) continue;
+			const live = fleet.some((a) => a.paneId === rec.paneId);
+			if (live) byPane.set(rec.paneId, rec);
+		}
+	}
+	return byPane;
+}
+
+function handleOf(rec: SpawnRecord, fleet: readonly FleetHandle[]): string {
+	return (
+		rec.name ||
+		fleet.find((a) => a.paneId === rec.paneId)?.name ||
+		rec.paneId ||
+		"?"
+	);
+}
+
+/**
+ * Refuse a known cross-generation target. Same ownerSession (a peer), the
+ * direct parent pane, and a record this session itself spawned are allowed.
+ * A pane with no lineage stays anyone↔anyone. The reserved role
+ * `orchestrator` never reaches here.
+ *
+ * Returns undefined when the send may proceed.
+ */
+async function generationGate(
+	resolved: Extract<Resolved, { kind: "live" }>,
+	deps: MessageDeps,
+): Promise<SendError | undefined> {
+	const env = deps.env ?? process.env;
+	const self = senderSession(env);
+	if (!self) return undefined;
+	const read = deps.readRegistry ?? readPersistedRegistry;
+	const root = env.PI_HERDR_ROOT_SESSION?.trim() || self;
+
+	let fleet: FleetHandle[];
+	try {
+		fleet = await (deps.list ?? defaultFleetList)();
+	} catch (e) {
+		const message = e instanceof Error ? e.message : String(e);
+		return err(
+			"HERDR_UNAVAILABLE",
+			`cannot check generation: fleet query failed (${message}) — not sent.`,
+		);
+	}
+
+	let known: Map<string, SpawnRecord>;
+	let mine: string | undefined;
+	try {
+		known = knownLive(root, fleet, read);
+		mine = senderOwner(self, root, read);
+	} catch (e) {
+		const message = e instanceof Error ? e.message : String(e);
+		return err(
+			"HERDR_UNAVAILABLE",
+			`cannot check generation: registry read failed (${message}) — not sent.`,
+		);
+	}
+
+	const target = known.get(resolved.paneId);
+	if (!target?.lineage?.ownerSession) return undefined;
+
+	const parentPane = env.PI_HERDR_ORCHESTRATOR_PANE;
+	const directParent = parentPane != null && resolved.paneId === parentPane;
+	const directChild = target.lineage.ownerSession === self;
+	// A root has no record of its own, so its generation is the sessions it
+	// spawned: a target owned by this session is a peer of those children.
+	const peer =
+		(mine != null && target.lineage.ownerSession === mine) ||
+		(mine == null && target.lineage.ownerSession === self);
+	if (directParent || directChild || peer) return undefined;
+
+	const usable = [...known.values()].flatMap((rec) => {
+		if (rec.paneId === resolved.paneId) return [];
+		const owner = rec.lineage?.ownerSession;
+		const reachable =
+			rec.paneId === parentPane ||
+			owner === self ||
+			(mine != null && owner === mine) ||
+			owner === target.lineage?.ownerSession;
+		return reachable ? [handleOf(rec, fleet)] : [];
+	});
+	const who = target.name || resolved.to;
+	const listed = usable.length > 0 ? usable.join(", ") : "(none)";
+	return err(
+		"VALIDATION_ERROR",
+		`refused: "${who}" is a different generation from you — not sent, and not redirected. Keep using: ${listed}.`,
+		{ target: who, handles: usable },
+	);
+}
+
+async function defaultFleetList(): Promise<FleetHandle[]> {
+	const r = await fleetList();
+	if (!r.ok) throw new Error(r.error.message);
+	return r.data.map((a) => ({ name: a.name, paneId: a.paneId }));
 }
 
 // ---- inbound rate limit ------------------------------------------------------------
@@ -524,6 +683,8 @@ export async function messageAgent(
 ): Promise<Result<MessageReceipt>> {
 	const resolved = await resolveTarget(params.target, deps);
 	if (resolved.kind === "err") return { ok: false, error: resolved.error };
+	const generation = await generationGate(resolved, deps);
+	if (generation) return { ok: false, error: generation };
 
 	const submit = params.submit !== false;
 	const blocked = resolved.state === "blocked";
@@ -621,7 +782,8 @@ const DESCRIPTION =
 	"The target is always explicit and resolves as: exact pane-id → herdr name → spawn-registry handle " +
 	"(the name herdr_spawn_agent returned). The reserved role \"orchestrator\" is only your direct parent's pane " +
 	"(PI_HERDR_ORCHESTRATOR_PANE) — a live agent of that name does not take the alias; unset or a gone parent " +
-	"errors honestly. Delivery is physics-adaptive: a BLOCKED " +
+	"errors honestly. A known pane from another generation is refused and the error names the handles you can still use; " +
+	"a pane with no lineage (not in any spawn registry) stays open. Delivery is physics-adaptive: a BLOCKED " +
 	"target (waiting on a question overlay) gets the raw text typed in as its ANSWER — the message is the answer; " +
 	"for option-list questions use herdr_send_keys instead, typed text never reaches option rows. Any other state " +
 	"gets the text wrapped as <agent-message from=\"…\" to=\"…\">…</agent-message> — when YOU receive that tag it is a " +

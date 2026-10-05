@@ -30,6 +30,19 @@ physics branch needs) and then the spawn registry. A `gone` target errors
 naming the handle; a queued (accepted-over-the-cap, no pane yet) spawn has
 nothing to deliver to and errors the same way.
 
+## Generations
+
+A resolved pane whose spawn-registry lineage names an `ownerSession` other
+than the sender's is refused, unless it is the sender's direct parent pane
+or a record the sender itself spawned (the target's `ownerSession` is this
+session). Peers — the same `ownerSession` — go through. The refusal is not
+redirected; its text lists the fleet handles that are still in reach
+(`Keep using:`). A pane that is in no registry and has no lineage stays
+anyone↔anyone, so an explicit pane id or herdr name of such a pane still
+delivers. A fleet query or registry read that fails is reported as that
+failure and is not treated as permission to send. The `orchestrator` alias
+is unchanged: it is only the direct parent.
+
 ## Physics-adaptive delivery
 
 - **blocked** target → the **raw text** is typed into its question overlay —
