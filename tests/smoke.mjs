@@ -161,8 +161,8 @@ assert(
 	"no turn_end footer hook (footer is probe-diagnostics)",
 );
 assert(
-	events.session_start?.length === (selfReportActive ? 4 : 3),
-	"session_start: probe verdict, fleet widget, input wake scope, and in-pane self-report",
+	events.session_start?.length === (selfReportActive ? 6 : 5),
+	"session_start: probe, widget, input wake, delivery renderer, orchestrator session, and in-pane self-report",
 );
 assert(
 	commands.some((c) => c.name === "subagents"),
