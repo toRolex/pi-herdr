@@ -1080,6 +1080,18 @@ console.log("\n[16] Tool registration surface");
 		!("agent-roster" in sections) && sections["other-extension"] === "keep me",
 		"spawn tool inactive — stale key cleared, other extensions' sections untouched",
 	);
+	// Two-way pointing: the section itself names the tool and the `type`
+	// parameter (spec 22), without touching the frozen renderRoster contract.
+	fire(["herdr_spawn_agent"]);
+	assert(
+		sections["agent-roster"].includes("herdr_spawn_agent") &&
+			sections["agent-roster"].includes("`type`"),
+		"section header declares the tool linkage and the type parameter",
+	);
+	// The empty-registry defensive branch (spec 22) is unreachable through
+	// public seams: the built-in layer always yields at least one entry, so
+	// no mock can drive it. The gate contract is covered by the inactive-tool
+	// deletion test above.
 	// Manual e2e F1: prompt-only no longer refuses (asserted via
 	// resolveSpecifier + spawnAgent in [1]/[9]); the impossible state — BOTH
 	// type and agent — still errors, offline-safe before any I/O.

@@ -17,7 +17,11 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { spawnAgent } from "../spawn.js";
 import { saveAgent } from "../agentdefs.js";
 import type { AgentDirs } from "../agentdefs.js";
-import { defaultAgentDirs, renderRoster } from "../agentdefs.js";
+import {
+	defaultAgentDirs,
+	effectiveRoster,
+	renderRoster,
+} from "../agentdefs.js";
 import type { ToolReturn } from "../env.js";
 
 const ROSTER_TOOL_NAME = "herdr_spawn_agent";
@@ -204,7 +208,9 @@ export function registerAgents(
 	// `<agent-roster>` system-prompt section, (re)written every turn on
 	// before_agent_start — assignment is naturally idempotent. Rendering goes
 	// through the unchanged renderRoster contract (layer order, sorting,
-	// lossless names, 512-byte description budget, deterministic bytes).
+	// lossless names, 512-byte description budget, deterministic bytes); the
+	// linkage line satisfies the spec's two-way pointing (section names the
+	// tool and the `type` parameter) without touching the frozen render.
 	// Gating: only when the spawn tool is active this turn; and only this
 	// key is touched — other extensions' sections pass through untouched.
 	pi.on("before_agent_start", (event) => {
@@ -214,13 +220,15 @@ export function registerAgents(
 			delete sections[ROSTER_SECTION];
 			return;
 		}
-		const roster = renderRoster(dirs);
-		if (roster.length === 0) {
-			// Defensive: an empty registry should not produce an empty XML section.
+		if (effectiveRoster(dirs).length === 0) {
+			// Defensive: an empty registry should not produce an empty XML
+			// section. Unreachable in practice (built-ins are always present).
 			delete sections[ROSTER_SECTION];
 			return;
 		}
-		sections[ROSTER_SECTION] = roster;
+		sections[ROSTER_SECTION] =
+			"This is the agent menu for herdr_spawn_agent — each entry name maps " +
+			"to its `type` parameter.\n" + renderRoster(dirs);
 	});
 	pi.registerTool({
 		name: "herdr_spawn_agent",
