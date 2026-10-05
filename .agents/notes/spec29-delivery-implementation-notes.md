@@ -44,3 +44,13 @@ live（真实 ctrl+o）本票未跑。
 - `SteeredMessage.deliverAs` 可选。没写时 sink 仍按 wake 映射：wake → steer，否则 nextTurn。显式 followUp 时 triggerTurn 为 true。
 - ExtensionAPI 没有 `isIdle`。`trackOrchestratorBusy` 用 `agent_start`…`agent_settled` 覆盖整段 run（含工具），用 `session_before_compact` 到 compact 成功或失败覆盖压缩。没有 `on` 的 mock 保持空闲。
 - 负载实验（忙碌时工具不被中断）没跑。
+
+## #31 exit sidecar watcher
+
+- 缝是 `DeliveryDeps.watchSidecar` / `sidecarWrittenAt` / `debug`，加上公开的 `observeExitSidecars(deps, tick)`。测试注入这三者，不碰真实 `fs.watch`。
+- 一次写入只 `wake` 一次 tick；同一事件不重复靠现有 `record.delivery` 标记，轮询路径不另做去重。
+- watcher 抛错按 record 吞掉。2.5s `setInterval` 仍跑 `deliverOnce`，降级路径就是这条。
+- 检测延迟只打 `done`/`error` 且带 `sessionPath` 的终端 push：`sidecar mtime → push 调用前`。日志行 `segment=sidecar→push`。`notifications: none` 不 push，也不记这条延迟。busy 排队延迟不进这个数（#32）。
+- 默认 watcher 盯 session 目录（sidecar 往往还不存在），只对 `<session>.exit` 的文件名回调。`fs.watch` 的 `filename === null` 仍触发，避免漏报。
+- `registerDelivery` 启动时 arm，每个 poll tick `sync()`：新 pi 记录补 watcher，已投递或离队的关掉。`stopDeliveryLoop` 一并 close。
+- wake 策略、sidecar 正文字段未改。

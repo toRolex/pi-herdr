@@ -175,10 +175,12 @@ console.log("\n[2] Child extension — takeover + idle re-arm");
 			type: "agent_end",
 			messages: [{ role: "assistant", stopReason }],
 		});
-		await registered.handlers.agent_settled[0](
-			{},
-			{ shutdown: () => shuts++ },
-		);
+		// pi fires every agent_settled listener; the activity recorder registers
+		// before the exit decision, so the last handler is the one that exits.
+		const settled = registered.handlers.agent_settled ?? [];
+		for (const handler of settled) {
+			await handler({}, { shutdown: () => shuts++ });
+		}
 	}
 
 	// --- takeover marking: human vs steering echo vs programmatic ---------
@@ -1230,6 +1232,84 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.closes.includes(r.paneId) && r.paneClosePending === false,
 			"the held close retries once the fleet stops listing the pane",
 		);
+		rmSync(dir, { recursive: true, force: true });
+	}
+
+	// --- exit-sidecar watcher: one event, one push; poll is the backstop ---
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-watch-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("watched result")]);
+		const r = rec("scout", { sessionPath: sess });
+		const w = world([r], { fleet: [{ paneId: r.paneId, status: "idle" }] });
+		const logs = [];
+		let notify;
+		w.deps.watchSidecar = (_path, onWrite) => {
+			notify = () => onWrite({ mtimeMs: 999_960 });
+			return { close() { notify = undefined; } };
+		};
+		w.deps.debug = (line) => logs.push(line);
+		w.deps.sidecarWrittenAt = () => 999_960;
+		const obs = delivery.observeExitSidecars(w.deps, () => w.tick());
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		notify();
+		notify();
+		await obs.whenIdle();
+		assert(
+			w.pushes.length === 1 &&
+				w.pushes[0].content.includes("watched result") &&
+				r.delivery?.kind === "done",
+			"sidecar write event triggers exactly one delivery tick",
+		);
+		assert(
+			logs.some(
+				(line) =>
+					line.includes("segment=sidecar→push") &&
+					line.includes("40ms") &&
+					line.includes("scout"),
+			),
+			"debug log records detect latency from sidecar write to push (40ms)",
+		);
+		await w.tick();
+		assert(
+			w.pushes.length === 1,
+			"the 2.5s poll backstop does not deliver the same sidecar event again",
+		);
+		obs.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-watch-down-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("polled after a blind watch")]);
+		const r = rec("scout", { sessionPath: sess });
+		const w = world([r], { fleet: [{ paneId: r.paneId, status: "idle" }] });
+		const logs = [];
+		let armed = 0;
+		w.deps.watchSidecar = () => {
+			armed += 1;
+			throw new Error("watch unsupported");
+		};
+		w.deps.debug = (line) => logs.push(line);
+		w.deps.sidecarWrittenAt = () => 997_500;
+		const obs = delivery.observeExitSidecars(w.deps, () => w.tick());
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		await w.tick();
+		assert(
+			armed >= 1 &&
+				w.pushes.length === 1 &&
+				w.pushes[0].content.includes("polled after a blind watch"),
+			"a failed sidecar watcher still leaves the poll backstop to deliver",
+		);
+		assert(
+			logs.some(
+				(line) => line.includes("segment=sidecar→push") && line.includes("2500ms"),
+			),
+			"poll delivery still logs detect latency when the watcher never fired",
+		);
+		await w.tick();
+		assert(w.pushes.length === 1, "poll backstop is still once per event");
+		obs.close();
 		rmSync(dir, { recursive: true, force: true });
 	}
 
