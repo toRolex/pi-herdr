@@ -486,18 +486,29 @@ function owedNotice(paneId: string, sender: string): string | undefined {
 	return notice;
 }
 
-function clearInbox(paneId: string): PendingItem[] {
+/** Take the pending items off the inbox for a drain. Put them back on failure. */
+function takePending(paneId: string): PendingItem[] {
 	const inbox = inboxes.get(paneId);
 	if (!inbox) return [];
 	const items = inbox.items;
 	inbox.items = [];
 	inbox.aggregate = undefined;
+	return items;
+}
+
+function restorePending(paneId: string, items: PendingItem[]): void {
+	const inbox = inboxFor(paneId);
+	inbox.items = [...items, ...inbox.items].slice(-PENDING_CAP);
+}
+
+function finishDrain(paneId: string): void {
+	const inbox = inboxes.get(paneId);
+	if (!inbox) return;
 	// Dropped senders who have not been told yet still get the personal
 	// note on their next call. Senders already told do not get another.
-	if (inbox.dropped.length === 0 || inbox.dropped.every((s) => inbox.told.has(s))) {
+	if (inbox.items.length === 0 && inbox.dropped.every((s) => inbox.told.has(s))) {
 		inboxes.delete(paneId);
 	}
-	return items;
 }
 
 // ---- the engine ----------------------------------------------------------------
@@ -587,13 +598,19 @@ export async function messageAgent(
 
 	// Leaving idle (done drains; working / blocked type now). Pending text
 	// goes out oldest-first, then this message. Already-typed text stays.
-	const waiting = clearInbox(resolved.paneId);
-	for (const pending of waiting) {
-		const drained = await deliver(pending, false);
-		if (!drained.ok) return drained;
+	// A failed drain puts the untyped remainder back; nothing already typed
+	// is rewritten.
+	const waiting = takePending(resolved.paneId);
+	for (let i = 0; i < waiting.length; i++) {
+		const drained = await deliver(waiting[i], false);
+		if (!drained.ok) {
+			restorePending(resolved.paneId, waiting.slice(i));
+			return drained;
+		}
 	}
 	const r = await deliver(item, blocked);
 	if (!r.ok) return r;
+	finishDrain(resolved.paneId);
 	return receipt({});
 }
 
@@ -642,19 +659,27 @@ export function registerMessageTool(pi: ExtensionAPI): void {
 						"Press Enter after typing (default true). false leaves the text unsubmitted.",
 				}),
 			),
+			pending: Type.Optional(
+				Type.Boolean({
+					description:
+						"Accept into the pending inbox instead of typing now. Only an idle target holds; the inbox holds 8 and drops the oldest. Any other state drains the inbox, oldest first, then types this message.",
+				}),
+			),
 		}),
 		async execute(_id, p, signal) {
 			const r = await messageAgent(
-				{ target: p.target, text: p.text, submit: p.submit },
+				{ target: p.target, text: p.text, submit: p.submit, pending: p.pending },
 				{ signal },
 			);
 			if (!r.ok) return fail(r.error);
 			const d = r.data;
 			const who = d.name ?? d.to;
-			const text =
-				d.delivery === "answer"
+			const body = d.queued
+				? `Accepted pending for "${who}" (pane ${d.target}, state: ${d.state}) — not typed yet. Pending inbox holds ${PENDING_CAP}.`
+				: d.delivery === "answer"
 					? `Delivered to "${who}" (pane ${d.target}, state: ${d.state}) as a RAW ANSWER — typed into its question overlay, unsubmitted=${!d.submit}. If it was an option list, select with herdr_send_keys instead.`
 					: `Delivered to "${who}" (pane ${d.target}, state: ${d.state}) as an <agent-message> envelope (from "${d.from}"). Fire-and-forget: delivered ≠ consumed — the reply arrives as injected <agent-message> text or its next completion (wait with herdr_get_agent_result).`;
+			const text = d.notice ? `${body} ${d.notice}` : body;
 			return { content: [{ type: "text", text }], details: d };
 		},
 	});
