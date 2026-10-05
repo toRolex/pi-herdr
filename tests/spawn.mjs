@@ -1321,6 +1321,35 @@ console.log("\n[18] layout_mode is read at START: grid by default, spiral when s
 	);
 }
 
+console.log("\n[18b] grid tab creation carries the spawn cwd");
+{
+	reset();
+	const h = makeGridDeps({
+		env: { HERDR_PANE_ID: "w9:p1" },
+		settings: { max_parallel_agents: 20 },
+	});
+	const r = await spawn.spawnAgent(
+		{
+			prompt: "x",
+			type: "Explore",
+			name: "cw",
+			group: "roster",
+			cwd: "/tmp/spawn-cwd-target",
+		},
+		h.deps,
+	);
+	assert(r.ok, `group spawn with cwd ok (${r.ok ? "" : r.error?.message})`);
+	const create = h.commands.find(
+		(c) => c[0] === "tab" && c[1] === "create",
+	);
+	assert(
+		create &&
+			create.includes("--cwd") &&
+			create[create.indexOf("--cwd") + 1] === "/tmp/spawn-cwd-target",
+		`the group's new tab is created with the spawn cwd (${JSON.stringify(create)})`,
+	);
+}
+
 console.log(
 	"\n[19] grid group: same group shares a tab; the 7th live occupant opens another",
 );

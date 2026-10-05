@@ -1308,7 +1308,7 @@ async function planGridSeat(
 			const made = await run<{
 				tab?: { tab_id?: string; root_pane?: string; pane_id?: string };
 			}>(
-				createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes)),
+				createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes), record.worktreePath ?? record.cwd),
 				{ signal: deps.signal },
 			);
 			if (!made.ok || !made.data?.tab?.tab_id) return undefined;
@@ -1387,7 +1387,7 @@ async function planGridSeat(
 	const split = splitFor(plan, record.name, known);
 	if (!split) return undefined;
 	if (plan.openedTab) {
-		split.commands = [{ args: createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes)) }];
+		split.commands = [{ args: createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes), record.worktreePath ?? record.cwd) }];
 	}
 	if (!split.paneId && tabId !== here.tab_id) {
 		const anchor = live[0]?.pane_id;
