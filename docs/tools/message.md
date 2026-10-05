@@ -60,3 +60,19 @@ window fold into it and are not delivered, so the receipt is never itself a
 new inbound message. The receipt states the limit and the identity scope:
 local, same OS user — the label is spawner-declared and never verified.
 A **blocked** target's overlay answer does not count and is not refused.
+
+## Pending inbox
+
+`pending: true` on an **idle** target accepts the message into that pane's
+pending inbox instead of typing it. The inbox holds **8**. A ninth pending
+message drops the oldest pending one and keeps the newest. The call result
+is one aggregate receipt naming the dropped senders, the cap, and that
+already-delivered text is kept. Later drops in the same burst fold into that
+receipt; they are not typed back into the pane, so the receipt cannot loop.
+A sender who was dropped and was not the caller hears it on their next call,
+still as that one receipt, not a second one.
+
+Any other state (`working`, `blocked`, `done`) types immediately and first
+drains whatever is still pending, oldest first. Text that was already typed
+is left where it is. A drain that fails to type puts the untyped remainder
+back.
