@@ -58,9 +58,13 @@ export default function (pi: ExtensionAPI): void {
 	// messages, takeover notes, blocked wakes — with wake governed by the
 	// `notifications` setting (blocked always wakes).
 	registerDelivery(pi);
-	// Transcript fold only (issue #30). pi.registerMessageRenderer replaces
-	// display; the steered content the model reads stays the full push.
-	registerDeliveryRenderer(pi);
+	// Transcript fold (issue #30) and the one-notice merge (issue #38).
+	// pi.registerMessageRenderer replaces display; steered content stays.
+	pi.on("session_start", (_event, ctx) => {
+		registerDeliveryRenderer(pi, {
+			getBranch: () => ctx.sessionManager.getBranch(),
+		});
+	});
 	pi.on("session_shutdown", () => {
 		stopDeliveryLoop();
 		// Workflow runs do not outlive their session (issue 12): terminate the
