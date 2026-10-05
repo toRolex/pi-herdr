@@ -15,7 +15,7 @@ npm test              # offline suite (tests/smoke.mjs + per-area suites incl. t
 `tests/smoke.mjs` is the offline gate. It does **not** require a running herdr server.
 It covers:
 
-- **Extension load + tool registration** — exactly the **10** kept tools register
+- **Extension load + tool registration** — the kept tools register
   with the expected names (and every cut tool is asserted absent), each has a
   `parameters` schema and an `execute()`, and the self-report hooks wire up
   when running inside herdr.

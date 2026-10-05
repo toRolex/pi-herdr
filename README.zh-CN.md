@@ -8,7 +8,7 @@
 
 ## 环境要求
 
-- Node.js 20 或更新版本，见 [package.json](package.json)。
+- Node.js 22.19.0 或更新版本，见 [package.json](package.json)。
 - 可用的 pi 安装，且至少配置一个已认证模型。配置方式见 [pi](https://pi.dev)。子 pi 进程使用你的 pi 配置。
 - 单独从 [herdr.dev](https://herdr.dev) 安装 herdr 0.9.0 或更新版本，确保在 `PATH` 中且服务正在运行。
 - 如需启动其他代理种类，先安装对应 CLI。可用种类取自 herdr 实时种类列表。
