@@ -8,6 +8,7 @@
 - 用户授权 tracker 直接关闭，不开 PR、不合并 main。
 - integration 目录同时是 git worktree（分支 `spec29-delivery`）和 jj workspace（`spec29-delivery`，`@` 与主 checkout 的 `konopxsl` 分开）。jj 0.45 `workspace add` 拒绝非空目录，不能直接挂到已有 git worktree；做法是先建空 jj workspace，再把 git worktree 的 `.git` 文件挂进来并改写 gitdir 指针。
 - 探索笔记在 `/tmp/pi-herdr-spec29/`，不进仓库。
+- #35 Enter 漏发根因：不能确定是 Enter 丢失、TUI 未就绪，还是 submit 分支没走到。代码能确定的只有这些：正常 spawn 会走到 `submitAndWait`，也就是 `herdr agent prompt --wait`，贴文本和提交是同一次调用，没有单独的 Enter；herdr 在非 working 起手、5 秒内看不到 working/blocked 时返回 `agent_prompt_stalled`，旧代码把它当成可能丢失并回 `NOT_STARTED`，然后把整段任务再贴一次，不是补一次 Enter。`agent get`（herdr 0.9.3 的 AgentInfo）没有编辑器字段，默认读回只能看到 status。`resumeSilent` 会故意跳过提交，不是这次漏发。
 
 ## #40 语义（待核实后落笔）
 
