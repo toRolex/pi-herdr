@@ -17,9 +17,13 @@
 //
 // Wake governance (the `notifications` setting): `normal` → steer + wake,
 // `quiet` → next natural turn (no wake), `none` → no terminal push at all
-// (pull-only; results stay in the registry + JSONL). A BLOCKED child always
-// wakes regardless of the setting — unless a human took the pane over (no
-// mid-conversation pushes from a taken-over pane; the human is right there).
+// (pull-only; results stay in the registry + JSONL). A `done` push read while
+// the orchestrator is busy queues as followUp + wake instead of steer — the
+// running tool is not cancelled. blocked and stalled stay steer. error keeps
+// the notifications matrix (quiet → nextTurn, none → no push, normal → steer).
+// A BLOCKED child always wakes regardless of the setting — unless a human took
+// the pane over (no mid-conversation pushes from a taken-over pane; the human
+// is right there).
 //
 // User takeover arrives as the `<session>.takeover` marker written by the
 // child extension (human typing that is not the parent's own steer echo):
@@ -52,7 +56,15 @@ import {
 } from "./status.js";
 import { fleetWidgetOnce } from "./widget.js";
 import { spawnRecords, type DeliveryKind, type SpawnRecord } from "./spawn.js";
-import { type SteeredMessage, makeDeliverySink, terminalWake } from "./push.js";
+import {
+	type DeliverAs,
+	type SteeredMessage,
+	makeDeliverySink,
+	trackOrchestratorBusy,
+	terminalWake,
+} from "./push.js";
+
+export { makeDeliverySink };
 
 // ---- types -----------------------------------------------------------------
 
@@ -85,6 +97,13 @@ export interface DeliveryDeps {
 	 * Throws (or rejects) when the read itself failed; an empty string is a pane
 	 * that was read and held nothing. */
 	readTail?: (paneId: string) => Promise<string>;
+	/**
+	 * Orchestrator streaming state at the moment of a push. True while a run
+	 * (or compaction) is in progress. Default false — older callers stay on
+	 * the idle steer path. A true reading queues a `done` push as followUp;
+	 * it does not cancel a tool that is already running.
+	 */
+	busy?: () => boolean;
 }
 
 // ---- push composition ---------------------------------------------------------
@@ -331,6 +350,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 						`answer with herdr_message_agent (raw text) or herdr_send_keys (option lists).`,
 					details: { name: record.name, kind: "blocked" },
 					wake: true,
+					deliverAs: "steer",
 				});
 			}
 			continue;
@@ -498,6 +518,32 @@ function closeRecordPane(
  * blocked wakes are NOT routed through here — a blocked workflow child still
  * wakes the orchestrator, whose answer via herdr_message_agent resumes it.
  */
+/** Busy read at push time. A throwing or missing probe stays idle. */
+function orchestratorIsBusy(deps: { busy?: () => boolean }): boolean {
+	try {
+		return deps.busy?.() === true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Delivery mode for one push. Only a waking `done` queues while busy
+ * (followUp). error/gone/start-error follow notifications. blocked and
+ * stalled are steer even when busy — followUp would wait out the run.
+ */
+function deliverAsFor(
+	deps: DeliveryDeps,
+	kind: DeliveryKind | "stalled" | "stall-recovered" | "blocked",
+): DeliverAs {
+	if (kind === "blocked" || kind === "stalled" || kind === "stall-recovered") {
+		return "steer";
+	}
+	if (!terminalWake(notifications(deps))) return "nextTurn";
+	if (kind === "done" && orchestratorIsBusy(deps)) return "followUp";
+	return "steer";
+}
+
 function deliverTerminal(
 	deps: DeliveryDeps,
 	record: SpawnRecord,
@@ -508,7 +554,11 @@ function deliverTerminal(
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
 	closeRecordPane(deps, record, msg.details.rearm === true, paneLive);
 	if (record.workflow) return;
-	pushTerminal(deps, msg, notifications(deps));
+	pushTerminal(
+		deps,
+		{ ...msg, deliverAs: msg.deliverAs ?? deliverAsFor(deps, kind) },
+		notifications(deps),
+	);
 }
 
 function notifications(deps: DeliveryDeps): HerdrSettings["notifications"] {
@@ -551,6 +601,8 @@ export interface WatchdogDeps {
 	extract?: (sessionPath: string) => ExtractedResult | null;
 	/** The steer sink — default: pi.sendMessage into THIS session. */
 	push?: (msg: SteeredMessage) => void;
+	/** Accepted so a tick can pass the same probe. Stall pings stay steer. */
+	busy?: () => boolean;
 	now?: () => number;
 	/** How long a broken-substrate problem must hold before `stalled`.
 	 * Default STALL_AFTER_MS (60s, prior art). */
@@ -658,12 +710,14 @@ export async function watchdogOnce(deps: WatchdogDeps = {}): Promise<void> {
 					`Steer it with herdr_message_agent, or inspect with herdr_get_agent_result.`,
 				details: { name: record.name, kind: "stalled", reason },
 				wake: true,
+				deliverAs: "steer",
 			});
 		} else {
 			push({
 				content: `Agent "${record.name}" recovered from a stall — responsive again.`,
 				details: { name: record.name, kind: "stall-recovered" },
 				wake: true,
+				deliverAs: "steer",
 			});
 		}
 	}
@@ -683,6 +737,7 @@ let deliveryTimer: NodeJS.Timeout | null = null;
 export function registerDelivery(pi: ExtensionAPI): void {
 	if (deliveryTimer) return;
 	const push = makeDeliverySink(pi);
+	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {
 		try {
 			// An idle registry costs nothing — no fleet call. But a stale
@@ -693,9 +748,10 @@ export function registerDelivery(pi: ExtensionAPI): void {
 			}
 			// ONE fleet observation per tick, shared by every pass (deliver,
 			// watchdog, widget — the one-poll-loop-many-consumers ruling).
+			// busy is read at push time, not at tick start.
 			const fleet = await fleetList();
-			await deliverOnce({ push, fleet });
-			await watchdogOnce({ push, fleet });
+			await deliverOnce({ push, fleet, busy });
+			await watchdogOnce({ push, fleet, busy });
 			await fleetWidgetOnce({ fleet });
 		} catch {
 			/* best-effort */
