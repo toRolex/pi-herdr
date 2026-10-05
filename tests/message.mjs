@@ -426,6 +426,119 @@ console.log("\n[7] Receipt shape + registration");
 	);
 }
 
+console.log("\n[9] Inbound rate limit — first over-limit send is one aggregate receipt");
+{
+	msg.resetInboundRateLimit();
+	const send = recorder();
+	const deps = () =>
+		DEPS({
+			agentGet: okGet("w1:p1", "scout", "idle"),
+			send,
+			env: { PI_HERDR_AGENT_LABEL: "flood" },
+		});
+	let last = null;
+	for (let i = 0; i < 20; i++) {
+		last = await msg.messageAgent({ target: "scout", text: `n${i}` }, deps());
+		if (!last.ok) break;
+	}
+	assert(last.ok === true, "20 inbound messages from one sender in one window are delivered");
+	assert(send.calls.length === 20, "those 20 actually hit the target pane");
+
+	const refused = await msg.messageAgent({ target: "scout", text: "over" }, deps());
+	assert(
+		refused.ok === false && refused.error.code === "RATE_LIMITED",
+		"the 21st inbound from that sender is refused",
+	);
+	const receipt = refused.ok ? "" : refused.error.message;
+	assert(
+		receipt.includes("Aggregate receipt") &&
+			receipt.includes("refused 1") &&
+			receipt.includes("20 messages per 10 seconds") &&
+			receipt.includes("local") &&
+			receipt.includes("same OS user") &&
+			receipt.includes('"flood"') &&
+			receipt.includes("not delivered"),
+		"the refusal text is one aggregate receipt: limit, sender, and local same-OS-user scope",
+	);
+	assert(send.calls.length === 20, "the refusal is not typed into any pane (no receipt loop)");
+
+	// further refusals fold into the next receipt instead of one error each
+	const again = await msg.messageAgent({ target: "scout", text: "over-2" }, deps());
+	const third = await msg.messageAgent({ target: "scout", text: "over-3" }, deps());
+	assert(again.ok === false && third.ok === false, "later over-limit sends stay refused");
+	assert(
+		third.error.message.includes("refused 2") &&
+			!third.error.message.includes("refused 1 "),
+		"several refusals collapse into the next single aggregate receipt",
+	);
+	assert(send.calls.length === 20, "aggregated refusals never become outbound sends");
+}
+
+console.log("\n[10] Blocked-overlay answers are exempt from the inbound limit");
+{
+	msg.resetInboundRateLimit();
+	const send = recorder();
+	const deps = () =>
+		DEPS({
+			agentGet: okGet("w1:p1", "scout", "blocked"),
+			send,
+			env: { PI_HERDR_AGENT_LABEL: "answerer" },
+		});
+	let last = null;
+	for (let i = 0; i < 25; i++) {
+		last = await msg.messageAgent({ target: "scout", text: `answer ${i}` }, deps());
+	}
+	assert(last.ok === true && last.data.delivery === "answer", "a 25th blocked answer still lands");
+	assert(send.calls.length === 25, "every blocked answer is typed into the overlay");
+	assert(
+		eq(send.calls[24].text, "answer 24"),
+		"the exempt path stays raw overlay text, not an envelope",
+	);
+
+	// filling the inbound budget must not block a later overlay answer
+	msg.resetInboundRateLimit();
+	const limited = recorder();
+	const env = { PI_HERDR_AGENT_LABEL: "answerer" };
+	for (let i = 0; i < 20; i++) {
+		await msg.messageAgent(
+			{ target: "scout", text: `chat ${i}` },
+			DEPS({ agentGet: okGet("w1:p1", "scout", "idle"), send: limited, env }),
+		);
+	}
+	const still = await msg.messageAgent(
+		{ target: "scout", text: "the answer" },
+		DEPS({ agentGet: okGet("w1:p1", "scout", "blocked"), send: limited, env }),
+	);
+	assert(
+		still.ok === true && still.data.delivery === "answer" && limited.calls.at(-1).text === "the answer",
+		"an overlay answer still lands after that sender is already over the inbound limit",
+	);
+}
+
+console.log("\n[11] The window is per sender, and it reopens");
+{
+	msg.resetInboundRateLimit();
+	let clock = 1_000_000;
+	const send = recorder();
+	const one = (label) =>
+		DEPS({
+			agentGet: okGet("w1:p1", "scout", "idle"),
+			send,
+			env: { PI_HERDR_AGENT_LABEL: label },
+			now: () => clock,
+		});
+	for (let i = 0; i < 20; i++) {
+		await msg.messageAgent({ target: "scout", text: `a${i}` }, one("alpha"));
+	}
+	const other = await msg.messageAgent({ target: "scout", text: "from beta" }, one("beta"));
+	assert(other.ok === true, "a different sender still has a full budget");
+	const held = await msg.messageAgent({ target: "scout", text: "still over" }, one("alpha"));
+	assert(held.ok === false, "alpha stays limited inside the window");
+	clock += 10_001;
+	const reopened = await msg.messageAgent({ target: "scout", text: "later" }, one("alpha"));
+	assert(reopened.ok === true, "alpha is admitted again once the 10 second window has passed");
+}
+
 console.log("\n[8] Registry contract — spawnRecords stays the shared home");
 {
 	spawnMod.clearSpawnRegistry();
