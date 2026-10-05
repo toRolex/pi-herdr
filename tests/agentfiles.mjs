@@ -647,6 +647,7 @@ console.log("\n[10] tool registration — herdr_save_agent");
 	const tools = [];
 	await agentsTool.registerAgents({
 		registerTool: (def) => tools.push(def),
+		on: () => {},
 	});
 	const t = tools.find((x) => x.name === "herdr_save_agent");
 	assert(!!t, "herdr_save_agent registered");

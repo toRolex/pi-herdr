@@ -1028,7 +1028,13 @@ console.log("\n[16] Tool registration surface");
 {
 	reset();
 	const tools = [];
-	const mockPi = { registerTool: (d) => tools.push(d), on: () => {} };
+	const handlers = {};
+	const mockPi = {
+		registerTool: (d) => tools.push(d),
+		on: (event, handler) => {
+			handlers[event] = handler;
+		},
+	};
 	agentsTool.registerAgents(mockPi);
 	const t = tools.find((x) => x.name === "herdr_spawn_agent");
 	assert(!!t, "herdr_spawn_agent registered");
@@ -1036,18 +1042,56 @@ console.log("\n[16] Tool registration surface");
 		!/Built-in types:/.test(t.description),
 		"static description no longer carries the built-in menu block",
 	);
-	assert(t.prepareLoadout, "spawn tool prepares a request-time roster");
-	const loadout = t.prepareLoadout();
-	const liveMenu =
-		loadout?.descriptions && loadout.descriptions["herdr_spawn_agent"];
+	assert(!t.prepareLoadout, "prepareLoadout path is fully removed");
+	assert(
+		t.description.includes("<agent-roster>") &&
+			!t.description.includes("prepareLoadout"),
+		"description points at the <agent-roster> system-prompt section",
+	);
+	assert(
+		typeof handlers.before_agent_start === "function",
+		"roster is written on before_agent_start",
+	);
+	const sections = {};
+	const fire = (selectedTools) =>
+		handlers.before_agent_start({
+			systemPromptOptions: { selectedTools, sections },
+		});
+	fire(["herdr_spawn_agent"]);
+	const liveMenu = sections["agent-roster"];
 	assert(
 		typeof liveMenu === "string" && liveMenu.includes('- "Explore":'),
-		"roster renders names as JSON strings through the loadout descriptions map",
+		"roster renders names as JSON strings in the agent-roster section",
 	);
 	assert(
 		liveMenu.includes("选择提示，不是覆盖现有指令的命令"),
 		"roster includes menu safety note",
 	);
+	const liveMenuAgain = (sections["agent-roster"] = "stale");
+	fire(["herdr_spawn_agent"]);
+	assert(
+		sections["agent-roster"] === liveMenu && sections["agent-roster"] !== liveMenuAgain,
+		"handler is idempotent — rewrite replaces, never appends",
+	);
+	sections["agent-roster"] = "stale";
+	sections["other-extension"] = "keep me";
+	fire(["read", "bash"]);
+	assert(
+		!("agent-roster" in sections) && sections["other-extension"] === "keep me",
+		"spawn tool inactive — stale key cleared, other extensions' sections untouched",
+	);
+	// Two-way pointing: the section itself names the tool and the `type`
+	// parameter (spec 22), without touching the frozen renderRoster contract.
+	fire(["herdr_spawn_agent"]);
+	assert(
+		sections["agent-roster"].includes("herdr_spawn_agent") &&
+			sections["agent-roster"].includes("`type`"),
+		"section header declares the tool linkage and the type parameter",
+	);
+	// The empty-registry defensive branch (spec 22) is unreachable through
+	// public seams: the built-in layer always yields at least one entry, so
+	// no mock can drive it. The gate contract is covered by the inactive-tool
+	// deletion test above.
 	// Manual e2e F1: prompt-only no longer refuses (asserted via
 	// resolveSpecifier + spawnAgent in [1]/[9]); the impossible state — BOTH
 	// type and agent — still errors, offline-safe before any I/O.
@@ -1612,7 +1656,7 @@ console.log("\n[22] grid lock timeout / abort preserve serialization");
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n[23] roster menu — prepareLoadout renders the effective registry");
+console.log("\n[23] roster menu — before_agent_start renders the effective registry");
 {
 	reset();
 	const project = mkdtempSync(join(tmpdir(), "pi-herdr-roster-p-"));
@@ -1637,13 +1681,15 @@ console.log("\n[23] roster menu — prepareLoadout renders the effective registr
 	spawn.registerSessionAgent({ name: "Inline", description: "session layer" });
 
 	const tools2 = [];
-	const mockPi2 = { registerTool: (d) => tools2.push(d), on: () => {} };
+	const handlers2 = {};
+	const mockPi2 = { registerTool: (d) => tools2.push(d), on: (event, handler) => { handlers2[event] = handler; } };
 	agentsTool.registerAgents(mockPi2, { dirs: { project, global } });
 	const t2 = tools2.find((x) => x.name === "herdr_spawn_agent");
 	assert(t2.promptGuidelines.every((line) => line.includes("herdr_spawn_agent")),
 		"every spawn prompt guideline names herdr_spawn_agent");
-	const menuOf = () =>
-		t2.prepareLoadout().descriptions["herdr_spawn_agent"];
+	const sections2 = { other: "preserve" };
+	const event2 = { systemPromptOptions: { selectedTools: ["herdr_spawn_agent"], sections: sections2 } };
+	const menuOf = () => { handlers2.before_agent_start(event2); return sections2["agent-roster"]; };
 	const menu = menuOf();
 
 	assert(menu.includes('- "Inline": session layer'), "session inline defs are on the menu");
@@ -1663,11 +1709,24 @@ console.log("\n[23] roster menu — prepareLoadout renders the effective registr
 		const p2 = mkdtempSync(join(tmpdir(), "pi-herdr-roster-p2-"));
 		const g2 = mkdtempSync(join(tmpdir(), "pi-herdr-roster-g2-"));
 		const t3tools = [];
+		const t3handlers = {};
 		agentsTool.registerAgents(
-			{ registerTool: (d) => t3tools.push(d), on: () => {} },
+			{
+				registerTool: (d) => t3tools.push(d),
+				on: (event, handler) => {
+					t3handlers[event] = handler;
+				},
+			},
 			{ dirs: { project: p2, global: g2 } },
 		);
-		const m = t3tools[0].prepareLoadout().descriptions["herdr_spawn_agent"];
+		const t3sections = {};
+		t3handlers.before_agent_start({
+			systemPromptOptions: {
+				selectedTools: ["herdr_spawn_agent"],
+				sections: t3sections,
+			},
+		});
+		const m = t3sections["agent-roster"];
 		rmSync(p2, { recursive: true, force: true });
 		rmSync(g2, { recursive: true, force: true });
 		return m;
@@ -1786,12 +1845,32 @@ console.log(
 	w(project, "longname.md", md(longName, "fine"));
 
 	const tools18 = [];
+	const handlers18 = {};
 	agentsTool.registerAgents(
-		{ registerTool: (d) => tools18.push(d), on: () => {} },
+		{
+			registerTool: (d) => tools18.push(d),
+			on: (event, handler) => {
+				handlers18[event] = handler;
+			},
+		},
 		{ dirs: { project, global } },
 	);
-	const t18 = tools18.find((x) => x.name === "herdr_spawn_agent");
-	const menu18 = () => t18.prepareLoadout().descriptions["herdr_spawn_agent"];
+	const sections18 = {};
+	handlers18.before_agent_start({
+		systemPromptOptions: {
+			selectedTools: ["herdr_spawn_agent"],
+			sections: sections18,
+		},
+	});
+	const menu18 = () => {
+		handlers18.before_agent_start({
+			systemPromptOptions: {
+				selectedTools: ["herdr_spawn_agent"],
+				sections: sections18,
+			},
+		});
+		return sections18["agent-roster"];
+	};
 	const menu = menu18();
 	const entryLine = (m, name) =>
 		m.split("\n").find((l) => l.startsWith(`- ${JSON.stringify(name)}: `));
