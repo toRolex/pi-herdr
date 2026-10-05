@@ -683,6 +683,191 @@ console.log("\n[12] Pending inbox — overflow drops the oldest, one aggregate r
 	);
 }
 
+console.log("\n[9] Known generations — refuse a cross-generation send and name the handles");
+{
+	// gp spawned parent. parent spawned this sender (mid), sibling, and cousin.
+	// mid spawned child. child spawned grandchild — one generation past mid.
+	const GP = "/sessions/gp.jsonl";
+	const PARENT = "/sessions/parent.jsonl";
+	const MID = "/sessions/mid.jsonl";
+	const CHILD = "/sessions/child.jsonl";
+	const lin = (owner) => ({ rootSession: GP, ownerSession: owner });
+	const parent = record({
+		name: "parent",
+		paneId: "w1:p0",
+		sessionPath: PARENT,
+		lineage: lin(GP),
+	});
+	const senderRec = record({
+		name: "mid",
+		paneId: "w1:p1",
+		sessionPath: MID,
+		lineage: lin(PARENT),
+	});
+	const sibling = record({
+		name: "sibling",
+		paneId: "w1:p2",
+		sessionPath: "/sessions/sib.jsonl",
+		lineage: lin(PARENT),
+	});
+	const child = record({
+		name: "child",
+		paneId: "w1:p3",
+		sessionPath: CHILD,
+		lineage: lin(MID),
+	});
+	const cousin = record({
+		name: "cousin",
+		paneId: "w1:p4",
+		sessionPath: "/sessions/cousin.jsonl",
+		lineage: lin(PARENT),
+	});
+	const grandchild = record({
+		name: "grandchild",
+		paneId: "w1:p5",
+		sessionPath: "/sessions/grand.jsonl",
+		lineage: lin(CHILD),
+	});
+	const mine = [child];
+	const fleet = [
+		{ name: "parent", paneId: "w1:p0" },
+		{ name: "sibling", paneId: "w1:p2" },
+		{ name: "child", paneId: "w1:p3" },
+		{ name: "cousin", paneId: "w1:p4" },
+		{ name: "grandchild", paneId: "w1:p5" },
+	];
+	const bySession = {
+		[GP]: [parent],
+		[PARENT]: [senderRec, sibling, cousin],
+		[MID]: [child],
+		[CHILD]: [grandchild],
+	};
+	const send = recorder();
+	const deps = (over = {}) => ({
+		registry: registryWith(mine),
+		agentGet: async (t) => {
+			const hit = fleet.find((a) => a.paneId === t || a.name === t);
+			if (!hit)
+				return { ok: false, error: { code: "NOT_FOUND", message: "no such agent" } };
+			return { ok: true, data: { paneId: hit.paneId, name: hit.name, status: "idle" } };
+		},
+		send,
+		list: async () => fleet,
+		// A session with no registry file is empty. A throw is reserved for
+		// the failed-read case below — missing is not a failure.
+		readRegistry: (session) =>
+			Object.prototype.hasOwnProperty.call(bySession, session)
+				? [...bySession[session]]
+				: [],
+		env: {
+			PI_HERDR_SESSION: MID,
+			PI_HERDR_ROOT_SESSION: GP,
+			PI_HERDR_ORCHESTRATOR_PANE: "w1:p0",
+			PI_HERDR_NAME: "mid",
+		},
+		...over,
+	});
+
+	const same = await msg.messageAgent({ target: "sibling", text: "peer" }, deps());
+	assert(
+		same.ok === true && same.data.target === "w1:p2" && send.calls.at(-1).paneId === "w1:p2",
+		"same generation (same ownerSession) explicit send succeeds",
+	);
+
+	const up = await msg.messageAgent({ target: "parent", text: "hi parent" }, deps());
+	assert(
+		up.ok === true && up.data.target === "w1:p0",
+		"explicit send to the direct parent pane succeeds",
+	);
+
+	const down = await msg.messageAgent({ target: "child", text: "hi child" }, deps());
+	assert(
+		down.ok === true && down.data.target === "w1:p3",
+		"explicit send to the sender's own direct child succeeds",
+	);
+
+	const alias = await msg.messageAgent({ target: "orchestrator", text: "status?" }, deps());
+	assert(
+		alias.ok === true && alias.data.to === "orchestrator" && alias.data.target === "w1:p0",
+		"orchestrator still resolves only to the direct parent pane",
+	);
+
+	const before = send.calls.length;
+	const skip = await msg.messageAgent({ target: "grandchild", text: "skip a generation" }, deps());
+	const skipMsg = skip.ok ? "" : skip.error.message;
+	const usable = skipMsg.split("Keep using:")[1] ?? "";
+	assert(
+		skip.ok === false &&
+			skip.error.code === "VALIDATION_ERROR" &&
+			skipMsg.includes('"grandchild"') &&
+			usable.includes("parent") &&
+			usable.includes("sibling") &&
+			usable.includes("child") &&
+			usable.includes("cousin") &&
+			!usable.includes("grandchild"),
+		"a known grandchild is refused and Keep using lists only the reachable handles",
+	);
+	assert(send.calls.length === before, "a refused cross-generation send is not redirected");
+
+	const bareSend = recorder();
+	const bare = await msg.messageAgent(
+		{ target: "w1:p9", text: "stranger" },
+		deps({
+			send: bareSend,
+			agentGet: async (t) =>
+				t === "w1:p9" || t === "stranger"
+					? { ok: true, data: { paneId: "w1:p9", name: "stranger", status: "idle" } }
+					: {
+							ok: false,
+							error: { code: "NOT_FOUND", message: "no such agent" },
+						},
+		}),
+	);
+	assert(
+		bare.ok === true && bare.data.target === "w1:p9" && bareSend.calls.length === 1,
+		"an unowned bare pane (no registry, no lineage) still accepts an explicit pane-id",
+	);
+
+	const namedBare = await msg.messageAgent(
+		{ target: "stranger", text: "by name" },
+		deps({
+			send: recorder(),
+			agentGet: async (t) =>
+				t === "stranger"
+					? { ok: true, data: { paneId: "w1:p9", name: "stranger", status: "idle" } }
+					: { ok: false, error: { code: "NOT_FOUND", message: "no such agent" } },
+		}),
+	);
+	assert(
+		namedBare.ok === true && namedBare.data.target === "w1:p9",
+		"an unowned bare pane still accepts an explicit herdr name",
+	);
+
+	const broken = await msg.messageAgent(
+		{ target: "sibling", text: "peer" },
+		deps({ list: async () => { throw new Error("agent list down"); } }),
+	);
+	assert(
+		broken.ok === false &&
+			broken.error.message.includes("agent list down") &&
+			!broken.error.message.includes("Delivered"),
+		"a failed fleet query is an honest error, not permission to send",
+	);
+
+	const brokenReg = await msg.messageAgent(
+		{ target: "sibling", text: "peer" },
+		deps({
+			readRegistry: () => {
+				throw new Error("spawn registry unreadable");
+			},
+		}),
+	);
+	assert(
+		brokenReg.ok === false && brokenReg.error.message.includes("spawn registry unreadable"),
+		"a failed registry read is an honest error, not permission to send",
+	);
+}
+
 console.log("\n[8] Registry contract — spawnRecords stays the shared home");
 {
 	spawnMod.clearSpawnRegistry();

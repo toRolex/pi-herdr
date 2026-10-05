@@ -33,9 +33,18 @@ live（真实 ctrl+o）本票未跑。
 
 `registerDeliveryRenderer` 在 `registerMessageRenderer` 不是函数时直接返回。离线 smoke 的 mock pi 没有这个方法；缺 API 时退回 pi 默认 custom message 全文，不另做 UI。
 
+## #40 generation gate
+
+- 已知隔代：发送者 `lineage.ownerSession`（沿 root registry 找到本 session 的记录）与目标记录的 `ownerSession` 不同，且目标不是 `PI_HERDR_ORCHESTRATOR_PANE`，也不是本 session 直接 spawn 的记录（目标 `ownerSession ===` 发送者 session）时拒绝。同代放行。不改投。
+- 错误文本 `Keep using:` 只列仍可达的 fleet handle（直接父、同代、直接子的 registry 名）。
+- fleet `list` 或 `readRegistry` 抛错 → `HERDR_UNAVAILABLE`，不当成允许。缺文件的空 registry 不是失败（`readPersistedRegistry` 已是这样）。
+- 解析到的 pane 不在任何带 lineage 的 registry 记录里 → anyone↔anyone，显式 pane-id/name 照旧成功。
+- `orchestrator` 别名仍在代际检查之前只解到直接父，这票不改它。
+- 根 session 自己没有 owner 记录。它的「同代」按它 spawn 出去的那一代算（目标 `ownerSession ===` 自己），否则根给孙子发消息会被误拒，或反过来把一切未知都放行。
+
 ## Deviations
 
-（实现中补）
+- #40 ticket 正文写「校验仅作用于保留别名，显式 pane-id/name 不受影响」。产品裁定（本任务）是已知隔代的显式 handle 也拒绝；「不受影响」只覆盖没有 lineage 的裸 pane。按裁定实现，不按 ticket 那句放行已知隔代。
 
 ## #32 wake policy
 
