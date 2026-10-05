@@ -20,7 +20,7 @@ export function renderDeliveryDisplay(
 	const details = recordDetails(message.details);
 	const name = stringField(details?.name) ?? "unknown";
 	const kind = stringField(details?.kind) ?? "unknown";
-	if (body.trim().length === 0) {
+	if (body.trim().length === 0 || body.includes("holds no assistant message")) {
 		return `herdr-delivery · ${name} · ${kind} · empty result`;
 	}
 	return `herdr-delivery · ${name} · ${kind} · ${body.length} chars`;

@@ -52,6 +52,17 @@ assert(
 );
 assert(!emptyLine.includes("\n"), "empty-result display stays a single line");
 
+const explained = {
+	content: 'Agent "scout" finished — full final message:\n\n(the child finished but its session file holds no assistant message)',
+	details: { name: "scout", kind: "done" },
+};
+const explainedLine = renderDeliveryDisplay(explained, false);
+assert(
+	explainedLine === "herdr-delivery · scout · done · empty result",
+	`the no-assistant sentence folds as an empty result (got ${JSON.stringify(explainedLine)})`,
+);
+assert(!explainedLine.includes("chars"), "empty-result sentence is not a char count");
+
 const legacy = { details: { name: "scout", kind: "done" } };
 const legacyLine = renderDeliveryDisplay(legacy, false);
 assert(
