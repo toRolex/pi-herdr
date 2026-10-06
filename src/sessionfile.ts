@@ -17,6 +17,7 @@
 // pane is not the transcript.
 
 import { randomUUID } from "node:crypto";
+import { validEventId } from "./completion-event.js";
 import {
 	existsSync,
 	mkdirSync,
@@ -477,7 +478,7 @@ export function parseExitSidecar(
 	// Business event id (issue 38). Blank and non-string values are absent so
 	// an old sidecar still parses and delivery does not invent an id.
 	const eventId =
-		typeof o.eventId === "string" && o.eventId.trim()
+		validEventId(o.eventId)
 			? { eventId: o.eventId }
 			: {};
 	if (o.type === "done")

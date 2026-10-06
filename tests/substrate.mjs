@@ -301,9 +301,10 @@ console.log("\n[6] Child extension — pure fns");
 	);
 	assert(
 		eq(
-			child.buildCompletionSidecar([{ role: "assistant", stopReason: "stop" }]),
+			child.buildCompletionSidecar([{ role: "assistant", stopReason: "stop" }], "run-normal"),
 			{
 				type: "done",
+				eventId: "run-normal",
 			},
 		),
 		"sidecar typing: settled normal → done",
@@ -312,11 +313,12 @@ console.log("\n[6] Child extension — pure fns");
 		eq(
 			child.buildCompletionSidecar([
 				{ role: "assistant", stopReason: "error", errorMessage: "boom" },
-			]),
+			], "run-error"),
 			{
 				type: "error",
 				errorMessage: "boom",
 				stopReason: "error",
+				eventId: "run-error",
 			},
 		),
 		"sidecar typing: retry exhaustion → typed error",

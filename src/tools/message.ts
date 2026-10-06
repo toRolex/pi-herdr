@@ -30,6 +30,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { readCompletionEvent, validEventId } from "../completion-event.js";
 import { fleetList, herdr } from "../herdr.js";
 import { sendAgentPrompt } from "./orchestration.js";
 import {
@@ -60,6 +61,8 @@ export interface AgentView {
 }
 
 export interface MessageParams {
+	/** Final report only: correlate with this child's completion sidecar. */
+	completion?: boolean;
 	target: string;
 	text: string;
 	submit?: boolean;
@@ -690,6 +693,14 @@ export async function messageAgent(
 	params: MessageParams,
 	deps: MessageDeps = {},
 ): Promise<Result<MessageReceipt>> {
+	if (params.completion) {
+		const session = (deps.env ?? process.env).PI_HERDR_SESSION;
+		const eventId = session ? readCompletionEvent(session) : undefined;
+		if (!eventId) return { ok: false, error: err("VALIDATION_ERROR", "completion requires a readable child run event marker — not sent.") };
+		if (params.eventId && params.eventId !== eventId) return { ok: false, error: err("VALIDATION_ERROR", "explicit eventId conflicts with this child run — not sent.") };
+		params = { ...params, eventId };
+	}
+	if (params.eventId !== undefined && !validEventId(params.eventId)) return { ok: false, error: err("VALIDATION_ERROR", "invalid eventId — not sent.") };
 	const resolved = await resolveTarget(params.target, deps);
 	if (resolved.kind === "err") return { ok: false, error: resolved.error };
 	const generation = await generationGate(resolved, deps);
@@ -838,6 +849,7 @@ export function registerMessageTool(pi: ExtensionAPI): void {
 						"Accept into the pending inbox instead of typing now. Only an idle target holds; the inbox holds 8 and drops the oldest. Any other state drains the inbox, oldest first, then types this message.",
 				}),
 			),
+			completion: Type.Optional(Type.Boolean({ description: "Final report only. Read this child's run completion event ID; the sidecar uses the same ID. Ordinary progress must omit this flag." })),
 			eventId: Type.Optional(
 				Type.String({
 					description:
@@ -853,6 +865,7 @@ export function registerMessageTool(pi: ExtensionAPI): void {
 					submit: p.submit,
 					pending: p.pending,
 					eventId: p.eventId,
+					completion: p.completion,
 				},
 				{ signal },
 			);

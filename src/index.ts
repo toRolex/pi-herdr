@@ -17,6 +17,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerOrchestration } from "./tools/orchestration.js";
 import { registerResultTool } from "./tools/result.js";
 import { registerMessageTool } from "./tools/message.js";
+import { registerAgentMessageInput } from "./agent-message.js";
 import { registerLifecycle } from "./tools/lifecycle.js";
 import { registerAgents } from "./tools/agents.js";
 import { registerPaneSync } from "./tools/sync.js";
@@ -43,6 +44,7 @@ export default function (pi: ExtensionAPI): void {
 	registerOrchestration(pi);
 	registerResultTool(pi);
 	registerMessageTool(pi);
+	registerAgentMessageInput(pi);
 	// Lifecycle actions (v0.6 issue 10): herdr_interrupt_agent (turn cancel)
 	// + herdr_resume_agent (the gone-agent recovery move on the retained
 	// session file).
