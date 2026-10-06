@@ -411,7 +411,7 @@ export function sidecarPathFor(sessionPath: string): string {
  * child — canonical JSON, captured child-side, verbatim here. `text`
  * (issue 33) is the final assistant body committed with a declared done;
  * old sidecars omit it and delivery falls back to the session JSONL. */
-export type ExitSidecar =
+export type ExitSidecar = { agentId?: string; runId?: string; sequence?: number } & (
 	| {
 			type: "done";
 			rearm?: true;
@@ -429,7 +429,13 @@ export type ExitSidecar =
 			text?: string;
 			rootSession?: string;
 			eventId?: string;
-	  };
+	  }
+	| {
+			type: "persistence-error";
+			errorMessage: string;
+			rootSession?: string;
+			eventId?: string;
+		});
 
 /**
  * Bare `agent_done` is refused when the session holds no assistant text.
@@ -459,6 +465,11 @@ export function parseExitSidecar(
 	// rearm is optional and tolerated on either type; anything else unknown
 	// is ignored (forward compatibility).
 	const rearm = o.rearm === true ? { rearm: true as const } : {};
+	const identity = {
+		...(typeof o.agentId === "string" ? { agentId: o.agentId } : {}),
+		...(typeof o.runId === "string" ? { runId: o.runId } : {}),
+		...(Number.isInteger(o.sequence) ? { sequence: o.sequence as number } : {}),
+	};
 	// The one unknown field we DO consume (issue 14) — only in the shape the
 	// child extension writes it: a JSON string of the validated payload.
 	const structured =
@@ -487,6 +498,7 @@ export function parseExitSidecar(
 			ok: true,
 			sidecar: {
 				type: "done",
+				...identity,
 				...rearm,
 				...structured,
 				...text,
@@ -494,6 +506,21 @@ export function parseExitSidecar(
 				...eventId,
 			},
 		};
+	if (o.type === "persistence-error") {
+		const message = typeof o.errorMessage === "string" && o.errorMessage.trim()
+			? o.errorMessage
+			: "child completion persistence failed without details";
+		return {
+			ok: true,
+			sidecar: {
+				type: "persistence-error",
+				...identity,
+				errorMessage: message,
+				...rootSession,
+				...eventId,
+			},
+		};
+	}
 	if (o.type === "error") {
 		const message =
 			typeof o.errorMessage === "string" && o.errorMessage.trim()
@@ -504,6 +531,7 @@ export function parseExitSidecar(
 			ok: true,
 			sidecar: {
 				type: "error",
+				...identity,
 				errorMessage: message,
 				stopReason,
 				...text,

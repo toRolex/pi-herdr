@@ -22,6 +22,9 @@
 // session file (and its result) remains readable — only the live pane is
 // lost.
 
+import { readFileSync } from "node:fs";
+import { validEventId } from "../completion-event.js";
+import { parseExitSidecar } from "../sessionfile.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -66,6 +69,10 @@ export type ResultStatus = ProjectedStatus | "done" | "error";
 /** Structured inspection payload (tool `details`). */
 export interface ResultView {
 	target: string;
+	eventId?: string;
+	agentId?: string;
+	runId?: string;
+	sequence?: number;
 	/** Registry handle when the target is one of ours. */
 	name?: string;
 	kind?: string;
@@ -218,7 +225,7 @@ async function inspectRecord(
 	deps: GetResultDeps,
 	lines: number,
 ): Promise<ResultView> {
-	const base = viewBase(target, record);
+	const base = { ...viewBase(target, record), agentId: record.agentId, runId: record.runId, sequence: record.sequence };
 	const isPi = record.kind.toLowerCase() === "pi" && Boolean(record.sessionPath);
 	const extract = deps.extract ?? extractSessionResult;
 	const readSidecar = deps.readSidecar ?? readExitSidecar;
@@ -227,14 +234,22 @@ async function inspectRecord(
 	if (isPi && record.sessionPath) {
 		const sidecar = readSidecar(record.sessionPath);
 		if (sidecar.state === "ok") {
+			Object.assign(base, { eventId: sidecar.sidecar.eventId });
 			const extracted = extract(record.sessionPath);
+			if (sidecar.sidecar.type !== "persistence-error" && sidecar.sidecar.eventId && (!sidecar.sidecar.text?.trim() && !(sidecar.sidecar.type === "done" && sidecar.sidecar.structured?.trim()))) {
+				return { ...base, status: "error", note: "governance failure: completion declaration has no final body" };
+			}
+			if (sidecar.sidecar.type === "persistence-error") {
+				return { ...base, status: "error", source: "session-jsonl", error: { errorMessage: sidecar.sidecar.errorMessage }, note: "governance failure: completion was not durably saved" };
+			}
 			if (sidecar.sidecar.type === "done") {
 				return {
 					...base,
 					status: "done",
 					source: "session-jsonl",
+					...(sidecar.sidecar.text || sidecar.sidecar.structured ? { result: sidecar.sidecar.text ?? sidecar.sidecar.structured } : {}),
 					...(extracted
-						? { result: extracted.text, message: extracted.message }
+						? { result: sidecar.sidecar.text ?? sidecar.sidecar.structured ?? extracted.text, message: extracted.message }
 						: {
 								note:
 									"sidecar is done but the session file holds no assistant message yet",
@@ -289,6 +304,9 @@ async function inspectRecord(
 							? { result: extracted.text, message: extracted.message }
 							: {}),
 					};
+				}
+				if (sidecar.state === "ok" && sidecar.sidecar.type === "persistence-error") {
+					return { ...base, status: "error", source: "session-jsonl", error: { errorMessage: sidecar.sidecar.errorMessage }, note: "governance failure: completion was not durably saved" };
 				}
 				if (sidecar.state === "ok" && sidecar.sidecar.type === "error") {
 					return {
@@ -356,6 +374,7 @@ async function inspectRecord(
 		// settled with an unconsumed result — pi children: read the JSONL.
 		if (isPi && record.sessionPath) {
 			const extracted = extract(record.sessionPath);
+			if (record.runId && record.stance === "autonomous") return { ...base, status: "waiting", interim: true, result: extracted?.text, note: "no durable terminal declaration; text is only an interim snapshot" };
 			if (extracted) {
 				const mined = minedAssistantError(extracted.message);
 				if (mined && record.stance === "autonomous") {
@@ -453,6 +472,17 @@ export async function getAgentResult(
 		if (deps.signal?.aborted) return err("TIMEOUT", "aborted");
 		const lines = params.lines ?? 80;
 		const record = (deps.registry ?? spawnRecords)().get(params.target);
+		if (!record && validEventId(params.target)) {
+			for (const candidate of (deps.registry ?? spawnRecords)().values()) {
+				if (!candidate.sessionPath) continue;
+				try {
+					const saved = parseExitSidecar(readFileSync(`${candidate.sessionPath}.completion-${params.target}.json`, "utf8"));
+					if (saved.ok && saved.sidecar.type !== "persistence-error" && saved.sidecar.eventId === params.target && (saved.sidecar.text || (saved.sidecar.type === "done" && saved.sidecar.structured))) {
+						return { ok: true, data: { target: params.target, eventId: saved.sidecar.eventId, agentId: saved.sidecar.agentId, runId: saved.sidecar.runId, sequence: saved.sidecar.sequence, status: saved.sidecar.type, source: "session-jsonl", sessionPath: candidate.sessionPath, result: saved.sidecar.text ?? (saved.sidecar.type === "done" ? saved.sidecar.structured : undefined) } };
+					}
+				} catch { /* not an event in this retained session */ }
+			}
+		}
 		if (!record) {
 			// paneId match — a handle is the addressable key, but callers may
 			// pass the pane id they got back from spawn.

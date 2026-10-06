@@ -1,0 +1,19 @@
+{
+  "id": "1b417628-7833-4245-b7f6-ea86a3a47208",
+  "evidence": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/.agents/evidence/spec43-t2/1b417628-7833-4245-b7f6-ea86a3a47208",
+  "runId": "t2-1b417628-7833-4245-b7f6-ea86a3a47208",
+  "agentId": "agent-1b417628-7833-4245-b7f6-ea86a3a47208",
+  "finalBytes": 10171,
+  "childSource": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/src/child.ts",
+  "childSha256": "a61878372a101d729e2009fad732f93425698cce384e13602f722598be8d427d",
+  "recycleSha256": "f798cc281506419ba22c8719bb114a3b4ac23d572b041a5994af7c06d626617a",
+  "deliveryPasses": 0,
+  "ackWrites": 0,
+  "parentMode": "inert node tracer; delivery module never imported",
+  "restartWorker": true,
+  "workspace": "w8M",
+  "pane": "w8M:p1",
+  "success": false,
+  "error": "AssertionError [ERR_ASSERTION]: herdr agent start t2-1b417628 --kind pi --pane w8M:p1 --timeout 30000 -- -ne -ns -nc -np --no-mcp --offline -e /Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/.agents/evidence/spec43-t2/1b417628-7833-4245-b7f6-ea86a3a47208/fixture.ts --model spec43-t2/deterministic --thinking off --session /Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/.agents/evidence/spec43-t2/1b417628-7833-4245-b7f6-ea86a3a47208/child.jsonl: {\"error\":{\"code\":\"agent_pane_busy\",\"message\":\"agent target pane w8M:p1 is not an available shell\"},\"id\":\"cli:agent:start\"}\n\n\n1 !== 0\n\n    at cli (file:///Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/tests/spec43-t2-live.mjs:44:9)\n    at file:///Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/tests/spec43-t2-live.mjs:91:2",
+  "cleanup": "owned workspace closed after assertions"
+}
