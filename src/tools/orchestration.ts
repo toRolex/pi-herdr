@@ -512,6 +512,7 @@ export interface FleetRow {
 	/** The raw coarse status (always available). */
 	agentStatus?: string;
 	stance?: string;
+	promptSubmission?: SpawnRecord["promptSubmission"];
 }
 
 export interface ListAgentsDeps {
@@ -570,6 +571,7 @@ export async function listAgentsView(
 			projected: true,
 			agentStatus: a.agentStatus,
 			stance: record.stance,
+			promptSubmission: record.promptSubmission,
 		});
 	}
 
@@ -586,6 +588,7 @@ export async function listAgentsView(
 			state: projectedLabel(record, deps, undefined, true, now()),
 			projected: true,
 			stance: record.stance,
+			promptSubmission: record.promptSubmission,
 		});
 	}
 	return { ok: true, data: { rows } };
@@ -613,7 +616,10 @@ function projectedLabel(
 		activity: (deps.readActivity ?? readActivityFile)(record.activityPath),
 		now,
 	});
-	return proj.detail ? `${proj.status} · ${proj.detail}` : proj.status;
+	const label = proj.detail ? `${proj.status} · ${proj.detail}` : proj.status;
+	return record.promptSubmission === "uncertain"
+		? `${label} · prompt submission uncertain`
+		: label;
 }
 
 // ---- registration ----------------------------------------------------------

@@ -214,6 +214,26 @@ function goneContent(record: SpawnRecord): string {
 
 // ---- the delivery pass --------------------------------------------------------
 
+/** A background start's readback is a separate event, not a terminal result. */
+function deliverPromptSubmission(record: SpawnRecord, deps: DeliveryDeps): void {
+	const submission = record.promptSubmission;
+	if (!submission || record.promptSubmissionNotified === submission) return;
+	if (!deps.push || notifications(deps) === "none") return;
+	deps.push({
+		content: submission === "confirmed"
+			? `Agent "${record.name}": prompt submission confirmed.`
+			: `Agent "${record.name}": prompt submission uncertain — the task was pasted once; it was not pasted again. Inspect the pane before retrying.`,
+		details: { name: record.name, kind: "prompt-submission", promptSubmission: submission },
+		wake: terminalWake(notifications(deps)),
+	});
+	record.promptSubmissionNotified = submission;
+	const owner = deps.sessionPath ?? record.lineage?.ownerSession ?? currentOrchestratorSession();
+	if (owner) {
+		(deps.writeRegistry ?? writePersistedRegistry)(owner, [...(deps.registry ?? spawnRecords)().values()]);
+	}
+}
+
+
 /**
  * One pass over the registry: takeover notes, terminal pushes, blocked wakes.
  * Non-blocking — the loop calls it on an interval; tests call it directly and
@@ -223,6 +243,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 	const registry = (deps.registry ?? spawnRecords)();
 	if (registry.size === 0) return;
 	const records = [...registry.values()];
+	for (const record of records) deliverPromptSubmission(record, deps);
 	const now = deps.now ?? (() => Date.now());
 	const push = deps.push ?? (() => {});
 	const graceMs = deps.goneGraceMs ?? 10_000;

@@ -758,6 +758,8 @@ export interface SpawnRecord {
 	watch?: { stalled?: boolean; problemSince?: number };
 	/** Prompt readback (issue #35). Absent until a prompt is sent. */
 	promptSubmission?: PromptSubmission;
+	/** Last submission outcome pushed; independent of terminal delivery. */
+	promptSubmissionNotified?: PromptSubmission;
 	/** Lineage for orphan adoption (issue 39). `rootSession` is the root
 	 * orchestrator session file; `ownerSession` is the session that spawned
 	 * this record. Both are absent when the spawner has no session file. */
@@ -1323,6 +1325,7 @@ export async function startRecordNow(
 		return { ok: true, data: { paneId: record.paneId } };
 	}
 	await submitRecordPrompt(record, deps);
+	persistOwnRegistry(deps);
 	const status = await currentStatus(record, deps);
 	// idle here means the prompt was never marked submitted. An uncertain
 	// readback is not that failure — and not a confirmation either.
@@ -1588,7 +1591,7 @@ function editorConfirms(read: Result<EditorReadback>): boolean {
 	if (!read.ok) return false;
 	const status = read.data.status;
 	if (status === "done" || status === "queued") return false;
-	if (status === "working") return true;
+	if (status === "working" || status === "blocked") return true;
 	return typeof read.data.text === "string" && read.data.text.trim() === "";
 }
 
