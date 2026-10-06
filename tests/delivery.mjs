@@ -261,6 +261,7 @@ console.log("\n[2] Child extension — takeover + idle re-arm");
 			: undefined;
 	let shuts = 0;
 	async function runTo(registered, stopReason = "stop") {
+		if (stopReason !== "aborted") writeFileSync(process.env.PI_HERDR_SESSION, JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "text", text: "settled final" }], stopReason } }) + "\n");
 		await registered.handlers.agent_end[0]({
 			type: "agent_end",
 			messages: [{ role: "assistant", stopReason }],
@@ -676,7 +677,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		writeSession(sess, [assistantMsg("The scan found 3 issues. All fixed.")]);
 		const r = rec("scout", { sessionPath: sess });
 		const w = world([r], { fleet: [{ paneId: r.paneId, status: "done" }] });
-		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", text: "The scan found 3 issues. All fixed.", eventId: "event-scout" }));
 		await w.tick();
 		assert(
 			w.pushes.length === 1 &&
@@ -694,8 +695,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			"terminal event marked delivered in the registry",
 		);
 		assert(
-			w.pushes[0].details.eventId === undefined,
-			"a sidecar with no eventId does not invent one on the push",
+			w.pushes[0].details.eventId === "event-scout",
+			"a declared event reference is preserved on the push",
 		);
 		await w.tick();
 		assert(
@@ -720,7 +721,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				closed.push(paneId);
 			},
 		});
-		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", text: "re-armed result", rearm: true }));
 		await w.tick();
 		assert(
 			w.pushes[0]?.content === "re-armed result" &&
@@ -744,7 +745,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				closed.push(paneId);
 			},
 		});
-		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", text: "quiet rearm", rearm: true }));
 		await w.tick();
 		assert(
 			w.pushes.length === 1 && closed.length === 1 && r.takenOver !== true,
@@ -877,15 +878,16 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-"));
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [
-			assistantMsg("", { stopReason: "error", errorMessage: "rate limited" }),
+			assistantMsg("rate limited", { stopReason: "error", errorMessage: "rate limited" }),
 		]);
 		const r = rec("scout", { sessionPath: sess });
 		const w = world([r]);
+		r.sawWorking = true;
 		await w.tick(); // stamps goneAt (grace starts)
 		w.advance(11_000);
 		await w.tick();
 		assert(
-			w.pushes[0]?.content === "[completion error: rate limited]" &&
+			w.pushes[0]?.content === "rate limited" &&
 				w.pushes[0].details.kind === "error" &&
 				w.pushes[0].details.error?.errorMessage === "rate limited",
 			"sentinel mines stopReason=error → typed failure remains in details", 
@@ -1243,6 +1245,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("the review")]);
 		const r = rec("stuck", { sessionPath: sess });
+		// Legacy records retain the old read bridge without minting a new event.
 		const closed = [];
 		const w = world([r], {
 			fleet: [{ paneId: r.paneId, status: "idle" }],
@@ -1265,7 +1268,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-wf-"));
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("child work")]);
-		writeFileSync(sf.sidecarPathFor(sess), '{"type":"done"}');
+		writeFileSync(sf.sidecarPathFor(sess), '{"type":"done","text":"child work","eventId":"wf-event"}');
 		const child = rec("wfa", { sessionPath: sess, workflow: "wf_abc123" });
 		const closed = [];
 		const w = world([child], {
@@ -1530,7 +1533,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const doneSess = (label) => {
 			const sess = join(dir, `${label}.jsonl`);
 			writeSession(sess, [assistantMsg(`${label} letter`)]);
-			writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+			writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", text: `${label} letter`, eventId: `event-${label}` }));
 			return sess;
 		};
 		const errorSess = (label) => {
@@ -1538,7 +1541,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			writeSession(sess, [assistantMsg("", { stopReason: "error" })]);
 			writeFileSync(
 				`${sess}.exit`,
-				JSON.stringify({ type: "error", errorMessage: "boom", stopReason: "error" }),
+				JSON.stringify({ type: "error", errorMessage: "boom", stopReason: "error", text: `${label} letter`, eventId: `event-${label}` }),
 			);
 			return sess;
 		};
@@ -2117,6 +2120,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				type: "error",
 				errorMessage: "overload",
 				stopReason: "error",
+				text: "boom",
 				eventId: "evt-error-disk",
 			}),
 		);

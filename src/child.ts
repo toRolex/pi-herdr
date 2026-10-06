@@ -30,7 +30,9 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { resetCompletionEvent } from "./completion-event.js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
 	assistantText,
 	clearSteerWatermark,
@@ -484,11 +486,34 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	const sidecarPath = `${sessionFile}.exit`;
 	let runStart = 0;
 
-	/** Write the completion sidecar. Best-effort: a failed write must not
-	 * break the exit path (the session JSONL remains the readable truth).
-	 * `rearm` marks an idle-re-arm exit (issue 06) — the parent labels the
-	 * delivery "auto-delivered after user steer". */
-	let completionEventId = resetCompletionEvent(session);
+	/** Persist a completion declaration before allowing autonomous shutdown.
+	 * A persistence-error sidecar is a governance signal, not a task failure. */
+	const identity = {
+		agentId: process.env.PI_HERDR_AGENT_ID,
+		runId: process.env.PI_HERDR_RUN_ID,
+		sequence: Number(process.env.PI_HERDR_SEQUENCE ?? 1),
+	};
+	let completionEventId = identity.runId ?? resetCompletionEvent(session);
+	let completionSaved = false;
+
+	function scheduleRecycle(): void {
+		const paneId = process.env.HERDR_PANE_ID;
+		if (!paneId || !identity.runId || !identity.agentId) return;
+		const intentPath = `${session}.recycle.json`;
+		writeDurable(intentPath, JSON.stringify({ ...identity, eventId: completionEventId, sessionPath: session, name: childName, paneId, ownerSession: process.env.PI_HERDR_OWNER_SESSION, pending: true }));
+		const worker = spawn(process.execPath, [fileURLToPath(new URL("./recycle-worker.mjs", import.meta.url)), intentPath, process.env.HERDR_BIN_PATH ?? "herdr"], { detached: true, stdio: "ignore" });
+		worker.on("error", error => {
+			writeFileSync(intentPath, JSON.stringify({ ...identity, eventId: completionEventId, sessionPath: session, name: childName, paneId, ownerSession: process.env.PI_HERDR_OWNER_SESSION, pending: true, error: String(error) }));
+		});
+		worker.unref();
+	}
+
+	function writeDurable(path: string, text: string): void {
+		const temporary = `${path}.${completionEventId}.tmp`;
+		const fd = openSync(temporary, "w", 0o600);
+		try { writeFileSync(fd, text); fsyncSync(fd); } finally { closeSync(fd); }
+		renameSync(temporary, path);
+	}
 
 	function writeSidecar(
 		payload:
@@ -499,9 +524,11 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 					stopReason: string;
 					text?: string;
 					eventId?: string;
-			  },
+			  }
+			| { type: "persistence-error"; errorMessage: string; eventId?: string },
 		rearm = false,
-	): void {
+	): boolean {
+		if (completionSaved) return true;
 		try {
 			// A schema'd child's captured payload rides the done sidecar (issue
 			// 14) — it IS the delivered result, ahead of the assistant text.
@@ -515,21 +542,46 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			const eventField = {
 				eventId: completionEventId,
 			};
-			const text = finalAssistantText(session, runStart);
+			const text = finalAssistantText(session, runStart) || (payload.type === "error" ? `[completion error: ${payload.errorMessage}]` : "");
 			const bodyField = text.trim() ? { text } : {};
-			writeFileSync(
-				sidecarPath,
-				JSON.stringify({
-					...payload,
-					...bodyField,
-					...structuredField,
-					...rootField,
-					...eventField,
-					...(rearm ? { rearm: true } : {}),
-				}),
-			);
-		} catch {
-			/* best-effort */
+			if (payload.type !== "persistence-error" && !text.trim() && !payload.text?.trim() && !("structured" in structuredField)) {
+				throw new Error("missing required final body");
+			}
+			const encoded = JSON.stringify({
+				...payload,
+				...(payload.type === "persistence-error" ? {} : bodyField),
+				...structuredField,
+				...rootField,
+				...eventField,
+				...identity,
+				...(rearm ? { rearm: true } : {}),
+			});
+			// Save the event first; the legacy bridge is never the only copy.
+			const eventPath = `${session}.completion-${completionEventId}.json`;
+			if (existsSync(eventPath)) {
+				if (readFileSync(eventPath, "utf8") !== encoded) throw new Error("completion event is already committed with different content");
+			} else {
+				const eventFd = openSync(eventPath, "wx", 0o600);
+				try { writeFileSync(eventFd, encoded); fsyncSync(eventFd); } finally { closeSync(eventFd); }
+			}
+			writeDurable(sidecarPath, encoded);
+			scheduleRecycle();
+			completionSaved = true;
+			return true;
+		} catch (error) {
+			if (payload.type === "persistence-error") return false;
+			const message = error instanceof Error ? error.message : String(error);
+			try {
+				const failurePath = `${sidecarPath}.${completionEventId}.tmp`;
+				writeFileSync(failurePath, JSON.stringify({
+					type: "persistence-error",
+					errorMessage: `completion persistence failed: ${message}`,
+					eventId: completionEventId,
+					...(rootSession ? { rootSession } : {}),
+				}));
+				renameSync(failurePath, sidecarPath);
+			} catch { /* surfaced through the missing declaration and retained pane */ }
+			return false;
 		}
 	}
 
@@ -584,7 +636,10 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 					details: {},
 				};
 			}
-			writeSidecar(refusal ? { type: "done" } : { type: "done", text });
+			const saved = writeSidecar(refusal ? { type: "done" } : { type: "done", text });
+			if (!saved) {
+				return { content: [{ type: "text", text: "Completion was not persisted; session remains open for recovery." }], isError: true, details: {} };
+			}
 			ctx.shutdown();
 			return {
 				content: [
@@ -663,7 +718,10 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("agent_start", () => {
-		completionEventId = resetCompletionEvent(session);
+		if (!identity.runId) {
+			completionEventId = resetCompletionEvent(session);
+			completionSaved = false;
+		}
 		latestMessages = undefined;
 		runStart = completionEntries(session).length;
 		// pi started (re)running — a retry survived the grace window decision,
@@ -699,8 +757,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			if (!shouldAutoExitOnSettle(latestMessages)) return;
 			rearmTimer = setTimeout(() => {
 				rearmTimer = null;
-				writeSidecar(buildCompletionSidecar(latestMessages, completionEventId), true);
-				ctx.shutdown();
+				if (writeSidecar(buildCompletionSidecar(latestMessages, completionEventId), true)) ctx.shutdown();
 			}, idleRearmMs());
 			rearmTimer.unref?.();
 			return;
@@ -715,8 +772,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		if (!failed) {
 			// Clean completion: the definitive settle. Sidecar + exit.
 			cancelErrorExit();
-			writeSidecar(buildCompletionSidecar(latestMessages, completionEventId));
-			ctx.shutdown();
+			if (writeSidecar(buildCompletionSidecar(latestMessages, completionEventId))) ctx.shutdown();
 			return;
 		}
 		// Settled on an error: NOT yet exhaustion. Give pi's retry machine a
@@ -725,8 +781,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		cancelErrorExit();
 		errorExitTimer = setTimeout(() => {
 			errorExitTimer = null;
-			writeSidecar(buildCompletionSidecar(latestMessages, completionEventId));
-			ctx.shutdown();
+			if (writeSidecar(buildCompletionSidecar(latestMessages, completionEventId))) ctx.shutdown();
 		}, errorExitGraceMs());
 		errorExitTimer.unref?.();
 	});

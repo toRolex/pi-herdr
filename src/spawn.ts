@@ -711,14 +711,9 @@ export interface SpawnRecord {
 	/** Terminal event already steered to the orchestrator (issue 06) —
 	 * one push per terminal event; 07 prunes fleet rows on this. */
 	delivery?: { kind: DeliveryKind; at: number };
-	/** Pane close pending (manual e2e F2): the terminal delivery found the
-	 * pane still listed actively live (the auto-exit race) — the close is
-	 * retried on later ticks once the fleet stops listing it. Also set when
-	 * an adopted orphan's close was rejected after the result was delivered,
-	 * so a later tick can retry without pushing the letter again. Never set
-	 * for taken-over panes that have not re-arm-delivered, or workflow
-	 * children (the run owns their panes). */
+	/** Pane close pending; retries remain bound to the settled run and pane. */
 	paneClosePending?: boolean;
+	paneCloseAuthorization?: { agentId?: string; runId?: string; paneId: string; rearm?: boolean };
 	/** Why the last pane close was rejected (issue 41). Cleared when a later
 	 * close succeeds. The session file is never deleted because of it. */
 	paneCloseError?: string;
@@ -1544,6 +1539,10 @@ function buildChildEnv(record: SpawnRecord, idleRearmMinutes: number): Record<st
 	stamp("PI_HERDR_ORCHESTRATOR_PANE", record.orchestratorPane);
 	if (record.sessionPath) {
 		stamp("PI_HERDR_SESSION", record.sessionPath);
+		stamp("PI_HERDR_AGENT_ID", record.agentId);
+		stamp("PI_HERDR_RUN_ID", record.runId);
+		stamp("PI_HERDR_OWNER_SESSION", record.lineage?.ownerSession);
+		stamp("PI_HERDR_SEQUENCE", String(record.sequence));
 		stamp("PI_HERDR_NAME", record.name);
 		stamp("PI_HERDR_AGENT", record.type ?? "");
 		stamp(

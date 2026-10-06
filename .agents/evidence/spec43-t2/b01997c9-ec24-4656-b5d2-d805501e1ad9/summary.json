@@ -1,0 +1,23 @@
+{
+  "id": "b01997c9-ec24-4656-b5d2-d805501e1ad9",
+  "evidence": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/.agents/evidence/spec43-t2/b01997c9-ec24-4656-b5d2-d805501e1ad9",
+  "runId": "t2-b01997c9-ec24-4656-b5d2-d805501e1ad9",
+  "agentId": "agent-b01997c9-ec24-4656-b5d2-d805501e1ad9",
+  "finalBytes": 10171,
+  "childSource": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/src/child.ts",
+  "childSha256": "a61878372a101d729e2009fad732f93425698cce384e13602f722598be8d427d",
+  "recycleSha256": "f798cc281506419ba22c8719bb114a3b4ac23d572b041a5994af7c06d626617a",
+  "deliveryPasses": 0,
+  "ackWrites": 0,
+  "parentMode": "inert node tracer; delivery module never imported",
+  "workspace": "w8J",
+  "pane": "w8J:p1",
+  "completionObservedAt": 1791329547034,
+  "childPid": 2389,
+  "childExitObservedAt": 1791329547536,
+  "paneGoneObservedAt": 1791329548571,
+  "declarationSha256": "e7700916bdb17563b30e80df90d2815ee5c1be174fdb7298927137fedeb88d73",
+  "sessionSha256": "d79cf9e9ba4669771199f1b6564bcc243f8ea42fd0130997d8e10e1355c94038",
+  "success": true,
+  "cleanup": "already removed with final pane"
+}
