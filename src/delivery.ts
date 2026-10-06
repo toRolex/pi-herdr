@@ -1055,14 +1055,14 @@ function watchOneSidecar(
 			try {
 				w = watch(dir, (_event: string, name: string | null) => {
 					if (name !== file && name !== null) return;
-					cb({ mtimeMs: sidecarWrittenAt(record.sessionPath!) });
+					cb({});
 				});
 			} catch {
 				// The file itself may not exist yet; watching it directly fails on
 				// some platforms until the child creates it. Directory watch is the
 				// primary path — this is only the last attempt.
 				w = watch(target, () => {
-					cb({ mtimeMs: sidecarWrittenAt(record.sessionPath!) });
+					cb({});
 				});
 			}
 			return { close: () => w.close() };

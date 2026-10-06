@@ -366,6 +366,12 @@ function knownLive(
 	fleet: readonly FleetHandle[],
 	read: (sessionPath: string) => readonly SpawnRecord[],
 ): Map<string, KnownTarget> {
+	const liveByPane = new Map<string, FleetHandle>();
+	for (const handle of fleet) {
+		if (handle.paneId && !liveByPane.has(handle.paneId)) {
+			liveByPane.set(handle.paneId, handle);
+		}
+	}
 	const byPane = new Map<string, KnownTarget>();
 	const seen = new Set<string>();
 	const pending = [root];
@@ -378,17 +384,18 @@ function knownLive(
 			// The root is not itself a spawn. A root-owned child's persisted
 			// parent pane identifies it without inventing a root SpawnRecord.
 			if (session === root && rec.lineage?.rootSession === root &&
-				rec.lineage.ownerSession === root && rec.orchestratorPane &&
-				fleet.some((a) => a.paneId === rec.orchestratorPane)) {
-				byPane.set(rec.orchestratorPane, {
-					name: fleet.find((a) => a.paneId === rec.orchestratorPane)?.name ?? rec.orchestratorPane,
-					paneId: rec.orchestratorPane,
-					root: true,
-				});
+				rec.lineage.ownerSession === root && rec.orchestratorPane) {
+				const rootPane = liveByPane.get(rec.orchestratorPane);
+				if (rootPane) {
+					byPane.set(rec.orchestratorPane, {
+						name: rootPane.name ?? rec.orchestratorPane,
+						paneId: rec.orchestratorPane,
+						root: true,
+					});
+				}
 			}
 			if (!rec.paneId || !rec.lineage?.ownerSession) continue;
-			const live = fleet.some((a) => a.paneId === rec.paneId);
-			if (live) byPane.set(rec.paneId, rec);
+			if (liveByPane.has(rec.paneId)) byPane.set(rec.paneId, rec);
 		}
 	}
 	return byPane;
@@ -488,8 +495,6 @@ export function resetInboundRateLimit(): void {}
 export function resetPendingInbox(): void {}
 export function admitInbound(_sender: string, _now: number): { ok: true } { return { ok: true }; }
 
-interface PendingItem { from: string; text: string; submit: boolean; to: string; name?: string; eventId?: string; }
-
 // ---- the engine ----------------------------------------------------------------
 
 /**
@@ -519,31 +524,28 @@ export async function messageAgent(
 	const from = await senderLabel(deps);
 
 	const send = deps.send ?? sendAgentPrompt;
-	const deliver = async (
-		item: PendingItem,
-		asAnswer: boolean,
-	): Promise<Result<true>> => {
-		const payload = asAnswer
-			? item.text
-			: envelope(item.from, item.to, item.text, item.eventId);
-		// Steer watermark (issue 06): the exact text about to be typed into a
-		// registry child. The child matches its input event against it so the
-		// orchestrator's own follow-up is never mistaken for a human takeover.
-		// A delivery to a registry record is also NEW WORK (issue 10): it ends
-		// the interrupted state — stop-and-redirect in one live flow.
-		if (resolved.kind === "live" && resolved.record) {
-			resolved.record.interruptedAt = undefined;
-			if (resolved.record.sessionPath)
-				writeSteerWatermark(resolved.record.sessionPath, payload);
-		}
-		return send(resolved.paneId, payload, {
-			submit: item.submit,
-			signal: deps.signal,
-			...(asAnswer ? { interactive: true } : {}),
-		});
-	};
+	const payload = blocked
+		? params.text
+		: envelope(from, resolved.to, params.text, params.eventId);
+	// Steer watermark (issue 06): the exact text about to be typed into a
+	// registry child. The child matches its input event against it so the
+	// orchestrator's own follow-up is never mistaken for a human takeover.
+	// A delivery to a registry record is also NEW WORK (issue 10): it ends
+	// the interrupted state — stop-and-redirect in one live flow.
+	if (resolved.kind === "live" && resolved.record) {
+		resolved.record.interruptedAt = undefined;
+		if (resolved.record.sessionPath)
+			writeSteerWatermark(resolved.record.sessionPath, payload);
+	}
 
-	const receipt = (over: Partial<MessageReceipt>): Result<MessageReceipt> => ({
+	// Always type: the receiving session owns admission and automatic draining.
+	const r = await send(resolved.paneId, payload, {
+		submit,
+		signal: deps.signal,
+		...(blocked ? { interactive: true } : {}),
+	});
+	if (!r.ok) return r;
+	return {
 		ok: true,
 		data: {
 			delivered: true,
@@ -555,23 +557,8 @@ export async function messageAgent(
 			...(resolved.name ? { name: resolved.name } : {}),
 			submit,
 			...(params.eventId ? { eventId: params.eventId } : {}),
-			...over,
 		},
-	});
-
-	const item: PendingItem = {
-		from,
-		text: params.text,
-		submit,
-		to: resolved.to,
-		...(resolved.name ? { name: resolved.name } : {}),
-		...(params.eventId ? { eventId: params.eventId } : {}),
 	};
-
-	// Always type: the receiving session owns admission and automatic draining.
-	const r = await deliver(item, blocked);
-	if (!r.ok) return r;
-	return receipt({});
 }
 
 // ---- registration --------------------------------------------------------------

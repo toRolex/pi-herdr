@@ -519,19 +519,14 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			const bodyField = text.trim() ? { text } : {};
 			writeFileSync(
 				sidecarPath,
-				JSON.stringify(
-					rearm
-						? {
-								...payload,
-								...bodyField,
-								...structuredField,
-								...rootField,
-								...eventField,
-								rearm: true,
-						  }
-						: { ...payload,
-								...bodyField, ...structuredField, ...rootField, ...eventField },
-				),
+				JSON.stringify({
+					...payload,
+					...bodyField,
+					...structuredField,
+					...rootField,
+					...eventField,
+					...(rearm ? { rearm: true } : {}),
+				}),
 			);
 		} catch {
 			/* best-effort */

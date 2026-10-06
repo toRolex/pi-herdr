@@ -54,7 +54,8 @@ export function makeDeliverySink(
 		const file = getSessionFile();
 		if (!file) return false;
 		try {
-			return readFileSync(file, "utf8").split("\n").filter(Boolean).some(line => {
+			return readFileSync(file, "utf8").split("\n").some(line => {
+				if (line === "") return false;
 				const row = JSON.parse(line);
 				return row.type === "custom_message" && row.customType === "herdr-delivery" && row.details?.eventId === eventId;
 			});
@@ -68,7 +69,7 @@ export function makeDeliverySink(
 		if (getSessionFile) {
 			const file = getSessionFile();
 			if (!file) return false;
-			try { return readFileSync(file, "utf8").split("\n").filter(Boolean).some(line => matches(JSON.parse(line))); }
+			try { return readFileSync(file, "utf8").split("\n").some(line => line !== "" && matches(JSON.parse(line))); }
 			catch { return false; }
 		}
 		return getBranch?.().some(matches) ?? false;

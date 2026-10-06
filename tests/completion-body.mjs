@@ -9,7 +9,7 @@ const { registerChildExtension } = await jiti.import("../src/child.ts");
 const { deliverOnce } = await jiti.import("../src/delivery.ts");
 const dir = mkdtempSync(join(tmpdir(), "herdr-completion-body-"));
 const session = join(dir, "child.jsonl");
-const keys = ["PI_HERDR_SESSION", "PI_HERDR_AUTO_EXIT", "PI_HERDR_IDLE_REARM_MS", "PI_HERDR_ERROR_EXIT_GRACE_MS", "PI_HERDR_SCHEMA", "PI_HERDR_ACTIVITY_FILE"]; 
+const keys = ["PI_HERDR_SESSION", "PI_HERDR_AUTO_EXIT", "PI_HERDR_IDLE_REARM_MS", "PI_HERDR_ERROR_EXIT_GRACE_MS", "PI_HERDR_SCHEMA", "PI_HERDR_ACTIVITY_FILE"];
 const saved = keys.map(k => process.env[k]);
 const message = (role, content, extra = {}) => ({ type: "message", message: { role, content, ...extra } });
 const user = message("user", "current task");
