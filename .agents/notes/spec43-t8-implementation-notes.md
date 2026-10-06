@@ -1,19 +1,18 @@
-# spec43 T8 (#51) implementation notes
+# spec43 T8 implementation notes
 
-## Decisions
+## Delivery body contract regression tests
 
-- Push completion prose now contains the child's complete final assistant text verbatim, without an agent/name wrapper or absolute session-path suffix. Empty successful results remain empty rather than manufacturing a pseudo-answer. Error prose preserves available final text; when none exists it emits a compact completion-error notice.
-- Existing `details.sessionPath`, `details.result`, `details.eventId`, error metadata, and durable delivery token behavior remain metadata. `name` and `kind` remain because renderer and push dedupe require them; crucially, the pending key still includes the exact `content`, avoiding silent changes to T8-adjacent dedupe semantics.
-- The completion display renderer remains presentation-only: collapsed view is a one-line summary and expanded view renders `content`; neither rewrites the model-facing payload.
-- Updated `agent_done` and autonomous launch guidance to request concise conclusion, key evidence, limitations, and deliverable references, with large reports stored in files. No summarizer, truncation, or token budget added.
+Ticket #51 changes completion prose to the complete final assistant message with a minimal source shell. Source identity and protocol semantics belong in `details`, not the body. Inspected the issue and delivery-path notes before changes.
 
-## Deviations / limits
+### Decisions
 
-- A real pi TUI expand/collapse check was not run in this headless worktree. Existing renderer tests and inspection show the display path does not mutate custom-message content; host-level visible verification remains outstanding.
-- Ticket's "minimal source shell" is represented by message metadata (`name`, `kind`, optional event ID) rather than prose. Existing result/metadata schema is retained for downstream compatibility.
+- Updated `tests/delivery.mjs` assertions that incorrectly required legacy `Agent finished`/`FAILED` prose wrappers or a rearm prefix. Assert exact final body and typed `details` metadata instead.
+- Kept semantic guarantees: rearm is asserted in `details.rearm`; error class/message in `details.kind`/`details.error`; gone remains an honest explicit gone sentence; rearm takeover still closes its pane.
+- Blank sidecar text plus empty JSONL resolves to an empty body in `doneContent`; matched the test to this implementation rather than restoring a protocol sentence.
+- Orphan adoption asserts the exact grandchild letter, with source identity in metadata.
 
-## Validation
+### Validation
 
-- `npm run typecheck`: passed.
-- `node tests/completion-body.mjs`: passed, including exact-body assertion and metadata session path.
-- `npm test`: blocked by existing flaky/failing `tests/substrate.mjs` registration assertions and missing generated `.exit` file; failure occurs after earlier smoke checks. Re-run reproduced it.
+- Initially reproduced all 8 failures with `node tests/delivery.mjs` (161 passed, 8 failed); failures were old body-contract expectations, not missing semantic behavior.
+- `npm run typecheck && npm test` passed (entire serial suite; included `delivery.mjs`: 169 passed, 0 failed). Initial attempt inherited Herdr `PI_HERDR_*` variables and stopped at unrelated substrate environment-sensitive checks; reran the full chain with those variables unset and it passed.
+- Committed as `5157846` (`fix(delivery): align delivery body contract tests with minimal source shell (#51)`).
