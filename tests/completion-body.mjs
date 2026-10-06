@@ -46,7 +46,8 @@ try {
  await deliverOnce({ registry: () => new Map([[record.name, record]]), load: () => ({ notifications: "normal" }), list: async () => ({ ok: true, data: [{ paneId: record.paneId, agentStatus: "done" }] }), push: p => pushes.push(p), closePane: async () => ({ ok: true }) });
  assert.equal(pushes.length, 1);
  assert.equal(pushes[0].details.result, letter);
- assert.ok(pushes[0].content.includes(letter), "push contains the entire committed body");
+ assert.equal(pushes[0].content, letter, "push is the exact complete final answer without protocol shell");
+ assert.equal(pushes[0].details.sessionPath, session, "session path remains metadata");
  console.log("✓ persisted toolCall-only declaration delivers full sidecar + push body");
 
  for (const entries of [[user, body, user, doneCall], [user, doneCall]]) {
@@ -76,7 +77,7 @@ try {
   const terminal = settledPushes.filter(p => p.details?.kind === (mode === "error" ? "error" : "done"));
   assert.equal(terminal.length, 1);
   assert.equal(terminal[0].details.result, letter);
-  assert.ok(terminal[0].content.includes(letter), `${mode} push contains the entire body`);
+  assert.equal(terminal[0].content, letter, `${mode} push is the exact full body`);
   await child.emit("session_shutdown");
  }
  console.log("✓ auto-settle / error / idle-rearm preserve the same body");
