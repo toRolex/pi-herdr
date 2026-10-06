@@ -680,8 +680,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		await w.tick();
 		assert(
 			w.pushes.length === 1 &&
-				w.pushes[0].content.includes("The scan found 3 issues. All fixed.") &&
-				w.pushes[0].content.includes('Agent "scout" finished'),
+				w.pushes[0].content === "The scan found 3 issues. All fixed." &&
+				w.pushes[0].details.kind === "done",
 			"sidecar done → the FULL final message is the push (the letter, not a doorbell)",
 		);
 		assert(w.closes[0] === r.paneId, "autonomous done sidecar closes the pane after the result is pushed");
@@ -723,8 +723,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
 		await w.tick();
 		assert(
-			w.pushes[0]?.content.startsWith("auto-delivered after user steer: "),
-			"rearm sidecar → honestly labeled auto-delivery",
+			w.pushes[0]?.content === "re-armed result" &&
+				w.pushes[0]?.details.rearm === true,
+			"rearm sidecar → full final body; auto-delivery label stays in details", 
 		);
 		assert(
 			closed.length === 1 && closed[0] === r.paneId,
@@ -768,8 +769,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		);
 		await w.tick();
 		assert(
-			w.pushes[0]?.content.includes('Agent "scout" FAILED: provider overloaded'),
-			"error sidecar → typed failure reaches the parent",
+			w.pushes[0]?.content === "[completion error: provider overloaded]" &&
+				w.pushes[0]?.details.kind === "error" &&
+				w.pushes[0]?.details.error?.errorMessage === "provider overloaded",
+			"error sidecar → minimal failure body; typed failure reaches parent in details", 
 		);
 		assert(closed[0] === r.paneId, "autonomous error sidecar closes the pane after the failure is delivered");
 		assert(
@@ -882,9 +885,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		w.advance(11_000);
 		await w.tick();
 		assert(
-			w.pushes[0]?.content.includes("FAILED: rate limited") &&
-				w.pushes[0].details.kind === "error",
-			"sentinel mines stopReason=error → typed failure, not a mystery",
+			w.pushes[0]?.content === "[completion error: rate limited]" &&
+				w.pushes[0].details.kind === "error" &&
+				w.pushes[0].details.error?.errorMessage === "rate limited",
+			"sentinel mines stopReason=error → typed failure remains in details", 
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -899,9 +903,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		w.advance(11_000);
 		await w.tick();
 		assert(
-			w.pushes[0]?.content.includes('Agent "scout" is gone') &&
-				w.pushes[0].details.kind === "gone" &&
-				w.pushes[0].content.includes("retained"),
+			w.pushes[0]?.content ===
+					'Agent "scout" is gone (no live pane; it died or its pane was closed without completing).' &&
+				w.pushes[0].details.kind === "gone", 
 			"pane vanished with no evidence → honest gone note, session retained",
 		);
 		assert(
@@ -1354,9 +1358,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		await w2.tick();
 		assert(
 			w2.pushes.length === 1 &&
-				w2.pushes[0].content.startsWith("auto-delivered after user steer: ") &&
+				w2.pushes[0].content === "declared done under a human" &&
+				w2.pushes[0].details.rearm === true &&
 				w2.closes.includes(r2.paneId),
-			"the rearm-labeled delivery closes the taken-over pane (the promise)",
+			"the rearm delivery keeps its label in details and closes the taken-over pane", 
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -1382,8 +1387,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		rmSync(dir, { recursive: true, force: true });
 	}
 	{
-		// A done sidecar with no text and an empty session still uses the
-		// existing empty-body sentence (#30 matches it).
+		// A done sidecar with no text and an empty session keeps the body empty;
+		// the minimal source shell does not add protocol prose.
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-empty-"));
 		const sess = join(dir, "s.jsonl");
 		writeFileSync(sess, "");
@@ -1393,10 +1398,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		await w.tick();
 		assert(
 			w.pushes.length === 1 &&
-				w.pushes[0].content.includes(
-					"(the child finished but its session file holds no assistant message)",
-				),
-			"blank sidecar text still uses the empty-assistant sentence",
+				w.pushes[0].content === "" && w.pushes[0].details.kind === "done",
+			"blank sidecar text with no final produces an empty body under the minimal shell", 
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -1776,8 +1779,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		await delivery.deliverOnce(depsFor(root, rootRecords));
 		assert(
 			pushes.length === 1 &&
-				pushes[0].content.includes(letter) &&
-				pushes[0].content.includes('Agent "leaf" finished'),
+				pushes[0].content === letter && pushes[0].details.name === "leaf",
 			"dead middle layer: the root push carries the grandchild's full letter",
 		);
 		assert(
