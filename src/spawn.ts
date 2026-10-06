@@ -38,6 +38,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 import { seedSessionFile, writeSteerWatermark } from "./sessionfile.js";
 import { currentOrchestratorSession } from "./push.js";
 import {
@@ -648,6 +649,16 @@ export function buildAgentArgs(
 // and the denied-tools list the child strip reports.
 
 export interface SpawnRecord {
+	/** Stable logical agent identity, assigned when the spawn is accepted. */
+	agentId: string;
+	/** Stable execution identity; legacy records without one need reconciliation. */
+	runId: string;
+	/** Completion event sequence within this run. */
+	sequence: number;
+	/** Legacy records lacking identity are preserved, not guessed. */
+	identityReviewRequired?: boolean;
+	/** Unread completion events, if tracked by a later delivery layer. */
+	unread?: number;
 	/** Pane handle (unique-ified at accept). */
 	name: string;
 	kind: string;
@@ -811,6 +822,7 @@ export function restoreSpawnRegistry(sessionPath: string): void {
 		if (!record || typeof record.name !== "string" || !record.name || typeof record.kind !== "string") {
 			throw new Error("invalid spawn registry record");
 		}
+		if (!record.agentId || !record.runId) record.identityReviewRequired = true;
 		if (record.lineage && record.lineage.ownerSession !== sessionPath) {
 			throw new Error("spawn registry owner does not match current session");
 		}
@@ -1772,6 +1784,9 @@ export interface SpawnParams {
 
 export interface SpawnResultData {
 	name: string;
+	agentId: string;
+	runId: string;
+	sequence: number;
 	status: SpawnStatus;
 	paneId?: string;
 	kind: string;
@@ -1845,6 +1860,9 @@ function substrateResultFields(
 	coercedNote?: string,
 ): Partial<SpawnResultData> {
 	return {
+		agentId: record.agentId,
+		runId: record.runId,
+		sequence: record.sequence,
 		...routingResultFields(routing, record.session_mode),
 		...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 		...(record.activityPath ? { activityPath: record.activityPath } : {}),
@@ -2000,6 +2018,9 @@ export async function spawnAgent(
 	}
 
 	const record: SpawnRecord = {
+		agentId: randomUUID(),
+		runId: randomUUID(),
+		sequence: 1,
 		name: handle,
 		kind: merged.kind,
 		type: definition.name || params.type,
@@ -2038,6 +2059,9 @@ export async function spawnAgent(
 			return {
 				ok: true,
 				data: {
+					agentId: record.agentId!,
+					runId: record.runId!,
+					sequence: record.sequence!,
 					name: handle,
 					status: "queued",
 					kind: merged.kind,
@@ -2062,6 +2086,9 @@ export async function spawnAgent(
 		return {
 			ok: true,
 			data: {
+				agentId: record.agentId!,
+				runId: record.runId!,
+				sequence: record.sequence!,
 				name: handle,
 				status: "starting",
 				kind: merged.kind,
@@ -2082,6 +2109,9 @@ export async function spawnAgent(
 			return {
 				ok: true,
 				data: {
+					agentId: record.agentId!,
+					runId: record.runId!,
+					sequence: record.sequence!,
 					name: handle,
 					status: "queued",
 					kind: merged.kind,
@@ -2097,6 +2127,9 @@ export async function spawnAgent(
 		return {
 			ok: true,
 			data: {
+				agentId: record.agentId!,
+				runId: record.runId!,
+				sequence: record.sequence!,
 				name: handle,
 				status,
 				paneId: record.paneId,
@@ -2151,6 +2184,9 @@ export async function spawnAgent(
 		return {
 			ok: true,
 			data: {
+				agentId: record.agentId!,
+				runId: record.runId!,
+				sequence: record.sequence!,
 				name: handle,
 				status: await currentStatus(record, deps),
 				paneId: record.paneId,
@@ -2167,6 +2203,9 @@ export async function spawnAgent(
 	return {
 		ok: true,
 		data: {
+			agentId: record.agentId!,
+			runId: record.runId!,
+			sequence: record.sequence!,
 			name: handle,
 			status,
 			paneId: record.paneId,

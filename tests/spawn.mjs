@@ -873,8 +873,11 @@ console.log("\n[12] Over-cap spawn queues; pane appears when a slot frees");
 		b.ok &&
 			b.data.status === "queued" &&
 			!b.data.paneId &&
-			b.data.queued === true,
-		"over-cap spawn accepted as queued with no pane",
+			b.data.queued === true &&
+			typeof b.data.agentId === "string" &&
+			typeof b.data.runId === "string" &&
+			b.data.sequence === 1,
+		"over-cap spawn accepted with stable agent/run identity and no pane",
 	);
 	assert(h.calls.start.length === 1, "queued record created no pane");
 	// bounded wait on a queued record returns the current (queued) state
@@ -892,6 +895,7 @@ console.log("\n[12] Over-cap spawn queues; pane appears when a slot frees");
 	assert(started === 1, "drain starts one queued record");
 	const rec = spawn.spawnRecords().get("second");
 	assert(!!rec?.paneId, "queued record now has a pane");
+	assert(rec.agentId === b.data.agentId && rec.runId === b.data.runId, "drained run retains its accepted identity");
 	const rec3 = spawn.spawnRecords().get("third");
 	assert(!rec3?.paneId, "the third stays queued (cap still held)");
 	// hand-spawned fleet panes never hold a session slot (watch-scope decision)

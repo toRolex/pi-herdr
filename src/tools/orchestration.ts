@@ -510,6 +510,12 @@ export async function submitAndWait(
 export interface FleetRow {
 	paneId?: string;
 	name?: string;
+	agentId?: string;
+	runId?: string;
+	sequence?: number;
+	title?: string;
+	activity?: string;
+	unread?: number;
 	kind?: string;
 	/** The projected state label (`active · bash 7m`, `queued`, `stalled`…)
 	 * for our records; the coarse agentStatus for adopted panes. */
@@ -573,6 +579,12 @@ export async function listAgentsView(
 		rows.push({
 			paneId: a.paneId,
 			name: record.name,
+			agentId: record.agentId,
+			runId: record.runId,
+			sequence: record.sequence,
+			activity: a.agentStatus,
+			unread: record.unread ?? 0,
+			title: record.type ?? record.name,
 			kind: record.kind,
 			state: projectedLabel(record, deps, a.agentStatus, false, now()),
 			projected: true,
@@ -591,6 +603,12 @@ export async function listAgentsView(
 		rows.push({
 			paneId: record.paneId,
 			name: record.name,
+			agentId: record.agentId,
+			runId: record.runId,
+			sequence: record.sequence,
+			activity: record.lastStatus,
+			unread: record.unread ?? 0,
+			title: record.type ?? record.name,
 			kind: record.kind,
 			state: projectedLabel(record, deps, undefined, true, now()),
 			projected: true,
