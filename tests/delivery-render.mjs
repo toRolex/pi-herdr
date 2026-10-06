@@ -178,5 +178,128 @@ function visible(entries) {
 	);
 }
 
+// The pair is built from real push details and a real message receipt, not
+// a hand-written two-line fixture. Order and reload both collapse to the
+// completion. A blocked row and a different eventId stay.
+{
+	const delivery = await jiti.import(join(ROOT, "src/delivery.ts"), { parent: ROOT });
+	const sf = await jiti.import(join(ROOT, "src/sessionfile.ts"), { parent: ROOT });
+	const msg = await jiti.import(join(ROOT, "src/tools/message.ts"), { parent: ROOT });
+	const { mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const dir = mkdtempSync(join(tmpdir(), "pi-herdr-present-"));
+	const sess = join(dir, "s.jsonl");
+	writeFileSync(
+		sess,
+		JSON.stringify({
+			type: "message",
+			message: {
+				role: "assistant",
+				content: [{ type: "text", text: "final letter" }],
+				stopReason: "stop",
+			},
+		}) + "\n",
+	);
+	writeFileSync(
+		`${sess}.exit`,
+		JSON.stringify({ type: "done", text: "final letter", eventId: "evt-real" }),
+	);
+	const read = sf.readExitSidecar(sess);
+	const pushes = [];
+	const record = {
+		name: "scout",
+		kind: "pi",
+		paneId: "w1:scout",
+		sessionPath: sess,
+		stance: "autonomous",
+		submitted: true,
+		sawWorking: true,
+	};
+	await delivery.deliverOnce({
+		registry: () => new Map([[record.name, record]]),
+		load: () => ({ notifications: "normal" }),
+		list: async () => ({
+			ok: true,
+			data: [{ paneId: record.paneId, agentStatus: "done" }],
+		}),
+		push: (m) => pushes.push(m),
+		closePane: async () => {},
+		now: () => 1,
+	});
+	const sendCalls = [];
+	const sent = await msg.messageAgent(
+		{ target: "scout", text: "still working", eventId: "evt-real" },
+		{
+			registry: () => new Map(),
+			agentGet: async () => ({
+				ok: true,
+				data: { paneId: "w1:p1", name: "orchestrator", status: "idle" },
+			}),
+			send: async (paneId, text) => {
+				sendCalls.push(text);
+				return { ok: true, data: true };
+			},
+			env: { PI_HERDR_NAME: "scout" },
+		},
+	);
+	const pushDetails = pushes[0]?.details;
+	const messageDetails = sent.data;
+	assert(
+		read.state === "ok" &&
+			pushDetails?.eventId === "evt-real" &&
+			messageDetails?.eventId === "evt-real" &&
+			sendCalls[0]?.includes('event="evt-real"'),
+		"the presented pair is the real push details and the real message receipt",
+	);
+	const messageRow = {
+		role: "custom",
+		customType: "herdr-agent-message",
+		content: sendCalls[0],
+		display: true,
+		details: messageDetails,
+	};
+	const doneRow = {
+		role: "custom",
+		customType: "herdr-delivery",
+		content: pushes[0].content,
+		display: true,
+		details: pushDetails,
+	};
+	const blockedRow = {
+		role: "custom",
+		customType: "herdr-delivery",
+		content: "blocked",
+		display: true,
+		details: { name: "scout", kind: "blocked" },
+	};
+	const other = {
+		role: "custom",
+		customType: "herdr-agent-message",
+		content: "other event",
+		display: true,
+		details: { eventId: "evt-other", from: "scout", to: "orchestrator" },
+	};
+	const messageFirst = visible([blockedRow, messageRow, doneRow, other]);
+	assert(
+		messageFirst.length === 3 &&
+			messageFirst[0].details.kind === "blocked" &&
+			messageFirst[1].customType === "herdr-delivery" &&
+			messageFirst[1].details.eventId === "evt-real" &&
+			messageFirst[2].details.eventId === "evt-other",
+		"message then completion: blocked and a different eventId stay, the paired message is gone",
+	);
+	const completionFirst = visible([doneRow, messageRow]);
+	assert(
+		completionFirst.length === 1 && completionFirst[0].customType === "herdr-delivery",
+		"completion then message: only the completion remains",
+	);
+	const again = visible(messageFirst);
+	assert(
+		again.length === messageFirst.length && again[1] === messageFirst[1],
+		"reload of the same presented array does not add a row",
+	);
+	rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

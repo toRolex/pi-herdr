@@ -120,7 +120,30 @@ console.log("\n[1] Sidecar rearm + takeover/steer markers");
 				.rootSession === undefined,
 		"a missing, blank, or non-string root pointer is absent",
 	);
-	const errRoot = sf.parseExitSidecar(
+	const withEvent = sf.parseExitSidecar(
+	'{"type":"done","eventId":"evt-done-1"}',
+).sidecar;
+assert(
+	withEvent.eventId === "evt-done-1",
+	"done sidecar keeps a business eventId",
+);
+const errEvent = sf.parseExitSidecar(
+	'{"type":"error","errorMessage":"overload","stopReason":"error","eventId":"evt-err-1"}',
+).sidecar;
+assert(
+	errEvent.eventId === "evt-err-1" && errEvent.errorMessage === "overload",
+	"error sidecar keeps a business eventId",
+);
+assert(
+	sf.parseExitSidecar('{"type":"done"}').sidecar.eventId === undefined &&
+		sf.parseExitSidecar('{"type":"done","eventId":""}').sidecar.eventId ===
+			undefined &&
+		sf.parseExitSidecar('{"type":"done","eventId":12}').sidecar.eventId ===
+			undefined,
+	"an old sidecar with no eventId, or a blank/non-string one, still parses without inventing an id",
+);
+
+const errRoot = sf.parseExitSidecar(
 		'{"type":"error","errorMessage":"boom","stopReason":"error","rootSession":"/root/session.jsonl"}',
 	).sidecar;
 	assert(
@@ -511,6 +534,12 @@ console.log("\n[2] Child extension — takeover + idle re-arm");
 				sidecar(sess)?.rootSession === "/sessions/root.jsonl",
 				"settle sidecar carries the stamped root session pointer",
 			);
+			assert(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+					sidecar(sess)?.eventId ?? "",
+				),
+				"clean settle sidecar carries a generated business eventId",
+			);
 		} finally {
 			for (const k of ["PI_HERDR_SESSION", "PI_HERDR_AUTO_EXIT", "PI_HERDR_IDLE_REARM_MS", "PI_HERDR_ROOT_SESSION"])
 				delete process.env[k];
@@ -546,6 +575,12 @@ console.log("\n[2] Child extension — takeover + idle re-arm");
 					s.text === "declared letter" &&
 					s.rootSession === "/sessions/root.jsonl",
 				"agent_done sidecar carries the final text and the root session pointer",
+			);
+			assert(
+				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+					s?.eventId ?? "",
+				),
+				"agent_done sidecar carries a generated business eventId",
 			);
 		} finally {
 			delete process.env.PI_HERDR_SESSION;
@@ -658,6 +693,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes[0].details.kind === "done" && r.delivery?.kind === "done",
 			"terminal event marked delivered in the registry",
 		);
+		assert(
+			w.pushes[0].details.eventId === undefined,
+			"a sidecar with no eventId does not invent one on the push",
+		);
 		await w.tick();
 		assert(
 			w.pushes.length === 1 && w.closes.length === 1,
@@ -736,6 +775,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		assert(
 			w.pushes[0]?.details.error?.errorMessage === "provider overloaded",
 			"error details carry the mined failure",
+		);
+		assert(
+			w.pushes[0]?.details.eventId === undefined,
+			"an error sidecar with no eventId does not invent one on the push",
 		);
 		assert(
 			closed.includes(r.paneId),
@@ -1741,6 +1784,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			pushes[0].details.kind === "done" && pushes[0].details.adopted === true,
 			"the adopted push is a done event marked adopted",
 		);
+		assert(
+			pushes[0].details.eventId === undefined,
+			"an adopted sidecar with no eventId does not invent one on the push",
+		);
 		assert(closes.includes("w1:leaf"), "adopting the orphan still closes its pane");
 
 		// resume of the root session does not push the same letter again
@@ -1897,6 +1944,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				pushes.push(m);
 			},
 			closePane: async (paneId) => {
+				// A real asynchronous CLI-style Result exposes missing awaits.
+				await sleep(15);
 				if (closeFails) {
 					closeNotes.push({ paneId, failed: true });
 					return { ok: false, error: { message: "orphan pane close failed" } };
@@ -1952,13 +2001,49 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			"a failed orphan pane close is observable and does not claim the pane closed",
 		);
 		assert(existsSync(leaf), "a failed close still retains the session file");
+		const savedFailure = JSON.parse(readFileSync(`${mid}.registry.json`, "utf8"))[0];
+		assert(
+			savedFailure.delivery?.kind === "done" &&
+				savedFailure.paneClosePending === true &&
+				savedFailure.paneCloseError === "orphan pane close failed",
+			"delayed failed close is awaited and its pending/error state is persisted",
+		);
+
+		// A fresh in-memory root registry simulates resume; retry must use disk.
+		const restoredRoot = () => JSON.parse(JSON.stringify(rootRecords));
+		for (const status of ["working", "blocked"]) {
+			fleet[0].status = status;
+			await delivery.deliverOnce(depsFor(restoredRoot()));
+			assert(
+				closeNotes.length === 1 && closes.length === 0 && pushes.length === 1,
+				`a restored pending orphan close waits while the pane is ${status}`,
+			);
+		}
+		fleet[0].status = "done";
 
 		// the empty pane is recycled only after the letter was delivered
 		closeFails = false;
-		await delivery.deliverOnce(depsFor(rootRecords));
+		await delivery.deliverOnce(depsFor(restoredRoot()));
 		assert(
 			closes.includes("w1:leaf") && pushes.length === 1 && existsSync(leaf),
 			"after the result is delivered the empty orphan pane is recycled and the session stays",
+		);
+
+		const savedSuccess = JSON.parse(readFileSync(`${mid}.registry.json`, "utf8"))[0];
+		assert(
+			!savedSuccess.paneClosePending && !savedSuccess.paneCloseError,
+			"a successful restored retry clears the persisted close failure",
+		);
+
+		// A human may take over between failure and retry, without registry writes.
+		writeFileSync(`${mid}.registry.json`, JSON.stringify([savedFailure]));
+		writeFileSync(`${leaf}.takeover`, JSON.stringify({ at: 1_000_001 }));
+		const beforeRetryTakeover = closes.length;
+		await delivery.deliverOnce(depsFor(restoredRoot()));
+		assert(
+			closes.length === beforeRetryTakeover && pushes.length === 1 &&
+				JSON.parse(readFileSync(`${mid}.registry.json`, "utf8"))[0].takenOver === true,
+			"a fresh-memory close retry rereads the takeover marker and holds the pane",
 		);
 
 		// takeover: the letter can be delivered, the pane is not recycled
@@ -1980,10 +2065,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 					name: "held",
 					paneId: "w1:held",
 					sessionPath: held,
-					takenOver: true,
 				},
 			]),
 		);
+		writeFileSync(`${held}.takeover`, JSON.stringify({ at: 1_000_002 }));
 		fleet.push({ paneId: "w1:held", status: "done" });
 		const beforeHeld = pushes.length;
 		const beforeClose = closes.length;
@@ -1995,6 +2080,130 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				closes.length === beforeClose &&
 				existsSync(held),
 			"a taken-over orphan pane is not recycled after its result is delivered",
+		);
+
+		rmSync(dir, { recursive: true, force: true });
+	}
+
+	// --- #38: sidecar eventId is copied onto the terminal push only ------
+	{
+		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-event-"));
+		const sess = join(dir, "s.jsonl");
+		writeSession(sess, [assistantMsg("letter body")]);
+		const r = rec("scout", { sessionPath: sess });
+		const w = world([r], { fleet: [{ paneId: r.paneId, status: "done" }] });
+		writeFileSync(
+			`${sess}.exit`,
+			JSON.stringify({ type: "done", text: "letter body", eventId: "evt-from-disk" }),
+		);
+		const read = sf.readExitSidecar(sess);
+		await w.tick();
+		assert(
+			read.state === "ok" &&
+				read.sidecar.eventId === "evt-from-disk" &&
+				w.pushes[0]?.details.eventId === read.sidecar.eventId,
+			"sidecar JSON → readExitSidecar → deliverOnce push details.eventId equals the sidecar",
+		);
+
+		const errSess = join(dir, "e.jsonl");
+		writeSession(errSess, [assistantMsg("boom", { stopReason: "error" })]);
+		const er = rec("errant", { sessionPath: errSess, paneId: "w1:errant" });
+		const ew = world([er], { fleet: [{ paneId: er.paneId, status: "done" }] });
+		writeFileSync(
+			`${errSess}.exit`,
+			JSON.stringify({
+				type: "error",
+				errorMessage: "overload",
+				stopReason: "error",
+				eventId: "evt-error-disk",
+			}),
+		);
+		await ew.tick();
+		assert(
+			ew.pushes[0]?.details.kind === "error" &&
+				ew.pushes[0]?.details.eventId === "evt-error-disk",
+			"an error sidecar's eventId is copied onto the error push",
+		);
+
+		const adoptedSess = join(dir, "a.jsonl");
+		writeSession(adoptedSess, [assistantMsg("adopted letter")]);
+		writeFileSync(
+			`${adoptedSess}.exit`,
+			JSON.stringify({
+				type: "done",
+				text: "adopted letter",
+				eventId: "evt-adopted",
+				rootSession: sess,
+			}),
+		);
+		const mid = join(dir, "mid.jsonl");
+		writeFileSync(
+			`${mid}.registry.json`,
+			JSON.stringify([
+				{
+					name: "leaf",
+					kind: "pi",
+					paneId: "w1:leaf-evt",
+					sessionPath: adoptedSess,
+					stance: "autonomous",
+					lineage: { rootSession: sess, ownerSession: mid },
+				},
+			]),
+		);
+		const pushes = [];
+		await delivery.deliverOnce({
+			registry: () =>
+				new Map([
+					[
+						"mid",
+						rec("mid", {
+							sessionPath: mid,
+							paneId: "w1:mid-gone",
+							lineage: { rootSession: sess, ownerSession: sess },
+						}),
+					],
+				]),
+			load: () => ({ notifications: "normal" }),
+			list: async () => ({
+				ok: true,
+				data: [{ paneId: "w1:leaf-evt", agentStatus: "done" }],
+			}),
+			readRegistry: (sessionPath) => {
+				const path = `${sessionPath}.registry.json`;
+				if (!existsSync(path)) return [];
+				return JSON.parse(readFileSync(path, "utf8"));
+			},
+			sessionPath: sess,
+			push: (m) => pushes.push(m),
+			closePane: async () => {},
+			now: () => 1_000_000,
+		});
+		assert(
+			pushes[0]?.details.adopted === true &&
+				pushes[0]?.details.eventId === "evt-adopted",
+			"an adopted done push copies sidecar.eventId",
+		);
+
+		const blocked = rec("waiter", { paneId: "w1:blocked" });
+		const bw = world([blocked], {
+			fleet: [{ paneId: blocked.paneId, status: "blocked" }],
+		});
+		await bw.tick();
+		assert(
+			bw.pushes[0]?.details.kind === "blocked" &&
+				bw.pushes[0]?.details.eventId === undefined,
+			"a blocked wake does not carry a completion eventId",
+		);
+
+		const gone = rec("ghost", { paneId: "w1:gone", sessionPath: undefined });
+		const gw = world([gone], { fleet: [], goneGraceMs: 0 });
+		gw.advance(1);
+		await gw.tick();
+		await gw.tick();
+		assert(
+			gw.pushes.some((p) => p.details.kind === "gone") &&
+				gw.pushes.every((p) => p.details.eventId === undefined),
+			"a gone note does not carry a completion eventId",
 		);
 
 		rmSync(dir, { recursive: true, force: true });
