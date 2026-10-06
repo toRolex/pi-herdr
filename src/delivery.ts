@@ -243,7 +243,24 @@ function deliverPromptSubmission(record: SpawnRecord, deps: DeliveryDeps): void 
 let deliverySerial: Promise<void> = Promise.resolve();
 
 export function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
-	const result = deliverySerial.then(() => deliverOnceSerial(deps));
+	const result = deliverySerial.then(async () => {
+		const before = new Map([...spawnRecords()].map(([name, record]) => [name, { delivery: record.delivery, promptSubmissionNotified: record.promptSubmissionNotified }]));
+		await deliverOnceSerial(deps);
+		const path = deps.sessionPath ?? currentOrchestratorSession();
+		if (path && !deps.registry) {
+			try {
+				(deps.writeRegistry ?? writePersistedRegistry)(path, [...spawnRecords().values()]);
+			} catch (error) {
+				const message = `own registry persistence failed: ${error instanceof Error ? error.message : String(error)}`;
+				for (const [name, record] of spawnRecords()) {
+					record.delivery = before.get(name)?.delivery;
+					record.promptSubmissionNotified = before.get(name)?.promptSubmissionNotified;
+					record.pushError = message;
+				}
+				throw new Error(message);
+			}
+		}
+	});
 	deliverySerial = result.catch(() => {});
 	return result;
 }
@@ -724,7 +741,17 @@ async function deliverTerminal(
 		}
 	}
 	record.pushError = undefined;
+	const previousDelivery = record.delivery;
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
+	const owner = deps.sessionPath ?? currentOrchestratorSession();
+	if (owner && !deps.registry) {
+		try { (deps.writeRegistry ?? writePersistedRegistry)(owner, [...spawnRecords().values()]); }
+		catch (error) {
+			record.delivery = previousDelivery;
+			record.pushError = `own registry persistence failed: ${String(error)}`;
+			throw new Error(record.pushError);
+		}
+	}
 	closeRecordPane(deps, record, msg.details.rearm === true, paneLive);
 }
 

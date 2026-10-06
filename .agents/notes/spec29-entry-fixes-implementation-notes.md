@@ -23,3 +23,5 @@
 - 无 getBranch 的注入离线 sink 沿旧同步协议；真实 registerDelivery 的 session_start 必定绑定 public context。
 - async SDK wrapper 的错误不能通过 await 捕获；持久入口缺失由 pending confirmation/timeout 可见，pane保持。
 - 同进程 tick 串行；不声称跨进程互斥。
+- own terminal ack 后、close 前持久化delivery；tick完成再次写全部own标志（含submissionnotified）。写失败恢复volatile dedupe并throw/pushError，不当已持久。
+- actual SDK session_start reload 回归：diskdelivery done / reload mapdone / queue1；证据 `fix-reload-{red,green}.log`，测试 `delivery-reload-sdk.mjs`。
