@@ -39,7 +39,9 @@ const input=async text=>handlers.get('input')({type:'input',text,source:'interac
 assert.equal((await input('raw blocked answer')).action,'continue','raw answer exempt');
 await handlers.get('agent_start')({},ctx);
 assert.equal((await input('envelope:held')).action,'handled'); assert.equal(user.length,0);
-await handlers.get('agent_settled')({},ctx); assert.deepEqual(user,['envelope:held']);
+await handlers.get('agent_settled')({},ctx); assert.equal(user.length,1);
+const internal=await handlers.get('input')({type:'input',text:user[0],source:'extension'},ctx);
+assert.equal(internal.action,'transform');assert.equal(internal.text,'envelope:held');
 assert.equal((await input('<agent-receipt>\nnotice\n</agent-receipt>')).action,'handled');
 assert.equal(custom[0].m.customType,'herdr-inbox-receipt'); assert.equal(custom[0].o.triggerTurn,false);
 assert.equal(user.length,1,'receipts never enter conversational queue or generate receipts');

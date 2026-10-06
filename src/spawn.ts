@@ -805,6 +805,20 @@ export function readPersistedRegistry(sessionPath: string): SpawnRecord[] {
 	return parsed as SpawnRecord[];
 }
 
+export function restoreSpawnRegistry(sessionPath: string): void {
+	const records = readPersistedRegistry(sessionPath);
+	for (const record of records) {
+		if (!record || typeof record.name !== "string" || !record.name || typeof record.kind !== "string") {
+			throw new Error("invalid spawn registry record");
+		}
+		if (record.lineage && record.lineage.ownerSession !== sessionPath) {
+			throw new Error("spawn registry owner does not match current session");
+		}
+	}
+	spawnRegistry.clear();
+	for (const record of records) spawnRegistry.set(record.name, record);
+}
+
 export function writePersistedRegistry(
 	sessionPath: string,
 	records: readonly SpawnRecord[],

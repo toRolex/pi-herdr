@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, InputEvent, InputEventResult } from "@earendil-works/pi-coding-agent";
 import { herdr } from "./herdr.js";
+import { randomUUID } from "node:crypto";
 
 export interface InboundMessage {
 	from: string;
@@ -100,12 +101,18 @@ export interface ReceiverInputAdapter {
 /** Single input owner: receipts bypass both admission and the conversational queue. */
 export function registerReceiverInbox(pi: ExtensionAPI, adapter: ReceiverInputAdapter): void {
 	let context: ExtensionContext | undefined;
+	const internalInputs = new Map<string, string>();
 	const report = (error: unknown) => context?.ui.notify(`herdr inbox: ${String(error)}`, "error");
 	const makeInbox = () => createReceiverInbox({
 		deliver: async message => {
 			if (!context) throw new Error("receiver context unavailable");
 			const result = await adapter.deliver(pi, { type: "input", text: message.text, source: "interactive", images: undefined }, context);
-			if (result.action !== "handled") pi.sendUserMessage(message.text, { deliverAs: "followUp" });
+			if (result.action !== "handled") {
+				const watermark = `<herdr-internal-${randomUUID()}>\n${message.text}`;
+				internalInputs.set(watermark, message.text);
+				try { pi.sendUserMessage(watermark, { deliverAs: "followUp" }); }
+				catch (error) { internalInputs.delete(watermark); throw error; }
+			}
 		},
 		receipt: async receipt => {
 			if (receipt.receiver) pi.sendMessage({ customType: "herdr-inbox-receipt", content: receipt.text, display: true, details: receipt }, { triggerTurn: false, deliverAs: "nextTurn" });
@@ -126,6 +133,11 @@ export function registerReceiverInbox(pi: ExtensionAPI, adapter: ReceiverInputAd
 	pi.on("session_start", (_event, ctx) => { context = ctx; inbox = makeInbox(); });
 	pi.on("input", async (event, ctx) => {
 		context = ctx;
+		if (event.source === "extension" && internalInputs.has(event.text)) {
+			const text = internalInputs.get(event.text)!;
+			internalInputs.delete(event.text);
+			return { action: "transform", text, images: event.images };
+		}
 		const receipt = /^<agent-receipt>\n([\s\S]*)\n<\/agent-receipt>$/.exec(event.text);
 		if (receipt) {
 			pi.sendMessage({ customType: "herdr-inbox-receipt", content: receipt[1], display: true }, { triggerTurn: false, deliverAs: "nextTurn" });

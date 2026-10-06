@@ -60,6 +60,7 @@ import {
 import { fleetWidgetOnce } from "./widget.js";
 import {
 	readPersistedRegistry,
+	restoreSpawnRegistry,
 	spawnRecords,
 	writePersistedRegistry,
 	type DeliveryKind,
@@ -239,7 +240,15 @@ function deliverPromptSubmission(record: SpawnRecord, deps: DeliveryDeps): void 
  * Non-blocking — the loop calls it on an interval; tests call it directly and
  * advance their own clock between calls.
  */
-export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
+let deliverySerial: Promise<void> = Promise.resolve();
+
+export function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
+	const result = deliverySerial.then(() => deliverOnceSerial(deps));
+	deliverySerial = result.catch(() => {});
+	return result;
+}
+
+async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 	const registry = (deps.registry ?? spawnRecords)();
 	if (registry.size === 0) return;
 	const records = [...registry.values()];
@@ -706,14 +715,17 @@ async function deliverTerminal(
 		await deliverAdopted(deps, record, kind, msg, paneLive);
 		return;
 	}
+	if (!record.workflow) {
+		try {
+			pushTerminal(deps, { ...msg, deliverAs: msg.deliverAs ?? deliverAsFor(deps, kind) }, notifications(deps));
+		} catch (error) {
+			record.pushError = error instanceof Error ? error.message : String(error);
+			return;
+		}
+	}
+	record.pushError = undefined;
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
 	closeRecordPane(deps, record, msg.details.rearm === true, paneLive);
-	if (record.workflow) return;
-	pushTerminal(
-		deps,
-		{ ...msg, deliverAs: msg.deliverAs ?? deliverAsFor(deps, kind) },
-		notifications(deps),
-	);
 }
 
 /**
@@ -1083,6 +1095,10 @@ export function observeExitSidecars(
 export function registerDelivery(pi: ExtensionAPI): void {
 	if (deliveryTimer) return;
 	rememberOrchestratorSession(pi);
+	pi.on?.("session_start", (_event, ctx) => {
+		const path = ctx.sessionManager.getSessionFile();
+		if (path) restoreSpawnRegistry(path);
+	});
 	const push = makeDeliverySink(pi);
 	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {

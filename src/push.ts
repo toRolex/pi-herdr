@@ -10,6 +10,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HerdrSettings } from "./settings.js";
+import { randomUUID } from "node:crypto";
 
 /** How a push enters the orchestrator session. */
 export type DeliverAs = "steer" | "followUp" | "nextTurn";
@@ -34,9 +35,35 @@ export interface SteeredMessage {
  * every consumer (the delivery loop, the workflow run's completion report)
  * cannot drift apart.
  */
-export function makeDeliverySink(pi: ExtensionAPI): (msg: SteeredMessage) => void {
+export function makeDeliverySink(
+	pi: ExtensionAPI,
+	confirmation?: { getBranch(): readonly unknown[]; now?: () => number; timeoutMs?: number },
+): (msg: SteeredMessage) => void {
+	let getBranch = confirmation?.getBranch;
+	const pending = new Map<string, { token: string; at: number }>();
+	pi.on?.("session_start", (_event, ctx) => {
+		getBranch = () => ctx.sessionManager.getBranch();
+		pending.clear();
+	});
 	return (msg: SteeredMessage): void => {
 		try {
+			const key = JSON.stringify([msg.details.eventId, msg.details.sessionPath, msg.details.name, msg.details.kind, msg.content]);
+			const now = (confirmation?.now ?? Date.now)();
+			const existing = pending.get(key);
+			if (existing) {
+				const confirmed = getBranch?.().some(entry => {
+					const row = entry as { type?: string; customType?: string; details?: { deliveryToken?: string } };
+					return row.type === "custom_message" && row.customType === "herdr-delivery" && row.details?.deliveryToken === existing.token;
+				});
+				if (confirmed) return;
+				if (now - existing.at >= (confirmation?.timeoutMs ?? 30_000)) {
+					pending.delete(key);
+					throw new Error("delivery confirmation timeout; retained for retry");
+				}
+				throw new Error("delivery pending durable confirmation");
+			}
+			const token = randomUUID();
+			if (getBranch) pending.set(key, { token, at: now });
 			const deliverAs: DeliverAs =
 				msg.deliverAs ?? (msg.wake ? "steer" : "nextTurn");
 			pi.sendMessage(
@@ -44,13 +71,20 @@ export function makeDeliverySink(pi: ExtensionAPI): (msg: SteeredMessage) => voi
 					customType: "herdr-delivery",
 					content: msg.content,
 					display: true,
-					details: msg.details,
+					details: getBranch ? { ...msg.details, deliveryToken: token } : msg.details,
 				},
 				{
 					triggerTurn: deliverAs !== "nextTurn",
 					deliverAs,
 				},
 			);
+			if (getBranch) {
+				const confirmed = getBranch().some(entry => {
+					const row = entry as { type?: string; customType?: string; details?: { deliveryToken?: string } };
+					return row.type === "custom_message" && row.customType === "herdr-delivery" && row.details?.deliveryToken === token;
+				});
+				if (!confirmed) throw new Error("delivery pending durable confirmation");
+			}
 		} catch (err) {
 			// Surface the failure. Callers that recycle a pane (orphan
 			// delivery) must see a rejected push and leave the pane open.
