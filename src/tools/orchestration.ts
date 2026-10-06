@@ -245,19 +245,26 @@ export async function startHerdrAgent(
 /**
  * Inject text into an agent pane — the ONE send path (spawn prompts, message
  * delivery; herdr_message_agent lands here). submit=true types + presses
- * Enter (`agent prompt`); false types only (`pane send-text`).
+ * Enter (`agent prompt`); false types only (`pane send-text`). A blocked
+ * overlay uses interactive pane input because `agent prompt` rejects it.
  */
 export async function sendAgentPrompt(
 	paneId: string,
 	text: string,
-	opts: { submit?: boolean; signal?: AbortSignal } = {},
+	opts: { submit?: boolean; signal?: AbortSignal; interactive?: boolean } = {},
 ): Promise<Result<true>> {
-	if (opts.submit === false) {
+	if (opts.submit === false || opts.interactive) {
 		const r = await herdr(["pane", "send-text", paneId, text], {
 			timeoutMs: 15_000,
 			signal: opts.signal,
 		});
-		return r.ok ? { ok: true, data: true } : r;
+		if (!r.ok) return r;
+		if (opts.submit === false) return { ok: true, data: true };
+		const entered = await herdr(["pane", "send-keys", paneId, "Enter"], {
+			timeoutMs: 15_000,
+			signal: opts.signal,
+		});
+		return entered.ok ? { ok: true, data: true } : entered;
 	}
 	const r = await herdr(["agent", "prompt", paneId, text], {
 		timeoutMs: 15_000,
@@ -512,6 +519,7 @@ export interface FleetRow {
 	/** The raw coarse status (always available). */
 	agentStatus?: string;
 	stance?: string;
+	promptSubmission?: SpawnRecord["promptSubmission"];
 }
 
 export interface ListAgentsDeps {
@@ -570,6 +578,7 @@ export async function listAgentsView(
 			projected: true,
 			agentStatus: a.agentStatus,
 			stance: record.stance,
+			promptSubmission: record.promptSubmission,
 		});
 	}
 
@@ -586,6 +595,7 @@ export async function listAgentsView(
 			state: projectedLabel(record, deps, undefined, true, now()),
 			projected: true,
 			stance: record.stance,
+			promptSubmission: record.promptSubmission,
 		});
 	}
 	return { ok: true, data: { rows } };
@@ -613,7 +623,10 @@ function projectedLabel(
 		activity: (deps.readActivity ?? readActivityFile)(record.activityPath),
 		now,
 	});
-	return proj.detail ? `${proj.status} · ${proj.detail}` : proj.status;
+	const label = proj.detail ? `${proj.status} · ${proj.detail}` : proj.status;
+	return record.promptSubmission === "uncertain"
+		? `${label} · prompt submission uncertain`
+		: label;
 }
 
 // ---- registration ----------------------------------------------------------

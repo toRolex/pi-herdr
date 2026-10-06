@@ -29,11 +29,15 @@
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { resetCompletionEvent } from "./completion-event.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import {
+	assistantText,
 	clearSteerWatermark,
+	parseSessionEntries,
 	inputMatchesSteer,
 	readSteerWatermark,
+	refuseBareDone,
 	takeoverPathFor,
 } from "./sessionfile.js";
 import { compileJsonSchema, type CompiledSchema } from "./workflow/json-schema.js";
@@ -64,6 +68,9 @@ export const ENV_IDLE_REARM_MS = "PI_HERDR_IDLE_REARM_MS";
  * env var with its path — a path, not inline JSON (Windows env-block limits).
  * Set only for `agent(prompt, { schema })` children of a workflow run. */
 export const ENV_SCHEMA = "PI_HERDR_SCHEMA";
+/** Root orchestrator session file (issue 39). Stamped at spawn so a
+ * completion sidecar can name the session that may adopt an orphan. */
+export const ENV_ROOT_SESSION = "PI_HERDR_ROOT_SESSION";
 
 /** What the child produced, filled in as StructuredOutput is called.
  * PORTED from upstream `structured-output.ts` (MIT) — the capture box the
@@ -196,12 +203,50 @@ export function findLatestAssistantError(
 /** The typed completion sidecar payload for a settled run. */
 export function buildCompletionSidecar(
 	messages: AgentMessageLike[] | undefined,
+	eventId: string,
 ):
-	| { type: "done" }
-	| { type: "error"; errorMessage: string; stopReason: "error" } {
+	| { type: "done"; eventId: string }
+	| {
+			type: "error";
+			errorMessage: string;
+			stopReason: "error";
+			eventId: string;
+	  } {
 	const error = findLatestAssistantError(messages);
-	return error ? { type: "error", ...error } : { type: "done" };
+	return error
+		? { type: "error", ...error, eventId }
+		: { type: "done", eventId };
 }
+
+/**
+ * Final assistant body to commit on a declared `agent_done`. Empty when the
+ * current run has none — the caller refuses the tool instead of writing a sidecar.
+ * The SDK persists a tool-only assistant before execute; skip it, but never
+ * cross a user message or the latest agent_start's entry boundary.
+ */
+export function finalAssistantText(sessionPath: string, runStart = 0): string {
+	const entries = completionEntries(sessionPath);
+	for (let i = entries.length - 1; i >= runStart; i--) {
+		const entry = entries[i];
+		if (entry.type !== "message") continue;
+		const message = entry.message as { role?: unknown } | null | undefined;
+		if (message?.role === "user") break;
+		if (message?.role !== "assistant") continue;
+		const text = assistantText(message);
+		if (text.trim()) return text;
+	}
+	return "";
+}
+
+function completionEntries(sessionPath: string): Record<string, unknown>[] {
+	try {
+		return parseSessionEntries(readFileSync(sessionPath, "utf8")).entries;
+	} catch {
+		return [];
+	}
+}
+
+export { assistantText, refuseBareDone };
 
 /** Parse the parent-stamped denied-tools env value. */
 export function parseDeniedTools(rawValue: string | undefined): string[] {
@@ -393,6 +438,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	const childName = process.env[ENV_NAME] ?? "";
 	const agentType = process.env[ENV_AGENT] ?? "";
 	const autoExit = process.env[ENV_AUTO_EXIT] === "1";
+	const rootSession = process.env[ENV_ROOT_SESSION]?.trim() || undefined;
 	const denied = parseDeniedTools(process.env[ENV_DENIED_TOOLS]);
 	const label = agentType || childName;
 
@@ -436,15 +482,24 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	let expanded = false;
 
 	const sidecarPath = `${sessionFile}.exit`;
+	let runStart = 0;
 
 	/** Write the completion sidecar. Best-effort: a failed write must not
 	 * break the exit path (the session JSONL remains the readable truth).
 	 * `rearm` marks an idle-re-arm exit (issue 06) — the parent labels the
 	 * delivery "auto-delivered after user steer". */
+	let completionEventId = resetCompletionEvent(session);
+
 	function writeSidecar(
 		payload:
-			| { type: "done" }
-			| { type: "error"; errorMessage: string; stopReason: string },
+			| { type: "done"; text?: string; eventId?: string }
+			| {
+					type: "error";
+					errorMessage: string;
+					stopReason: string;
+					text?: string;
+					eventId?: string;
+			  },
 		rearm = false,
 	): void {
 		try {
@@ -454,13 +509,24 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 				payload.type === "done" && structured?.json !== undefined
 					? { structured: structured.json }
 					: {};
+			const rootField = rootSession ? { rootSession } : {};
+			// The marker, explicit done and settled sidecar share this run's ID.
+			// No sidecar builder may mint a second business event.
+			const eventField = {
+				eventId: completionEventId,
+			};
+			const text = finalAssistantText(session, runStart);
+			const bodyField = text.trim() ? { text } : {};
 			writeFileSync(
 				sidecarPath,
-				JSON.stringify(
-					rearm
-						? { ...payload, ...structuredField, rearm: true }
-						: { ...payload, ...structuredField },
-				),
+				JSON.stringify({
+					...payload,
+					...bodyField,
+					...structuredField,
+					...rootField,
+					...eventField,
+					...(rearm ? { rearm: true } : {}),
+				}),
 			);
 		} catch {
 			/* best-effort */
@@ -506,7 +572,18 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			"Never call it mid-task.",
 		parameters: Type.Object({}),
 		async execute(_id, _params, _signal, _onUpdate, ctx) {
-			writeSidecar({ type: "done" });
+			const text = finalAssistantText(session, runStart);
+			const refusal = refuseBareDone(text);
+			// A validated StructuredOutput payload is itself the result (prose
+			// outside that call is discarded). Refuse only when there is neither.
+			if (refusal && structured?.json === undefined) {
+				return {
+					content: [{ type: "text", text: refusal }],
+					isError: true,
+					details: {},
+				};
+			}
+			writeSidecar(refusal ? { type: "done" } : { type: "done", text });
 			ctx.shutdown();
 			return {
 				content: [
@@ -585,6 +662,9 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("agent_start", () => {
+		completionEventId = resetCompletionEvent(session);
+		latestMessages = undefined;
+		runStart = completionEntries(session).length;
 		// pi started (re)running — a retry survived the grace window decision,
 		// and a taken-over pane has new work; any pending re-arm is moot.
 		cancelErrorExit();
@@ -618,7 +698,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			if (!shouldAutoExitOnSettle(latestMessages)) return;
 			rearmTimer = setTimeout(() => {
 				rearmTimer = null;
-				writeSidecar(buildCompletionSidecar(latestMessages), true);
+				writeSidecar(buildCompletionSidecar(latestMessages, completionEventId), true);
 				ctx.shutdown();
 			}, idleRearmMs());
 			rearmTimer.unref?.();
@@ -634,7 +714,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		if (!failed) {
 			// Clean completion: the definitive settle. Sidecar + exit.
 			cancelErrorExit();
-			writeSidecar(buildCompletionSidecar(latestMessages));
+			writeSidecar(buildCompletionSidecar(latestMessages, completionEventId));
 			ctx.shutdown();
 			return;
 		}
@@ -644,7 +724,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		cancelErrorExit();
 		errorExitTimer = setTimeout(() => {
 			errorExitTimer = null;
-			writeSidecar(buildCompletionSidecar(latestMessages));
+			writeSidecar(buildCompletionSidecar(latestMessages, completionEventId));
 			ctx.shutdown();
 		}, errorExitGraceMs());
 		errorExitTimer.unref?.();

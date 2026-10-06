@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {createJiti} from 'jiti';
+import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os'; import {join} from 'node:path';
+const jiti=createJiti(import.meta.url);
+const sp=await jiti.import('../src/spawn.ts'); const dl=await jiti.import('../src/delivery.ts');
+const dir=mkdtempSync(join(tmpdir(),'delivery-entry-'));
+try {
+ const root=join(dir,'root.jsonl'),mid=join(dir,'mid.jsonl'),leaf=join(dir,'leaf.jsonl');
+ for(const p of [root,mid,leaf])writeFileSync(p,'');
+ const owner={name:'mid',kind:'pi',paneId:'w1:mid',sessionPath:mid,stance:'autonomous',lineage:{ownerSession:root,rootSession:root}};
+ const child={name:'leaf',kind:'pi',paneId:'w1:leaf',sessionPath:leaf,stance:'autonomous',lineage:{ownerSession:mid,rootSession:root}};
+ sp.writePersistedRegistry(root,[owner]); sp.writePersistedRegistry(mid,[child]);
+ writeFileSync(leaf+'.exit',JSON.stringify({type:'done',text:'orphan final',rootSession:root}));
+ sp.clearSpawnRegistry(); const handlers=new Map();
+ dl.registerDelivery({on:(n,h)=>{const a=handlers.get(n)||[];a.push(h);handlers.set(n,a);},sendMessage(){}});
+ for(const h of handlers.get('session_start')||[]) await h({}, {sessionManager:{getSessionFile:()=>root},ui:{notify(){}}});
+ assert.equal(sp.spawnRecords().size,1,'real session_start restores root records');
+ const pushes=[];
+ await dl.deliverOnce({sessionPath:root,load:()=>({notifications:'normal'}),fleet:{ok:true,data:[{paneId:'w1:leaf',agentStatus:'done'}]},push:m=>pushes.push(m),closePane:async()=>{}});
+ assert.equal(pushes.length,1,'restored root adopts orphan completion');
+ assert.equal(sp.readPersistedRegistry(mid)[0].delivery.kind,'done');
+ sp.writePersistedRegistry(mid,[child]);
+ const overlapPushes=[]; let closes=0, release;
+ const held=new Promise(r=>{release=r;});
+ const deps={registry:()=>new Map([['mid',owner]]),sessionPath:root,load:()=>({notifications:'normal'}),fleet:{ok:true,data:[{paneId:'w1:leaf',agentStatus:'done'}]},push:m=>overlapPushes.push(m),closePane:async()=>{closes++;await held;return {ok:true};}};
+ const first=dl.deliverOnce(deps);await new Promise(r=>setTimeout(r,10));
+ const second=dl.deliverOnce(deps);await new Promise(r=>setTimeout(r,10));release();await Promise.all([first,second]);
+ assert.equal(overlapPushes.length,1,'overlapping ticks adopt the same completion only once');
+ assert.equal(closes,1,'overlapping ticks close once');
+ console.log('delivery-entry: passed');
+} finally {dl.stopDeliveryLoop();sp.clearSpawnRegistry();rmSync(dir,{recursive:true,force:true});}

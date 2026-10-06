@@ -71,6 +71,7 @@ export interface ResultView {
 	kind?: string;
 	type?: string;
 	stance?: string;
+	promptSubmission?: SpawnRecord["promptSubmission"];
 	status: ResultStatus;
 	/** `bash 7m` / `streaming 12s` — the activity snapshot's detail,
 	 * rendered as `active · bash 7m`. */
@@ -173,6 +174,7 @@ function viewBase(
 		kind: record.kind,
 		type: record.type,
 		stance: record.stance,
+		promptSubmission: record.promptSubmission,
 		source: "registry",
 		...(record.sessionPath
 			? {
@@ -558,6 +560,14 @@ function fail(r: Err): ToolReturn {
 
 /** Render a ResultView as the tool's text + error flag. */
 function render(view: ResultView): ToolReturn {
+	const result = renderStatus(view);
+	if (view.promptSubmission === "uncertain") {
+		result.content.push({ type: "text", text: "Prompt submission uncertain: the task was pasted once; it was not pasted again. Inspect the pane before retrying." });
+	}
+	return result;
+}
+
+function renderStatus(view: ResultView): ToolReturn {
 	const label = view.name ?? view.target;
 	const where = view.sessionPath ? ` (session: ${view.sessionPath})` : "";
 	switch (view.status) {

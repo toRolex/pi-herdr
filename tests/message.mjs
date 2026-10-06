@@ -1,6 +1,8 @@
 // Offline tests for the open message channel (issue 05): the resolution chain
-// (pane-id / herdr name / registry handle / reserved orchestrator role, real
-// names beating reserved), physics-adaptive delivery (blocked → raw answer,
+// (pane-id / herdr name / registry handle). The reserved role "orchestrator"
+// is only the direct parent pane (PI_HERDR_ORCHESTRATOR_PANE) — a live agent
+// or spawn handle of that name does not take it. Physics-adaptive delivery
+// (blocked → raw answer,
 // otherwise enveloped), the receipt shapes, and the spawner-declared `from`
 // identity chain.
 //
@@ -219,16 +221,44 @@ console.log("\n[3] Reserved role — orchestrator");
 		"dead orchestrator pane errors naming the pane",
 	);
 
-	// a REAL agent named orchestrator beats the reserved role
-	const real = await msg.messageAgent(
+	// a live agent named orchestrator must not take the reserved role
+	const sendNamed = recorder();
+	const named = await msg.messageAgent(
 		{ target: "orchestrator", text: "hello" },
-		DEPS({ agentGet: okGet("w1:p7", "orchestrator", "idle") }),
+		DEPS({
+			agentGet: async (t) => {
+				if (t === "orchestrator")
+					return { ok: true, data: { paneId: "w1:p7", name: "orchestrator", status: "idle" } };
+				if (t === "w1:p0")
+					return { ok: true, data: { paneId: "w1:p0", name: "the-boss", status: "working" } };
+				return { ok: false, error: { code: "NOT_FOUND", message: "no such agent" } };
+			},
+			env,
+			send: sendNamed,
+		}),
 	);
 	assert(
-		real.ok && real.data.target === "w1:p7" && real.data.to === "orchestrator",
-		"real herdr agent named orchestrator wins (resolved before env consult)",
+		named.ok && named.data.target === "w1:p0" && named.data.to === "orchestrator",
+		"same-name agent does not steal the alias; it still resolves to the parent pane",
 	);
-	assert(!("name" in real.data), "no registry handle claimed for a foreign agent");
+	assert(sendNamed.calls.length === 1 && sendNamed.calls[0].paneId === "w1:p0", "text went to the parent, not w1:p7");
+	assert(!("name" in named.data), "no registry handle claimed for the role");
+
+	// unset env stays the honest error even when that name is live in the fleet
+	const sendUnset = recorder();
+	const unsetNamed = await msg.messageAgent(
+		{ target: "orchestrator", text: "hello" },
+		DEPS({
+			agentGet: okGet("w1:p7", "orchestrator", "idle"),
+			send: sendUnset,
+		}),
+	);
+	assert(
+		unsetNamed.ok === false &&
+			unsetNamed.error.message.includes("no orchestrator above you"),
+		"unset env still says there is no orchestrator above you when a namesake is live",
+	);
+	assert(sendUnset.calls.length === 0, "unset env does not deliver to the namesake");
 }
 
 console.log("\n[4] No match");
@@ -301,6 +331,27 @@ console.log("\n[5] Physics-adaptive delivery");
 	await msg.messageAgent({ target: "scout", text: "x" }, def);
 	assert(def.send.calls[0].opts.submit === true, "submit defaults true");
 
+	const eventSend = recorder();
+	const withEvent = await msg.messageAgent(
+		{ target: "scout", text: "the letter", eventId: "evt-msg-1" },
+		DEPS({ agentGet: okGet("w1:p1", "scout", "idle"), send: eventSend }),
+	);
+	assert(
+		withEvent.ok &&
+			eventSend.calls[0].text.includes('event="evt-msg-1"') &&
+			withEvent.data.eventId === "evt-msg-1",
+		"messageAgent({eventId}) puts event= on the envelope and eventId on the receipt",
+	);
+	const plainSend = recorder();
+	const plain = await msg.messageAgent(
+		{ target: "scout", text: "no id" },
+		DEPS({ agentGet: okGet("w1:p1", "scout", "working"), send: plainSend }),
+	);
+	assert(
+		!plainSend.calls[0].text.includes("event=") && plain.data.eventId === undefined,
+		"a message without eventId is not given one",
+	);
+
 	// send failure propagates
 	const broken = await msg.messageAgent(
 		{ target: "scout", text: "x" },
@@ -319,6 +370,13 @@ console.log("\n[6] `from` identity chain (spawner-declared, never verified)");
 	assert(
 		eq(msg.envelope("a", "b", "hi"), '<agent-message from="a" to="b">\nhi\n</agent-message>'),
 		"envelope shape: <agent-message from to> wrapping the text",
+	);
+	assert(
+		eq(
+			msg.envelope("a", "b", "hi", "evt-9"),
+			'<agent-message from="a" to="b" event="evt-9">\nhi\n</agent-message>',
+		),
+		"envelope with an eventId adds the event attribute",
 	);
 
 	const label = await msg.senderLabel(DEPS({ env: { PI_HERDR_AGENT_LABEL: "lab" } }));
@@ -393,6 +451,214 @@ console.log("\n[7] Receipt shape + registration");
 	assert(
 		tool.description.includes("herdr_send_keys"),
 		"description carries the option-list caveat",
+	);
+}
+
+console.log("\n[9] Sender transport does not own receiver admission or pending queues");
+{
+ const send = recorder();
+ for (let i = 0; i < 25; i++) {
+  const r = await msg.messageAgent({target:"scout",text:`n${i}`,pending:true}, DEPS({agentGet:okGet("w1:p1","scout","idle"),send,env:{PI_HERDR_AGENT_LABEL:"flood"}}));
+  assert(r.ok && r.data.delivered && !r.data.queued, "legacy pending flag does not hold text in sender process");
+ }
+ assert(send.calls.length === 25, "receiver receives every transport input and applies its own shared budget");
+ const answer = await msg.messageAgent({target:"scout",text:"raw answer"}, DEPS({agentGet:okGet("w1:p1","scout","blocked"),send}));
+ assert(answer.ok && send.calls.at(-1).text === "raw answer", "blocked answer stays raw and exempt");
+}
+
+console.log("\n[9] Known generations — refuse a cross-generation send and name the handles");
+{
+	// gp spawned parent. parent spawned this sender (mid), sibling, and cousin.
+	// mid spawned child. child spawned grandchild — one generation past mid.
+	const GP = "/sessions/gp.jsonl";
+	const PARENT = "/sessions/parent.jsonl";
+	const MID = "/sessions/mid.jsonl";
+	const CHILD = "/sessions/child.jsonl";
+	const lin = (owner) => ({ rootSession: GP, ownerSession: owner });
+	const parent = record({
+		name: "parent",
+		paneId: "w1:p0",
+		sessionPath: PARENT,
+		lineage: lin(GP),
+	});
+	const senderRec = record({
+		name: "mid",
+		paneId: "w1:p1",
+		sessionPath: MID,
+		lineage: lin(PARENT),
+	});
+	const sibling = record({
+		name: "sibling",
+		paneId: "w1:p2",
+		sessionPath: "/sessions/sib.jsonl",
+		lineage: lin(PARENT),
+	});
+	const child = record({
+		name: "child",
+		paneId: "w1:p3",
+		sessionPath: CHILD,
+		lineage: lin(MID),
+	});
+	const cousin = record({
+		name: "cousin",
+		paneId: "w1:p4",
+		sessionPath: "/sessions/cousin.jsonl",
+		lineage: lin(PARENT),
+	});
+	const grandchild = record({
+		name: "grandchild",
+		paneId: "w1:p5",
+		sessionPath: "/sessions/grand.jsonl",
+		lineage: lin(CHILD),
+	});
+	const mine = [child];
+	const fleet = [
+		{ name: "parent", paneId: "w1:p0" },
+		{ name: "sibling", paneId: "w1:p2" },
+		{ name: "child", paneId: "w1:p3" },
+		{ name: "cousin", paneId: "w1:p4" },
+		{ name: "grandchild", paneId: "w1:p5" },
+	];
+	const bySession = {
+		[GP]: [parent],
+		[PARENT]: [senderRec, sibling, cousin],
+		[MID]: [child],
+		[CHILD]: [grandchild],
+	};
+	const send = recorder();
+	const deps = (over = {}) => ({
+		registry: registryWith(mine),
+		agentGet: async (t) => {
+			const hit = fleet.find((a) => a.paneId === t || a.name === t);
+			if (!hit)
+				return { ok: false, error: { code: "NOT_FOUND", message: "no such agent" } };
+			return { ok: true, data: { paneId: hit.paneId, name: hit.name, status: "idle" } };
+		},
+		send,
+		list: async () => fleet,
+		// A session with no registry file is empty. A throw is reserved for
+		// the failed-read case below — missing is not a failure.
+		readRegistry: (session) =>
+			Object.prototype.hasOwnProperty.call(bySession, session)
+				? [...bySession[session]]
+				: [],
+		env: {
+			PI_HERDR_SESSION: MID,
+			PI_HERDR_ROOT_SESSION: GP,
+			PI_HERDR_ORCHESTRATOR_PANE: "w1:p0",
+			PI_HERDR_NAME: "mid",
+		},
+		...over,
+	});
+
+	const same = await msg.messageAgent({ target: "sibling", text: "peer" }, deps());
+	assert(
+		same.ok === true && same.data.target === "w1:p2" && send.calls.at(-1).paneId === "w1:p2",
+		"same generation (same ownerSession) explicit send succeeds",
+	);
+
+	const up = await msg.messageAgent({ target: "parent", text: "hi parent" }, deps());
+	assert(
+		up.ok === true && up.data.target === "w1:p0",
+		"explicit send to the direct parent pane succeeds",
+	);
+
+	const down = await msg.messageAgent({ target: "child", text: "hi child" }, deps());
+	assert(
+		down.ok === true && down.data.target === "w1:p3",
+		"explicit send to the sender's own direct child succeeds",
+	);
+
+	const alias = await msg.messageAgent({ target: "orchestrator", text: "status?" }, deps());
+	assert(
+		alias.ok === true && alias.data.to === "orchestrator" && alias.data.target === "w1:p0",
+		"orchestrator still resolves only to the direct parent pane",
+	);
+
+	// Real CLI lineage: root has no record of its own. Its direct child's
+	// orchestratorPane identifies it alongside rootSession/ownerSession.
+	parent.orchestratorPane = "w74:p2";
+	fleet.push({ name: "c-root-resume", paneId: "w74:p2" });
+	const rootBefore = send.calls.length;
+	const rootSend = await msg.messageAgent({ target: "w74:p2", text: "skip parent" }, deps());
+	assert(!rootSend.ok && rootSend.error.code === "VALIDATION_ERROR", "known root pane without its own SpawnRecord is refused from a grandchild");
+	assert(send.calls.length === rootBefore, "known root refusal neither sends nor redirects");
+	const rootDirect = await msg.messageAgent({ target: "w74:p2", text: "direct parent" }, deps({ env: { PI_HERDR_SESSION: PARENT, PI_HERDR_ROOT_SESSION: GP, PI_HERDR_ORCHESTRATOR_PANE: "w74:p2" } }));
+	assert(rootDirect.ok, "root metadata does not block its direct child");
+
+	const before = send.calls.length;
+	const skip = await msg.messageAgent({ target: "grandchild", text: "skip a generation" }, deps());
+	const skipMsg = skip.ok ? "" : skip.error.message;
+	const usable = skipMsg.split("Keep using:")[1] ?? "";
+	assert(
+		skip.ok === false &&
+			skip.error.code === "VALIDATION_ERROR" &&
+			skipMsg.includes('"grandchild"') &&
+			usable.includes("parent") &&
+			usable.includes("sibling") &&
+			usable.includes("child") &&
+			usable.includes("cousin") &&
+			!usable.includes("grandchild"),
+		"a known grandchild is refused and Keep using lists only the reachable handles",
+	);
+	assert(send.calls.length === before, "a refused cross-generation send is not redirected");
+
+	const bareSend = recorder();
+	const bare = await msg.messageAgent(
+		{ target: "w1:p9", text: "stranger" },
+		deps({
+			send: bareSend,
+			agentGet: async (t) =>
+				t === "w1:p9" || t === "stranger"
+					? { ok: true, data: { paneId: "w1:p9", name: "stranger", status: "idle" } }
+					: {
+							ok: false,
+							error: { code: "NOT_FOUND", message: "no such agent" },
+						},
+		}),
+	);
+	assert(
+		bare.ok === true && bare.data.target === "w1:p9" && bareSend.calls.length === 1,
+		"an unowned bare pane (no registry, no lineage) still accepts an explicit pane-id",
+	);
+
+	const namedBare = await msg.messageAgent(
+		{ target: "stranger", text: "by name" },
+		deps({
+			send: recorder(),
+			agentGet: async (t) =>
+				t === "stranger"
+					? { ok: true, data: { paneId: "w1:p9", name: "stranger", status: "idle" } }
+					: { ok: false, error: { code: "NOT_FOUND", message: "no such agent" } },
+		}),
+	);
+	assert(
+		namedBare.ok === true && namedBare.data.target === "w1:p9",
+		"an unowned bare pane still accepts an explicit herdr name",
+	);
+
+	const broken = await msg.messageAgent(
+		{ target: "sibling", text: "peer" },
+		deps({ list: async () => { throw new Error("agent list down"); } }),
+	);
+	assert(
+		broken.ok === false &&
+			broken.error.message.includes("agent list down") &&
+			!broken.error.message.includes("Delivered"),
+		"a failed fleet query is an honest error, not permission to send",
+	);
+
+	const brokenReg = await msg.messageAgent(
+		{ target: "sibling", text: "peer" },
+		deps({
+			readRegistry: () => {
+				throw new Error("spawn registry unreadable");
+			},
+		}),
+	);
+	assert(
+		brokenReg.ok === false && brokenReg.error.message.includes("spawn registry unreadable"),
+		"a failed registry read is an honest error, not permission to send",
 	);
 }
 

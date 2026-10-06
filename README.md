@@ -148,7 +148,7 @@ Changing `layout_mode` affects future pane creation only. It does not move exist
 
 For pi children spawned by this session, result inspection reads the exact final assistant text from the retained session JSONL, not a screen scrape. Mid-flight responses are interim snapshots. Failures expose typed errors. Non-pi children and panes spawned elsewhere use a potentially truncated pane-tail fallback.
 
-Messages resolve a pane ID or herdr name first, then a spawn handle, then the reserved `orchestrator` role. Real names win over the role. A normal message uses an `<agent-message from="…" to="…">` envelope. Its identity is declared by the spawner, not verified.
+Messages resolve a pane ID or herdr name first, then a spawn handle. The reserved `orchestrator` role is only the sender's direct parent; a same-name agent does not take it. A normal message uses an `<agent-message from="…" to="…">` envelope. Its identity is declared by the spawner, not verified.
 
 A blocked freeform question takes raw text through `herdr_message_agent`. An option-list question takes logical keys through `herdr_send_keys`. Queued children have no pane to receive a message, and gone targets refuse delivery.
 

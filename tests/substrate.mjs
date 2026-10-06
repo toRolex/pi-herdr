@@ -301,9 +301,10 @@ console.log("\n[6] Child extension — pure fns");
 	);
 	assert(
 		eq(
-			child.buildCompletionSidecar([{ role: "assistant", stopReason: "stop" }]),
+			child.buildCompletionSidecar([{ role: "assistant", stopReason: "stop" }], "run-normal"),
 			{
 				type: "done",
+				eventId: "run-normal",
 			},
 		),
 		"sidecar typing: settled normal → done",
@@ -312,11 +313,12 @@ console.log("\n[6] Child extension — pure fns");
 		eq(
 			child.buildCompletionSidecar([
 				{ role: "assistant", stopReason: "error", errorMessage: "boom" },
-			]),
+			], "run-error"),
 			{
 				type: "error",
 				errorMessage: "boom",
 				stopReason: "error",
+				eventId: "run-error",
 			},
 		),
 		"sidecar typing: retry exhaustion → typed error",
@@ -375,7 +377,19 @@ console.log("\n[7] Child extension — registration against a mock pi");
 
 	const dir = mkdtempSync(join(tmpdir(), "pi-herdr-child-"));
 	const sess = join(dir, "s.jsonl");
-	writeFileSync(sess, "");
+	writeFileSync(
+		sess,
+		[
+			{ type: "message", message: { role: "user", content: "current task" } },
+			{ type: "message", message: {
+				role: "assistant", content: [{ type: "text", text: "final letter" }], stopReason: "stop",
+			} },
+			{ type: "message", message: {
+				role: "assistant", stopReason: "toolUse",
+				content: [{ type: "toolCall", id: "t1", name: "agent_done", arguments: {} }],
+			} },
+		].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+	);
 	process.env.PI_HERDR_SESSION = sess;
 	process.env.PI_HERDR_NAME = "scout";
 	process.env.PI_HERDR_AGENT = "Explore";
@@ -404,16 +418,44 @@ console.log("\n[7] Child extension — registration against a mock pi");
 		const settle = registered.handlers.agent_settled?.[0];
 		assert(!!settle, "agent_settled wired (the definitive idle signal)");
 
-		// agent_done: writes {type:"done"} + shuts down
+		// agent_done: writes {type:"done", text} + shuts down
 		let shut = 0;
 		await done.execute("t1", {}, undefined, undefined, {
 			shutdown: () => shut++,
 		});
+		const declared = JSON.parse(readFileSync(`${sess}.exit`, "utf8"));
 		assert(
-			JSON.parse(readFileSync(`${sess}.exit`, "utf8")).type === "done",
-			"agent_done wrote the typed done sidecar",
+			declared.type === "done" && declared.text === "final letter",
+			"agent_done wrote the typed done sidecar with the final text",
 		);
 		assert(shut === 1, "agent_done exits the session");
+
+		// bare agent_done (no assistant text) is an error result: no shutdown,
+		// no sidecar rewrite, process stays up
+		writeFileSync(sess, "");
+		shut = 0;
+		const refused = await done.execute("t1b", {}, undefined, undefined, {
+			shutdown: () => shut++,
+		});
+		assert(
+			shut === 0 &&
+				refused.isError === true &&
+				typeof refused.content?.[0]?.text === "string" &&
+				refused.content[0].text.length > 0 &&
+				JSON.parse(readFileSync(`${sess}.exit`, "utf8")).text === "final letter",
+			"bare agent_done is refused without shutdown or a new sidecar",
+		);
+		writeFileSync(
+			sess,
+			JSON.stringify({
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "final letter" }],
+					stopReason: "stop",
+				},
+			}) + "\n",
+		);
 
 		// auto-exit on settle: agent_end holds messages, settle writes + exits
 		shut = 0;
@@ -552,6 +594,7 @@ console.log("\n[8] Launch plan — --session + -e injection and registry growth"
 		},
 		worktree: async () => ({ ok: true, data: "D:/wt/auto-branch" }),
 		childExtension: "/ext/child.ts",
+		parentSession: "/sessions/root.jsonl",
 		// Accept-all registry: this suite is about the substrate, not routing —
 		// but a model pin must validate against SOME registry to spawn at all.
 		registry: {
@@ -597,8 +640,14 @@ console.log("\n[8] Launch plan — --session + -e injection and registry growth"
 			started[0].env.PI_HERDR_AGENT === "scout" &&
 			started[0].env.PI_HERDR_AUTO_EXIT === "1" &&
 			started[0].env.PI_HERDR_DENIED_TOOLS === "write" &&
-			started[0].env.PI_HERDR_SPAWN_DEPTH === "2",
-		"child env carries the substrate contract (PI_HERDR_*)",
+			started[0].env.PI_HERDR_SPAWN_DEPTH === "2" &&
+			started[0].env.PI_HERDR_ROOT_SESSION === "/sessions/root.jsonl",
+		"child env carries the substrate contract (PI_HERDR_*) and the root session pointer",
+	);
+	assert(
+		rec.lineage?.rootSession === "/sessions/root.jsonl" &&
+			rec.lineage?.ownerSession === "/sessions/root.jsonl",
+		"the spawn record stores lineage: root pointer and this session as owner",
 	);
 	assert(
 		r.data.stance === "autonomous" && r.data.sessionPath === rec.sessionPath,

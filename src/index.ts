@@ -13,16 +13,19 @@
 // isolated worktrees, the poll loop, kill-all's pane closes). The /subagents
 // command is the only command.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerOrchestration } from "./tools/orchestration.js";
 import { registerResultTool } from "./tools/result.js";
 import { registerMessageTool } from "./tools/message.js";
+import { parseAgentMessage, handleAgentMessageInput } from "./agent-message.js";
+import { registerReceiverInbox } from "./inbox.js";
 import { registerLifecycle } from "./tools/lifecycle.js";
 import { registerAgents } from "./tools/agents.js";
 import { registerPaneSync } from "./tools/sync.js";
 import { registerWorkflowTool } from "./tools/workflow.js";
 import { stopAllWorkflowRuns } from "./workflow/runs.js";
 import { registerDelivery, stopDeliveryLoop } from "./delivery.js";
+import { registerDeliveryRenderer } from "./delivery-render.js";
 import { registerFleetWidget } from "./widget.js";
 import { registerSelfReport } from "./selfreport.js";
 import { registerSubagentsCommand } from "./menu.js";
@@ -42,6 +45,7 @@ export default function (pi: ExtensionAPI): void {
 	registerOrchestration(pi);
 	registerResultTool(pi);
 	registerMessageTool(pi);
+	registerReceiverInbox(pi, { parse: parseAgentMessage, deliver: handleAgentMessageInput });
 	// Lifecycle actions (v0.6 issue 10): herdr_interrupt_agent (turn cancel)
 	// + herdr_resume_agent (the gone-agent recovery move on the retained
 	// session file).
@@ -57,6 +61,14 @@ export default function (pi: ExtensionAPI): void {
 	// messages, takeover notes, blocked wakes — with wake governed by the
 	// `notifications` setting (blocked always wakes).
 	registerDelivery(pi);
+	// Transcript fold (issue #30) and the one-notice merge (issue #38).
+	// Reload rebuilds history before session_start; register now, read the
+	// fresh context only when rendering. Steered content stays unchanged.
+	let renderContext: ExtensionContext | undefined;
+	registerDeliveryRenderer(pi, {
+		getBranch: () => renderContext?.sessionManager.getBranch() ?? [],
+	});
+	pi.on("session_start", (_event, ctx) => { renderContext = ctx; });
 	pi.on("session_shutdown", () => {
 		stopDeliveryLoop();
 		// Workflow runs do not outlive their session (issue 12): terminate the

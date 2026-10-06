@@ -17,9 +17,13 @@
 //
 // Wake governance (the `notifications` setting): `normal` → steer + wake,
 // `quiet` → next natural turn (no wake), `none` → no terminal push at all
-// (pull-only; results stay in the registry + JSONL). A BLOCKED child always
-// wakes regardless of the setting — unless a human took the pane over (no
-// mid-conversation pushes from a taken-over pane; the human is right there).
+// (pull-only; results stay in the registry + JSONL). A `done` push read while
+// the orchestrator is busy queues as followUp + wake instead of steer — the
+// running tool is not cancelled. blocked and stalled stay steer. error keeps
+// the notifications matrix (quiet → nextTurn, none → no push, normal → steer).
+// A BLOCKED child always wakes regardless of the setting — unless a human took
+// the pane over (no mid-conversation pushes from a taken-over pane; the human
+// is right there).
 //
 // User takeover arrives as the `<session>.takeover` marker written by the
 // child extension (human typing that is not the parent's own steer echo):
@@ -27,6 +31,8 @@
 // mid-conversation pushes for that record. A final result still lands —
 // declared (`agent_done`) or re-armed (idle re-arm, labeled).
 
+import { statSync, watch, type FSWatcher } from "node:fs";
+import { basename, dirname } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { fleetList, herdr } from "./herdr.js";
 import { extractText, type NormalizedAgent, type Result } from "./env.js";
@@ -40,6 +46,7 @@ import {
 	minedAssistantError,
 	readExitSidecar,
 	readTakeoverMarker,
+	sidecarPathFor,
 	type ExtractedResult,
 	type ReadSidecarResult,
 	type ReadTakeoverResult,
@@ -51,8 +58,25 @@ import {
 	type ActivityRead,
 } from "./status.js";
 import { fleetWidgetOnce } from "./widget.js";
-import { spawnRecords, type DeliveryKind, type SpawnRecord } from "./spawn.js";
-import { type SteeredMessage, makeDeliverySink, terminalWake } from "./push.js";
+import {
+	readPersistedRegistry,
+	restoreSpawnRegistry,
+	spawnRecords,
+	writePersistedRegistry,
+	type DeliveryKind,
+	type SpawnRecord,
+} from "./spawn.js";
+import {
+	currentOrchestratorSession,
+	type DeliverAs,
+	type SteeredMessage,
+	makeDeliverySink,
+	rememberOrchestratorSession,
+	trackOrchestratorBusy,
+	terminalWake,
+} from "./push.js";
+
+export { makeDeliverySink };
 
 // ---- types -----------------------------------------------------------------
 
@@ -85,6 +109,35 @@ export interface DeliveryDeps {
 	 * Throws (or rejects) when the read itself failed; an empty string is a pane
 	 * that was read and held nothing. */
 	readTail?: (paneId: string) => Promise<string>;
+	/**
+	 * Orchestrator streaming state at the moment of a push. True while a run
+	 * (or compaction) is in progress. Default false — older callers stay on
+	 * the idle steer path. A true reading queues a `done` push as followUp;
+	 * it does not cancel a tool that is already running.
+	 */
+	busy?: () => boolean;
+	/** Sidecar appearance watcher. Default: fs.watch on the session's directory.
+	 * A throw means the watcher is unavailable; the 2.5s poll remains the backstop. */
+	watchSidecar?: (
+		path: string,
+		onWrite: (event: { mtimeMs?: number }) => void,
+	) => { close(): void };
+	/** Debug line (detect latency). Default: stderr, so a quiet parent stays quiet. */
+	debug?: (line: string) => void;
+	/** Sidecar mtime in ms epoch, measured when the push is about to land.
+	 * Default: the file's mtime. */
+	sidecarWrittenAt?: (sessionPath: string) => number | undefined;
+	/** This orchestrator's session file. Default: the path remembered at
+	 * session_start. Adoption only delivers into this session. */
+	sessionPath?: string;
+	/** Another session's persisted spawn registry. A throw is a failed
+	 * observation — not an empty registry, and not an orphan. */
+	readRegistry?: (sessionPath: string) => readonly SpawnRecord[];
+	/** Write a registry back after an adopted delivery so resume does not
+	 * push the same letter again. */
+	writeRegistry?: (sessionPath: string, records: readonly SpawnRecord[]) => void;
+	/** Adoption's owner mark must be durable before pane recycling. */
+	persistAdopted?: () => void;
 }
 
 // ---- push composition ---------------------------------------------------------
@@ -134,12 +187,15 @@ function doneContent(
 	record: SpawnRecord,
 	extracted: ExtractedResult | null,
 	rearm: boolean,
+	sidecarText?: string,
 ): string {
 	const label = rearm ? "auto-delivered after user steer: " : "";
+	const committed = sidecarText?.trim() ? sidecarText : undefined;
+	const mined = extracted && extracted.text.trim() ? extracted.text : undefined;
 	const body =
-		extracted && extracted.text.trim()
-			? extracted.text
-			: "(the child finished but its session file holds no assistant message)";
+		committed ??
+		mined ??
+		"(the child finished but its session file holds no assistant message)";
 	return `${label}Agent "${record.name}" finished — full final message:\n\n${body}${sessionNote(record)}`;
 }
 
@@ -161,15 +217,61 @@ function goneContent(record: SpawnRecord): string {
 
 // ---- the delivery pass --------------------------------------------------------
 
+/** A background start's readback is a separate event, not a terminal result. */
+function deliverPromptSubmission(record: SpawnRecord, deps: DeliveryDeps): void {
+	const submission = record.promptSubmission;
+	if (!submission || record.promptSubmissionNotified === submission) return;
+	if (!deps.push || notifications(deps) === "none") return;
+	deps.push({
+		content: submission === "confirmed"
+			? `Agent "${record.name}": prompt submission confirmed.`
+			: `Agent "${record.name}": prompt submission uncertain — the task was pasted once; it was not pasted again. Inspect the pane before retrying.`,
+		details: { name: record.name, kind: "prompt-submission", promptSubmission: submission },
+		wake: terminalWake(notifications(deps)),
+	});
+	record.promptSubmissionNotified = submission;
+	const owner = deps.sessionPath ?? record.lineage?.ownerSession ?? currentOrchestratorSession();
+	if (owner) {
+		(deps.writeRegistry ?? writePersistedRegistry)(owner, [...(deps.registry ?? spawnRecords)().values()]);
+	}
+}
+
+
 /**
  * One pass over the registry: takeover notes, terminal pushes, blocked wakes.
  * Non-blocking — the loop calls it on an interval; tests call it directly and
  * advance their own clock between calls.
  */
-export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
+let deliverySerial: Promise<void> = Promise.resolve();
+
+export function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
+	const result = deliverySerial.then(async () => {
+		const before = new Map([...spawnRecords()].map(([name, record]) => [name, { delivery: record.delivery, promptSubmissionNotified: record.promptSubmissionNotified }]));
+		await deliverOnceSerial(deps);
+		const path = deps.sessionPath ?? currentOrchestratorSession();
+		if (path && !deps.registry) {
+			try {
+				(deps.writeRegistry ?? writePersistedRegistry)(path, [...spawnRecords().values()]);
+			} catch (error) {
+				const message = `own registry persistence failed: ${error instanceof Error ? error.message : String(error)}`;
+				for (const [name, record] of spawnRecords()) {
+					record.delivery = before.get(name)?.delivery;
+					record.promptSubmissionNotified = before.get(name)?.promptSubmissionNotified;
+					record.pushError = message;
+				}
+				throw new Error(message);
+			}
+		}
+	});
+	deliverySerial = result.catch(() => {});
+	return result;
+}
+
+async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 	const registry = (deps.registry ?? spawnRecords)();
 	if (registry.size === 0) return;
 	const records = [...registry.values()];
+	for (const record of records) deliverPromptSubmission(record, deps);
 	const now = deps.now ?? (() => Date.now());
 	const push = deps.push ?? (() => {});
 	const graceMs = deps.goneGraceMs ?? 10_000;
@@ -222,7 +324,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 		// --- never started (a queued record failed in the drain loop, after
 		// the spawn tool had already returned "queued")
 		if (record.startError) {
-			deliverTerminal(deps, record, "start-error", {
+			await deliverTerminal(deps, record, "start-error", {
 				content: `Agent "${record.name}" never started: ${record.startError}`,
 				details: { name: record.name, kind: "start-error" },
 				wake: terminalWake(notifications(deps)),
@@ -237,7 +339,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 		if (isPi && record.sessionPath) {
 			const sidecar = (deps.readSidecar ?? readExitSidecar)(record.sessionPath);
 			if (sidecar.state === "ok") {
-				deliverSidecar(record, sidecar.sidecar, deps, paneLive(record.paneId));
+				await deliverSidecar(record, sidecar.sidecar, deps, paneLive(record.paneId));
 				continue;
 			}
 		}
@@ -261,7 +363,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 					// still deliverable (typed error when stopReason=error)
 					const mined = minedAssistantError(extracted.message);
 					if (mined) {
-						deliverTerminal(
+						await deliverTerminal(
 							deps,
 							record,
 							"error",
@@ -278,7 +380,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 							},
 						);
 					} else {
-						deliverTerminal(
+						await deliverTerminal(
 							deps,
 							record,
 							"done",
@@ -299,7 +401,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 				}
 			}
 			// route 3: nothing on disk — an honest gone note (session retained)
-			deliverTerminal(
+			await deliverTerminal(
 				deps,
 				record,
 				"gone",
@@ -331,6 +433,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 						`answer with herdr_message_agent (raw text) or herdr_send_keys (option lists).`,
 					details: { name: record.name, kind: "blocked" },
 					wake: true,
+					deliverAs: "steer",
 				});
 			}
 			continue;
@@ -352,7 +455,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 				const stop = (extracted?.message as { stopReason?: unknown } | undefined)?.stopReason;
 				if (extracted && (stop === "stop" || stop === "error")) {
 					const mined = minedAssistantError(extracted.message);
-					deliverTerminal(
+					await deliverTerminal(
 						deps,
 						record,
 						mined ? "error" : "done",
@@ -377,7 +480,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 				// the next tick retries. An empty tail is not a result.
 				const text = await readPaneTail(deps, record.paneId);
 				if (!text.trim()) continue;
-				deliverTerminal(deps, record, "done", {
+				await deliverTerminal(deps, record, "done", {
 					content: tailContent(record, text),
 					details: { name: record.name, kind: "done", result: text },
 					wake: terminalWake(notifications(deps)),
@@ -385,57 +488,155 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 			}
 		}
 	}
+
+	await adoptOrphans(deps, records, statusByPane);
 }
 
-function deliverSidecar(
+/**
+ * Claim a settled child whose registry owner is gone (issue 39). The owner
+ * is gone only when this tick's fleet does not list its pane. A registry
+ * read that throws is a failed observation, not an empty registry, and is
+ * not a claim. A living owner keeps the result. The letter is pushed into
+ * THIS session only when the record and sidecar name it as the root.
+ * The owner's registry is written back with the delivery mark so a later
+ * tick — including resume — does not push the same letter again.
+ */
+async function adoptOrphans(
+	deps: DeliveryDeps,
+	records: SpawnRecord[],
+	statusByPane: Map<string, string>,
+): Promise<void> {
+	const self = deps.sessionPath ?? currentOrchestratorSession();
+	if (!self) return;
+	const read = deps.readRegistry ?? readPersistedRegistry;
+	const write = deps.writeRegistry ?? writePersistedRegistry;
+	const seen = new Set<string>();
+	const pending = [...records];
+	while (pending.length > 0) {
+		const owner = pending.shift();
+		if (!owner?.sessionPath || !owner.paneId || seen.has(owner.sessionPath)) continue;
+		if (statusByPane.has(owner.paneId)) continue;
+		seen.add(owner.sessionPath);
+		let children: SpawnRecord[];
+		try {
+			children = [...read(owner.sessionPath)];
+		} catch {
+			continue;
+		}
+		let dirty = false;
+		for (const child of children) {
+			if (child.sessionPath && child.paneId && !statusByPane.has(child.paneId)) {
+				pending.push(child);
+			}
+			if (child.delivery) {
+				// The letter was already confirmed. A rejected close stays pending
+				// and is retried here — working/blocked and takeover still hold the
+				// pane (the same guards as the first close).
+				if (child.paneClosePending && child.paneId) {
+					const again = statusByPane.get(child.paneId);
+					if (again !== "working" && again !== "blocked") {
+						await closeDeliveredPane(deps, child, false, false);
+						dirty = true;
+					}
+				}
+				continue;
+			}
+			const live = child.paneId ? statusByPane.get(child.paneId) : undefined;
+			// A typed terminal may leave only an unknown shell (or no pane).
+			// Only a successful fleet observation reaches here; active work and
+			// input overlays are never adopted, even with an earlier sidecar.
+			if (live !== undefined && live !== "unknown" && live !== "done" && live !== "idle") continue;
+			if (!child.sessionPath || child.kind.toLowerCase() !== "pi") continue;
+			if (child.lineage?.rootSession !== self || child.lineage.ownerSession !== owner.sessionPath) continue;
+			const sidecar = (deps.readSidecar ?? readExitSidecar)(child.sessionPath);
+			if (sidecar.state !== "ok") continue;
+			if (sidecar.sidecar.rootSession && sidecar.sidecar.rootSession !== self) continue;
+			await deliverSidecar(child, sidecar.sidecar, {
+				...deps,
+				persistAdopted: () => write(owner.sessionPath!, children),
+			}, false, true);
+			dirty = true;
+		}
+		if (!dirty) continue;
+		try { write(owner.sessionPath, children); }
+		catch (error) { throw new Error(`adopted registry persistence failed: ${String(error)}`); }
+	}
+}
+
+async function deliverSidecar(
 	record: SpawnRecord,
-	sidecar: { type: "done"; rearm?: true } | { type: "error"; errorMessage: string; stopReason: string; rearm?: true },
+	sidecar:
+		| { type: "done"; rearm?: true; text?: string; eventId?: string }
+		| {
+				type: "error";
+				errorMessage: string;
+				stopReason: string;
+					text?: string;
+				rearm?: true;
+				eventId?: string;
+		  },
 	deps: DeliveryDeps,
 	paneLive = false,
-): void {
+	adopted = false,
+): Promise<void> {
 	const notes = notifications(deps);
 	const extracted = record.sessionPath
 		? (deps.extract ?? extractSessionResult)(record.sessionPath)
 		: null;
 	const rearm = sidecar.rearm === true;
+	const adoptedFlag = adopted ? { adopted: true as const } : {};
+	// Copy only. A sidecar that never named an event does not get one here.
+	const eventField = sidecar.eventId ? { eventId: sidecar.eventId } : {};
 	if (sidecar.type === "done") {
-		deliverTerminal(
+		const committed = sidecar.text?.trim() ? sidecar.text : undefined;
+		await deliverTerminal(
 			deps,
 			record,
 			"done",
 			{
-				content: doneContent(record, extracted, rearm),
+				content: doneContent(record, extracted, rearm, committed),
 				details: {
 					name: record.name,
 					kind: "done",
+					...adoptedFlag,
 					...(rearm ? { rearm: true } : {}),
-					result: extracted?.text,
+					...eventField,
+					result: committed ?? extracted?.text,
 					...(extracted ? { message: extracted.message } : {}),
 					...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 				},
 				wake: terminalWake(notes),
 			},
 			paneLive,
+			adopted,
 		);
 		return;
 	}
-	deliverTerminal(
+	await deliverTerminal(
 		deps,
 		record,
 		"error",
 		{
-			content: errorContent(record, sidecar.errorMessage, extracted, rearm),
+			content: errorContent(
+				record, sidecar.errorMessage,
+				sidecar.text?.trim() ? { message: extracted?.message ?? {}, text: sidecar.text } : extracted,
+				rearm,
+			),
 			details: {
 				name: record.name,
 				kind: "error",
+				...adoptedFlag,
 				...(rearm ? { rearm: true } : {}),
+				...eventField,
 				error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
+				...(sidecar.text?.trim() ? { result: sidecar.text } : {}),
 				...(extracted ? { message: extracted.message } : {}),
 				...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 			},
 			wake: terminalWake(notes),
 		},
 		paneLive,
+		adopted,
 	);
 }
 
@@ -498,17 +699,141 @@ function closeRecordPane(
  * blocked wakes are NOT routed through here — a blocked workflow child still
  * wakes the orchestrator, whose answer via herdr_message_agent resumes it.
  */
-function deliverTerminal(
+/** Busy read at push time. A throwing or missing probe stays idle. */
+function orchestratorIsBusy(deps: { busy?: () => boolean }): boolean {
+	try {
+		return deps.busy?.() === true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Delivery mode for one push. Only a waking `done` queues while busy
+ * (followUp). error/gone/start-error follow notifications. blocked and
+ * stalled are steer even when busy — followUp would wait out the run.
+ */
+function deliverAsFor(
+	deps: DeliveryDeps,
+	kind: DeliveryKind | "stalled" | "stall-recovered" | "blocked",
+): DeliverAs {
+	if (kind === "blocked" || kind === "stalled" || kind === "stall-recovered") {
+		return "steer";
+	}
+	if (!terminalWake(notifications(deps))) return "nextTurn";
+	if (kind === "done" && orchestratorIsBusy(deps)) return "followUp";
+	return "steer";
+}
+
+async function deliverTerminal(
 	deps: DeliveryDeps,
 	record: SpawnRecord,
 	kind: DeliveryKind,
 	msg: SteeredMessage,
 	paneLive = false,
-): void {
+	adopted = false,
+): Promise<void> {
+	if (adopted) {
+		await deliverAdopted(deps, record, kind, msg, paneLive);
+		return;
+	}
+	if (!record.workflow) {
+		try {
+			pushTerminal(deps, { ...msg, deliverAs: msg.deliverAs ?? deliverAsFor(deps, kind) }, notifications(deps));
+		} catch (error) {
+			record.pushError = error instanceof Error ? error.message : String(error);
+			return;
+		}
+	}
+	record.pushError = undefined;
+	const previousDelivery = record.delivery;
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
+	const owner = deps.sessionPath ?? currentOrchestratorSession();
+	if (owner && !deps.registry) {
+		try { (deps.writeRegistry ?? writePersistedRegistry)(owner, [...spawnRecords().values()]); }
+		catch (error) {
+			record.delivery = previousDelivery;
+			record.pushError = `own registry persistence failed: ${String(error)}`;
+			throw new Error(record.pushError);
+		}
+	}
 	closeRecordPane(deps, record, msg.details.rearm === true, paneLive);
-	if (record.workflow) return;
-	pushTerminal(deps, msg, notifications(deps));
+}
+
+/**
+ * Orphan letter (issue 41): the push has to land before the pane is recycled.
+ * A rejected push leaves the record unmarked and the pane open. A rejected
+ * close is recorded on the record and retried later; the session file stays.
+ */
+async function deliverAdopted(
+	deps: DeliveryDeps,
+	record: SpawnRecord,
+	kind: DeliveryKind,
+	msg: SteeredMessage,
+	paneLive: boolean,
+): Promise<void> {
+	if (!record.workflow) {
+		try {
+			pushTerminal(
+				deps,
+				{ ...msg, deliverAs: msg.deliverAs ?? deliverAsFor(deps, kind) },
+				notifications(deps),
+			);
+		} catch (err) {
+			record.pushError = err instanceof Error ? err.message : String(err);
+			return;
+		}
+	}
+	record.pushError = undefined;
+	const previousDelivery = record.delivery;
+	markTerminal(record, kind, deps.now ?? (() => Date.now()));
+	record.paneClosePending = !!record.paneId;
+	try { deps.persistAdopted?.(); }
+	catch (error) {
+		record.delivery = previousDelivery;
+		record.pushError = `adopted registry persistence failed: ${String(error)}`;
+		throw new Error(record.pushError);
+	}
+	await closeDeliveredPane(deps, record, msg.details.rearm === true, paneLive);
+}
+
+/** Same guards as closeRecordPane, but the rejection is visible on the record. */
+async function closeDeliveredPane(
+	deps: DeliveryDeps,
+	record: SpawnRecord,
+	rearm: boolean,
+	paneLive: boolean,
+): Promise<void> {
+	if (!record.paneId) return;
+	// Adoption restores the owner's registry, which may predate a human's
+	// takeover. Refresh the marker on both the first close and each retry.
+	if (record.sessionPath && (deps.readTakeover ?? readTakeoverMarker)(record.sessionPath).taken) {
+		record.takenOver = true;
+	}
+	if (record.takenOver && !rearm) return;
+	if (paneLive) {
+		record.paneClosePending = true;
+		return;
+	}
+	record.paneClosePending = false;
+	try {
+		const closed = await (deps.closePane ?? defaultClosePane)(record.paneId);
+		if (
+			closed &&
+			typeof closed === "object" &&
+			"ok" in closed &&
+			(closed as { ok: boolean }).ok === false
+		) {
+			const error = (closed as { error?: { message?: string } }).error;
+			record.paneClosePending = true;
+			record.paneCloseError = error?.message ?? "pane close failed";
+			return;
+		}
+		record.paneCloseError = undefined;
+	} catch (err) {
+		record.paneClosePending = true;
+		record.paneCloseError = err instanceof Error ? err.message : String(err);
+	}
 }
 
 function notifications(deps: DeliveryDeps): HerdrSettings["notifications"] {
@@ -526,6 +851,7 @@ function pushTerminal(
 	notes: HerdrSettings["notifications"],
 ): void {
 	if (notes === "none") return;
+	logDetectLatency(deps, msg);
 	(deps.push ?? (() => {}))(msg);
 }
 
@@ -551,6 +877,8 @@ export interface WatchdogDeps {
 	extract?: (sessionPath: string) => ExtractedResult | null;
 	/** The steer sink — default: pi.sendMessage into THIS session. */
 	push?: (msg: SteeredMessage) => void;
+	/** Accepted so a tick can pass the same probe. Stall pings stay steer. */
+	busy?: () => boolean;
 	now?: () => number;
 	/** How long a broken-substrate problem must hold before `stalled`.
 	 * Default STALL_AFTER_MS (60s, prior art). */
@@ -658,12 +986,14 @@ export async function watchdogOnce(deps: WatchdogDeps = {}): Promise<void> {
 					`Steer it with herdr_message_agent, or inspect with herdr_get_agent_result.`,
 				details: { name: record.name, kind: "stalled", reason },
 				wake: true,
+				deliverAs: "steer",
 			});
 		} else {
 			push({
 				content: `Agent "${record.name}" recovered from a stall — responsive again.`,
 				details: { name: record.name, kind: "stall-recovered" },
 				wake: true,
+				deliverAs: "steer",
 			});
 		}
 	}
@@ -674,15 +1004,143 @@ export async function watchdogOnce(deps: WatchdogDeps = {}): Promise<void> {
 const DELIVERY_INTERVAL_MS = 2_500;
 
 let deliveryTimer: NodeJS.Timeout | null = null;
+let exitWatch: ReturnType<typeof observeExitSidecars> | null = null;
+
+/** Sidecar mtime at the moment a push is composed. Missing file → no sample. */
+function sidecarWrittenAt(sessionPath: string): number | undefined {
+	try {
+		return statSync(sidecarPathFor(sessionPath)).mtimeMs;
+	} catch {
+		return undefined;
+	}
+}
+
+function debugLine(deps: DeliveryDeps, line: string): void {
+	(deps.debug ?? ((text) => process.stderr.write(`${text}\n`)))(line);
+}
+
+/**
+ * Detect latency for a terminal sidecar push: sidecar mtime → this push.
+ * Busy-queue delay is a different clock and is not folded into this number.
+ * Only done/error pushes that carry a session path are sampled.
+ */
+function logDetectLatency(deps: DeliveryDeps, msg: SteeredMessage): void {
+	const sessionPath = msg.details.sessionPath;
+	if (typeof sessionPath !== "string") return;
+	if (msg.details.kind !== "done" && msg.details.kind !== "error") return;
+	const written = (deps.sidecarWrittenAt ?? sidecarWrittenAt)(sessionPath);
+	if (written === undefined) return;
+	const now = deps.now ?? (() => Date.now());
+	const latencyMs = Math.max(0, Math.round(now() - written));
+	debugLine(
+		deps,
+		`pi-herdr delivery detect segment=sidecar→push name=${String(msg.details.name)} ${latencyMs}ms`,
+	);
+}
+
+/** Watch one pi child's `<session>.exit`. A throw leaves that child to the poll. */
+function watchOneSidecar(
+	deps: DeliveryDeps,
+	record: SpawnRecord,
+	onWrite: (event: { mtimeMs?: number }) => void,
+): { close(): void } | undefined {
+	if (!record.sessionPath || record.kind.toLowerCase() !== "pi") return undefined;
+	const path = sidecarPathFor(record.sessionPath);
+	const watchSidecar =
+		deps.watchSidecar ??
+		((target, cb): { close(): void } => {
+			const dir = dirname(target);
+			const file = basename(target);
+			let w: FSWatcher;
+			try {
+				w = watch(dir, (_event: string, name: string | null) => {
+					if (name !== file && name !== null) return;
+					cb({});
+				});
+			} catch {
+				// The file itself may not exist yet; watching it directly fails on
+				// some platforms until the child creates it. Directory watch is the
+				// primary path — this is only the last attempt.
+				w = watch(target, () => {
+					cb({});
+				});
+			}
+			return { close: () => w.close() };
+		});
+	return watchSidecar(path, onWrite);
+}
+
+/**
+ * Arm one watcher per undelivered pi sidecar. A write wakes exactly one tick;
+ * the existing delivery mark keeps a later poll from pushing the same event.
+ * Watcher failure is per record — the 2.5s loop still delivers that child.
+ */
+export function observeExitSidecars(
+	deps: DeliveryDeps,
+	tick: () => Promise<void>,
+): { close(): void; whenIdle(): Promise<void>; sync(): void } {
+	const watches = new Map<string, { close(): void }>();
+	let chain: Promise<void> = Promise.resolve();
+	const wake = (): void => {
+		chain = chain.then(() => tick()).catch(() => {});
+	};
+	const sync = (): void => {
+		const registry = (deps.registry ?? spawnRecords)();
+		const live = new Set<string>();
+		for (const record of registry.values()) {
+			if (record.delivery || !record.paneId || !record.sessionPath) continue;
+			if (record.kind.toLowerCase() !== "pi") continue;
+			live.add(record.sessionPath);
+			if (watches.has(record.sessionPath)) continue;
+			try {
+				const one = watchOneSidecar(deps, record, () => wake());
+				if (one) watches.set(record.sessionPath, one);
+			} catch {
+				/* this child's poll backstop still runs */
+			}
+		}
+		for (const [path, one] of watches) {
+			if (live.has(path)) continue;
+			watches.delete(path);
+			try {
+				one.close();
+			} catch {
+				/* best-effort */
+			}
+		}
+	};
+	sync();
+	return {
+		close(): void {
+			for (const one of watches.values()) {
+				try {
+					one.close();
+				} catch {
+					/* best-effort */
+				}
+			}
+			watches.clear();
+		},
+		whenIdle: () => chain,
+		sync,
+	};
+}
 
 /**
  * Register the steer sink + start the shared loop (orchestrator side).
  * Idempotent; ticks no-op when the registry is empty. 07/11 attach their own
- * consumers to the same tick later.
+ * consumers to the same tick later. Sidecar writes wake one tick immediately;
+ * the interval stays as the idempotent backstop.
  */
 export function registerDelivery(pi: ExtensionAPI): void {
 	if (deliveryTimer) return;
+	rememberOrchestratorSession(pi);
+	pi.on?.("session_start", (_event, ctx) => {
+		const path = ctx.sessionManager.getSessionFile();
+		if (path) restoreSpawnRegistry(path);
+	});
 	const push = makeDeliverySink(pi);
+	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {
 		try {
 			// An idle registry costs nothing — no fleet call. But a stale
@@ -693,15 +1151,26 @@ export function registerDelivery(pi: ExtensionAPI): void {
 			}
 			// ONE fleet observation per tick, shared by every pass (deliver,
 			// watchdog, widget — the one-poll-loop-many-consumers ruling).
+			// busy is read at push time, not at tick start.
 			const fleet = await fleetList();
-			await deliverOnce({ push, fleet });
-			await watchdogOnce({ push, fleet });
+			await deliverOnce({
+				push,
+				fleet,
+				busy,
+				sessionPath: currentOrchestratorSession(),
+			});
+			await watchdogOnce({ push, fleet, busy });
 			await fleetWidgetOnce({ fleet });
 		} catch {
 			/* best-effort */
 		}
 	};
-	deliveryTimer = setInterval(() => void tick(), DELIVERY_INTERVAL_MS);
+	exitWatch = observeExitSidecars({ push, busy }, tick);
+	deliveryTimer = setInterval(() => {
+		exitWatch?.sync();
+		void tick();
+	}, DELIVERY_INTERVAL_MS);
+	if (typeof deliveryTimer.ref === "function") deliveryTimer.ref();
 	deliveryTimer.unref?.();
 }
 
@@ -711,4 +1180,6 @@ export function stopDeliveryLoop(): void {
 		clearInterval(deliveryTimer);
 		deliveryTimer = null;
 	}
+	exitWatch?.close();
+	exitWatch = null;
 }
