@@ -2132,6 +2132,52 @@ console.log("\n[35] still unconfirmed — report uncertain, paste once");
 }
 
 // ---------------------------------------------------------------------------
+console.log("\n[35] blocked is an already-started prompt, never press Enter");
+{
+	reset();
+	const h = makeDeps();
+	h.deps.readEditor = async () => ({ ok: true, data: { text: "approval overlay", status: "blocked" } });
+	const r = await spawn.spawnAgent({ prompt: "approval task", type: "Plan", name: "blocked-readback" }, h.deps);
+	assert(r.ok && r.data.promptSubmission === "confirmed" && h.calls.enter.length === 0, "blocked confirms readback without Enter into approval overlay");
+}
+
+console.log("\n[35] detached tool acceptance delivers a later readback outcome");
+{
+	reset();
+	const h = makeDeps();
+	const pushes = [];
+	const owner = join(mkdtempSync(join(tmpdir(), "herdr-submission-")), "parent.jsonl");
+	h.deps.parentSession = owner;
+	h.deps.submit = async (paneId, text) => {
+		h.calls.submit.push({ paneId, text });
+		return { ok: true, data: true };
+	};
+	h.deps.readEditor = async () => ({ ok: true, data: { text: "one task", status: "idle" } });
+	h.deps.pressEnter = async () => ({ ok: true, data: true });
+	const accepted = await agentsTool.spawnFromTool({ prompt: "one task", type: "Plan", name: "detached-unsure" }, h.deps);
+	assert(accepted.ok && accepted.data.status === "starting" && accepted.data.promptSubmission === undefined, "tool accepts before background readback");
+	const record = spawn.spawnRecords().get("detached-unsure");
+	for (let i = 0; i < 100 && !record.promptSubmission; i++) await new Promise((r) => setTimeout(r, 20));
+	assert(record.promptSubmission === "uncertain", "detached background start actually completes uncertain readback");
+	assert(spawn.readPersistedRegistry(owner)[0].promptSubmission === "uncertain", "background readback outcome persisted");
+	const delivery = await jiti.import(join(ROOT, "src/delivery.ts"), { parent: ROOT });
+	const deps = { registry: spawn.spawnRecords, load: () => settingsMod.DEFAULT_SETTINGS, list: async () => ({ ok: true, data: [{ paneId: record.paneId, agentStatus: "idle" }] }), readSidecar: () => ({ state: "missing" }), push: (msg) => pushes.push(msg), sessionPath: owner };
+	await delivery.deliverOnce({ ...deps, list: async () => ({ ok: false, error: { code: "HERDR_ERROR", message: "fleet unavailable" } }) });
+	await delivery.deliverOnce(deps);
+	const notices = pushes.filter((p) => p.details?.kind === "prompt-submission");
+	assert(notices.length === 1 && /uncertain/.test(notices[0].content), "real detach path reaches sink once with uncertain result");
+	assert(!record.delivery && h.calls.submit.length === 1, "submission event neither terminates child nor pastes twice");
+	assert(spawn.readPersistedRegistry(owner)[0].promptSubmissionNotified === "uncertain", "submission push dedupe persisted");
+	const result = await jiti.import(join(ROOT, "src/tools/result.ts"), { parent: ROOT });
+	const view = await result.getAgentResult({ target: record.name }, { registry: spawn.spawnRecords, status: async () => ({ ok: true, data: "idle" }), readSidecar: () => ({ state: "missing" }), extract: () => null });
+	assert(view.ok && view.data.promptSubmission === "uncertain", "result snapshot exposes uncertain readback");
+	const list = await jiti.import(join(ROOT, "src/tools/orchestration.ts"), { parent: ROOT });
+	const rows = await list.listAgentsView({ registry: spawn.spawnRecords, list: deps.list, readSidecar: deps.readSidecar });
+	assert(rows.ok && rows.data.rows[0].promptSubmission === "uncertain" && /uncertain/.test(rows.data.rows[0].state), "list exposes uncertain readback in structured and text state");
+	rmSync(dirname(owner), { recursive: true, force: true });
+}
+
+// ---------------------------------------------------------------------------
 console.log("\n[35] queued, finishing, and cancelled are not a verdict");
 {
 	reset();

@@ -23,5 +23,13 @@
 - 三票在返回 integration 前均 git merge-base --is-ancestor 验证当前 integration tip 已包含。
 - 全部日志目录 `/tmp/pi-herdr-spec29/`。
 
+## 第五票：spawn
+- 最终输入 297c851f（48e306f8 后仅 notes 更新）；worker 同步 977233bc（父 3b1c6d4c），integration merge 5c7950c7。
+- spawn300 / body / channel / inbox / delivery169 + tsc 通过；日志 `spawn-sync.log`。无代码冲突，保留 submission episode 与 recovery await/takeover。
+- spawn 工作树的 pi-tui symlink 为断链；仅修正 ignored node_modules 指向 integration 包。
+- git merge-base --is-ancestor 验证父 integration 包含关系通过。
+- jj colocate 的 Git HEAD 指向 @ 的父提交；合入结束新建空验证工作提交，使 Git HEAD、bookmark、业务文件树对齐，再跑最终全量。
+- 最终全量与 tsc 结果写入 `/tmp/pi-herdr-spec29/final-{test,tsc}.log`，首行记录确切 SHA；验证后不再改业务树。
+
 ## Deviations
 - 使用 --ignore-working-copy 改历史后工作树 stale；仅在 integration 执行 workspace update-stale，使合入文件落盘。未对其他工作树运行 snapshot。
