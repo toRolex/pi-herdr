@@ -514,8 +514,15 @@ async function adoptOrphans(
 async function deliverSidecar(
 	record: SpawnRecord,
 	sidecar:
-		| { type: "done"; rearm?: true; text?: string }
-		| { type: "error"; errorMessage: string; stopReason: string; rearm?: true; text?: string },
+		| { type: "done"; rearm?: true; text?: string; eventId?: string }
+		| {
+				type: "error";
+				errorMessage: string;
+				stopReason: string;
+					text?: string;
+				rearm?: true;
+				eventId?: string;
+		  },
 	deps: DeliveryDeps,
 	paneLive = false,
 	adopted = false,
@@ -526,6 +533,8 @@ async function deliverSidecar(
 		: null;
 	const rearm = sidecar.rearm === true;
 	const adoptedFlag = adopted ? { adopted: true as const } : {};
+	// Copy only. A sidecar that never named an event does not get one here.
+	const eventField = sidecar.eventId ? { eventId: sidecar.eventId } : {};
 	if (sidecar.type === "done") {
 		const committed = sidecar.text?.trim() ? sidecar.text : undefined;
 		await deliverTerminal(
@@ -539,6 +548,7 @@ async function deliverSidecar(
 					kind: "done",
 					...adoptedFlag,
 					...(rearm ? { rearm: true } : {}),
+					...eventField,
 					result: committed ?? extracted?.text,
 					...(extracted ? { message: extracted.message } : {}),
 					...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
@@ -565,6 +575,7 @@ async function deliverSidecar(
 				kind: "error",
 				...adoptedFlag,
 				...(rearm ? { rearm: true } : {}),
+				...eventField,
 				error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
 				...(sidecar.text?.trim() ? { result: sidecar.text } : {}),
 				...(extracted ? { message: extracted.message } : {}),

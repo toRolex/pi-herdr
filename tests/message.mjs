@@ -331,6 +331,27 @@ console.log("\n[5] Physics-adaptive delivery");
 	await msg.messageAgent({ target: "scout", text: "x" }, def);
 	assert(def.send.calls[0].opts.submit === true, "submit defaults true");
 
+	const eventSend = recorder();
+	const withEvent = await msg.messageAgent(
+		{ target: "scout", text: "the letter", eventId: "evt-msg-1" },
+		DEPS({ agentGet: okGet("w1:p1", "scout", "idle"), send: eventSend }),
+	);
+	assert(
+		withEvent.ok &&
+			eventSend.calls[0].text.includes('event="evt-msg-1"') &&
+			withEvent.data.eventId === "evt-msg-1",
+		"messageAgent({eventId}) puts event= on the envelope and eventId on the receipt",
+	);
+	const plainSend = recorder();
+	const plain = await msg.messageAgent(
+		{ target: "scout", text: "no id" },
+		DEPS({ agentGet: okGet("w1:p1", "scout", "working"), send: plainSend }),
+	);
+	assert(
+		!plainSend.calls[0].text.includes("event=") && plain.data.eventId === undefined,
+		"a message without eventId is not given one",
+	);
+
 	// send failure propagates
 	const broken = await msg.messageAgent(
 		{ target: "scout", text: "x" },
@@ -349,6 +370,13 @@ console.log("\n[6] `from` identity chain (spawner-declared, never verified)");
 	assert(
 		eq(msg.envelope("a", "b", "hi"), '<agent-message from="a" to="b">\nhi\n</agent-message>'),
 		"envelope shape: <agent-message from to> wrapping the text",
+	);
+	assert(
+		eq(
+			msg.envelope("a", "b", "hi", "evt-9"),
+			'<agent-message from="a" to="b" event="evt-9">\nhi\n</agent-message>',
+		),
+		"envelope with an eventId adds the event attribute",
 	);
 
 	const label = await msg.senderLabel(DEPS({ env: { PI_HERDR_AGENT_LABEL: "lab" } }));

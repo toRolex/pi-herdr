@@ -30,6 +30,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { readCompletionEvent, validEventId } from "../completion-event.js";
 import { fleetList, herdr } from "../herdr.js";
 import { sendAgentPrompt } from "./orchestration.js";
 import {
@@ -60,9 +61,13 @@ export interface AgentView {
 }
 
 export interface MessageParams {
+	/** Final report only: correlate with this child's completion sidecar. */
+	completion?: boolean;
 	target: string;
 	text: string;
 	submit?: boolean;
+	/** Business event id. Absent means the envelope and receipt stay untagged. */
+	eventId?: string;
 	/**
 	 * Accept into the pending inbox instead of typing now. Only an idle
 	 * target holds; any other state still delivers immediately and drains
@@ -90,6 +95,8 @@ export interface MessageReceipt {
 	queued?: boolean;
 	/** Drop notice for the sender of this call and for the receiver. */
 	notice?: string;
+	/** Copied from the caller. Never generated here. */
+	eventId?: string;
 }
 
 /** Injectable seams (offline red-green; defaults hit herdr + disk). */
@@ -163,8 +170,14 @@ export const defaultAgentGet = async (
 
 // ---- envelope ----------------------------------------------------------------
 
-export function envelope(from: string, to: string, text: string): string {
-	return `<agent-message from="${from}" to="${to}">\n${text}\n</agent-message>`;
+export function envelope(
+	from: string,
+	to: string,
+	text: string,
+	eventId?: string,
+): string {
+	const event = eventId ? ` event="${eventId}"` : "";
+	return `<agent-message from="${from}" to="${to}"${event}>\n${text}\n</agent-message>`;
 }
 
 /**
@@ -559,6 +572,7 @@ interface PendingItem {
 	submit: boolean;
 	name?: string;
 	to: string;
+	eventId?: string;
 }
 
 interface Inbox {
@@ -679,6 +693,14 @@ export async function messageAgent(
 	params: MessageParams,
 	deps: MessageDeps = {},
 ): Promise<Result<MessageReceipt>> {
+	if (params.completion) {
+		const session = (deps.env ?? process.env).PI_HERDR_SESSION;
+		const eventId = session ? readCompletionEvent(session) : undefined;
+		if (!eventId) return { ok: false, error: err("VALIDATION_ERROR", "completion requires a readable child run event marker — not sent.") };
+		if (params.eventId && params.eventId !== eventId) return { ok: false, error: err("VALIDATION_ERROR", "explicit eventId conflicts with this child run — not sent.") };
+		params = { ...params, eventId };
+	}
+	if (params.eventId !== undefined && !validEventId(params.eventId)) return { ok: false, error: err("VALIDATION_ERROR", "invalid eventId — not sent.") };
 	const resolved = await resolveTarget(params.target, deps);
 	if (resolved.kind === "err") return { ok: false, error: resolved.error };
 	const generation = await generationGate(resolved, deps);
@@ -702,7 +724,7 @@ export async function messageAgent(
 	): Promise<Result<true>> => {
 		const payload = asAnswer
 			? item.text
-			: envelope(item.from, item.to, item.text);
+			: envelope(item.from, item.to, item.text, item.eventId);
 		// Steer watermark (issue 06): the exact text about to be typed into a
 		// registry child. The child matches its input event against it so the
 		// orchestrator's own follow-up is never mistaken for a human takeover.
@@ -730,6 +752,7 @@ export async function messageAgent(
 			delivery: blocked ? "answer" : "message",
 			...(resolved.name ? { name: resolved.name } : {}),
 			submit,
+			...(params.eventId ? { eventId: params.eventId } : {}),
 			...over,
 		},
 	});
@@ -740,6 +763,7 @@ export async function messageAgent(
 		submit,
 		to: resolved.to,
 		...(resolved.name ? { name: resolved.name } : {}),
+		...(params.eventId ? { eventId: params.eventId } : {}),
 	};
 
 	// Idle: the pane has not started on this burst. Hold it. Over the cap,
@@ -825,10 +849,24 @@ export function registerMessageTool(pi: ExtensionAPI): void {
 						"Accept into the pending inbox instead of typing now. Only an idle target holds; the inbox holds 8 and drops the oldest. Any other state drains the inbox, oldest first, then types this message.",
 				}),
 			),
+			completion: Type.Optional(Type.Boolean({ description: "Final report only. Read this child's run completion event ID; the sidecar uses the same ID. Ordinary progress must omit this flag." })),
+			eventId: Type.Optional(
+				Type.String({
+					description:
+						"Business event id. When set, the envelope gains event=\"…\" and the receipt details carry eventId. Omit it and neither is added.",
+				}),
+			),
 		}),
 		async execute(_id, p, signal) {
 			const r = await messageAgent(
-				{ target: p.target, text: p.text, submit: p.submit, pending: p.pending },
+				{
+					target: p.target,
+					text: p.text,
+					submit: p.submit,
+					pending: p.pending,
+					eventId: p.eventId,
+					completion: p.completion,
+				},
 				{ signal },
 			);
 			if (!r.ok) return fail(r.error);

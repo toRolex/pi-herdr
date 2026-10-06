@@ -29,6 +29,7 @@
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { resetCompletionEvent } from "./completion-event.js";
 import { readFileSync, writeFileSync } from "node:fs";
 import {
 	assistantText,
@@ -202,11 +203,19 @@ export function findLatestAssistantError(
 /** The typed completion sidecar payload for a settled run. */
 export function buildCompletionSidecar(
 	messages: AgentMessageLike[] | undefined,
+	eventId: string,
 ):
-	| { type: "done" }
-	| { type: "error"; errorMessage: string; stopReason: "error" } {
+	| { type: "done"; eventId: string }
+	| {
+			type: "error";
+			errorMessage: string;
+			stopReason: "error";
+			eventId: string;
+	  } {
 	const error = findLatestAssistantError(messages);
-	return error ? { type: "error", ...error } : { type: "done" };
+	return error
+		? { type: "error", ...error, eventId }
+		: { type: "done", eventId };
 }
 
 /**
@@ -479,10 +488,18 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	 * break the exit path (the session JSONL remains the readable truth).
 	 * `rearm` marks an idle-re-arm exit (issue 06) — the parent labels the
 	 * delivery "auto-delivered after user steer". */
+	let completionEventId = resetCompletionEvent(session);
+
 	function writeSidecar(
 		payload:
-			| { type: "done"; text?: string }
-			| { type: "error"; errorMessage: string; stopReason: string; text?: string },
+			| { type: "done"; text?: string; eventId?: string }
+			| {
+					type: "error";
+					errorMessage: string;
+					stopReason: string;
+					text?: string;
+					eventId?: string;
+			  },
 		rearm = false,
 	): void {
 		try {
@@ -493,14 +510,27 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 					? { structured: structured.json }
 					: {};
 			const rootField = rootSession ? { rootSession } : {};
+			// The marker, explicit done and settled sidecar share this run's ID.
+			// No sidecar builder may mint a second business event.
+			const eventField = {
+				eventId: completionEventId,
+			};
 			const text = finalAssistantText(session, runStart);
 			const bodyField = text.trim() ? { text } : {};
 			writeFileSync(
 				sidecarPath,
 				JSON.stringify(
 					rearm
-						? { ...payload, ...bodyField, ...structuredField, ...rootField, rearm: true }
-						: { ...payload, ...bodyField, ...structuredField, ...rootField },
+						? {
+								...payload,
+								...bodyField,
+								...structuredField,
+								...rootField,
+								...eventField,
+								rearm: true,
+						  }
+						: { ...payload,
+								...bodyField, ...structuredField, ...rootField, ...eventField },
 				),
 			);
 		} catch {
@@ -637,6 +667,8 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.on("agent_start", () => {
+		completionEventId = resetCompletionEvent(session);
+		latestMessages = undefined;
 		runStart = completionEntries(session).length;
 		// pi started (re)running — a retry survived the grace window decision,
 		// and a taken-over pane has new work; any pending re-arm is moot.
@@ -671,7 +703,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			if (!shouldAutoExitOnSettle(latestMessages)) return;
 			rearmTimer = setTimeout(() => {
 				rearmTimer = null;
-				writeSidecar(buildCompletionSidecar(latestMessages), true);
+				writeSidecar(buildCompletionSidecar(latestMessages, completionEventId), true);
 				ctx.shutdown();
 			}, idleRearmMs());
 			rearmTimer.unref?.();
@@ -687,7 +719,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		if (!failed) {
 			// Clean completion: the definitive settle. Sidecar + exit.
 			cancelErrorExit();
-			writeSidecar(buildCompletionSidecar(latestMessages));
+			writeSidecar(buildCompletionSidecar(latestMessages, completionEventId));
 			ctx.shutdown();
 			return;
 		}
@@ -697,7 +729,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		cancelErrorExit();
 		errorExitTimer = setTimeout(() => {
 			errorExitTimer = null;
-			writeSidecar(buildCompletionSidecar(latestMessages));
+			writeSidecar(buildCompletionSidecar(latestMessages, completionEventId));
 			ctx.shutdown();
 		}, errorExitGraceMs());
 		errorExitTimer.unref?.();
