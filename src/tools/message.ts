@@ -525,6 +525,7 @@ export async function messageAgent(
 		return send(resolved.paneId, payload, {
 			submit: item.submit,
 			signal: deps.signal,
+			...(asAnswer ? { interactive: true } : {}),
 		});
 	};
 
