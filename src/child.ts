@@ -567,8 +567,9 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		label: "Agent done",
 		description:
 			"Call this tool when the overall task is complete — it reports completion to the orchestrator " +
-			"and closes this session. Your LAST assistant message before calling it is what gets delivered, " +
-			"so write the full final summary as a normal assistant message FIRST, then call agent_done. " +
+			"and closes this session. Your LAST assistant message before calling it is delivered in full, " +
+			"so write a concise conclusion with key evidence, limitations, and references to deliverables; " +
+			"put large reports in files and cite them. Then call agent_done. " +
 			"Never call it mid-task.",
 		parameters: Type.Object({}),
 		async execute(_id, _params, _signal, _onUpdate, ctx) {

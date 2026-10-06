@@ -142,13 +142,6 @@ export interface DeliveryDeps {
 
 // ---- push composition ---------------------------------------------------------
 
-/** Session-retained pointer appended to pi children's pushes. */
-function sessionNote(record: SpawnRecord): string {
-	return record.sessionPath
-		? ` (session: ${record.sessionPath} — retained for resume)`
-		: "";
-}
-
 function tailContent(record: SpawnRecord, text: string): string {
 	return `Agent "${record.name}" finished — pane output:\n\n${text.trim()}`;
 }
@@ -184,35 +177,28 @@ function shouldCloseSettled(record: SpawnRecord, live: string | undefined): bool
 }
 
 function doneContent(
-	record: SpawnRecord,
 	extracted: ExtractedResult | null,
-	rearm: boolean,
 	sidecarText?: string,
 ): string {
-	const label = rearm ? "auto-delivered after user steer: " : "";
 	const committed = sidecarText?.trim() ? sidecarText : undefined;
 	const mined = extracted && extracted.text.trim() ? extracted.text : undefined;
 	const body =
 		committed ??
 		mined ??
-		"(the child finished but its session file holds no assistant message)";
-	return `${label}Agent "${record.name}" finished — full final message:\n\n${body}${sessionNote(record)}`;
+		"";
+	return body;
 }
 
 function errorContent(
-	record: SpawnRecord,
 	errorMessage: string,
 	extracted: ExtractedResult | null,
-	rearm: boolean,
 ): string {
-	const label = rearm ? "auto-delivered after user steer: " : "";
-	const body =
-		extracted && extracted.text.trim() ? `\n\nLast message:\n${extracted.text}` : "";
-	return `${label}Agent "${record.name}" FAILED: ${errorMessage}${body}${sessionNote(record)}`;
+	const body = extracted?.text ?? "";
+	return body || `[completion error: ${errorMessage}]`;
 }
 
 function goneContent(record: SpawnRecord): string {
-	return `Agent "${record.name}" is gone (no live pane; it died or its pane was closed without completing).${sessionNote(record)}`;
+	return `Agent "${record.name}" is gone (no live pane; it died or its pane was closed without completing).`;
 }
 
 // ---- the delivery pass --------------------------------------------------------
@@ -368,7 +354,7 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 							record,
 							"error",
 							{
-								content: errorContent(record, mined.errorMessage, extracted, false),
+								content: errorContent(mined.errorMessage, extracted),
 								details: {
 									name: record.name,
 									kind: "error",
@@ -385,12 +371,11 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 							record,
 							"done",
 							{
-								content: doneContent(record, extracted, false),
+								content: doneContent(extracted),
 								details: {
 									name: record.name,
 									kind: "done",
 									result: extracted.text,
-									message: extracted.message,
 									sessionPath: record.sessionPath,
 								},
 								wake: terminalWake(notifications(deps)),
@@ -461,12 +446,12 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 						mined ? "error" : "done",
 						mined
 							? {
-									content: errorContent(record, mined.errorMessage, extracted, false),
+									content: errorContent(mined.errorMessage, extracted),
 									details: { name: record.name, kind: "error", error: mined, message: extracted.message, sessionPath: record.sessionPath },
 									wake: terminalWake(notifications(deps)),
 								}
 							: {
-									content: doneContent(record, extracted, false),
+									content: doneContent(extracted),
 									details: { name: record.name, kind: "done", result: extracted.text, message: extracted.message, sessionPath: record.sessionPath },
 									wake: terminalWake(notifications(deps)),
 								},
@@ -586,6 +571,7 @@ async function deliverSidecar(
 	const rearm = sidecar.rearm === true;
 	const adoptedFlag = adopted ? { adopted: true as const } : {};
 	// Copy only. A sidecar that never named an event does not get one here.
+	// Session paths and raw host messages are metadata, never completion prose.
 	const eventField = sidecar.eventId ? { eventId: sidecar.eventId } : {};
 	if (sidecar.type === "done") {
 		const committed = sidecar.text?.trim() ? sidecar.text : undefined;
@@ -594,7 +580,7 @@ async function deliverSidecar(
 			record,
 			"done",
 			{
-				content: doneContent(record, extracted, rearm, committed),
+				content: doneContent(extracted, committed),
 				details: {
 					name: record.name,
 					kind: "done",
@@ -602,7 +588,6 @@ async function deliverSidecar(
 					...(rearm ? { rearm: true } : {}),
 					...eventField,
 					result: committed ?? extracted?.text,
-					...(extracted ? { message: extracted.message } : {}),
 					...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 				},
 				wake: terminalWake(notes),
@@ -618,9 +603,8 @@ async function deliverSidecar(
 		"error",
 		{
 			content: errorContent(
-				record, sidecar.errorMessage,
+				sidecar.errorMessage,
 				sidecar.text?.trim() ? { message: extracted?.message ?? {}, text: sidecar.text } : extracted,
-				rearm,
 			),
 			details: {
 				name: record.name,
@@ -630,7 +614,6 @@ async function deliverSidecar(
 				...eventField,
 				error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
 				...(sidecar.text?.trim() ? { result: sidecar.text } : {}),
-				...(extracted ? { message: extracted.message } : {}),
 				...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 			},
 			wake: terminalWake(notes),
