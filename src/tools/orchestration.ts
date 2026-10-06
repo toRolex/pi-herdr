@@ -510,6 +510,12 @@ export async function submitAndWait(
 export interface FleetRow {
 	paneId?: string;
 	name?: string;
+	agentId?: string;
+	runId?: string;
+	sequence?: number;
+	title?: string;
+	activity?: string;
+	unread?: number;
 	kind?: string;
 	/** The projected state label (`active · bash 7m`, `queued`, `stalled`…)
 	 * for our records; the coarse agentStatus for adopted panes. */
@@ -563,6 +569,7 @@ export async function listAgentsView(
 			rows.push({
 				paneId: a.paneId,
 				name: a.name,
+				title: a.name ?? a.paneId,
 				kind: a.agent,
 				state: a.agentStatus ?? "unknown",
 				projected: false,
@@ -573,6 +580,12 @@ export async function listAgentsView(
 		rows.push({
 			paneId: a.paneId,
 			name: record.name,
+			agentId: record.agentId,
+			runId: record.runId,
+			sequence: record.sequence,
+			activity: a.agentStatus,
+			unread: record.unread ?? 0,
+			title: record.type ?? record.name,
 			kind: record.kind,
 			state: projectedLabel(record, deps, a.agentStatus, false, now()),
 			projected: true,
@@ -586,11 +599,17 @@ export async function listAgentsView(
 	// pane that just vanished (undelivered → stalled/finalizing, honest
 	// snapshot). Delivered (consumed) records leave the table.
 	for (const record of registry().values()) {
-		if (record.delivery) continue;
+		if (record.delivery && !record.startError) continue;
 		if (record.paneId && seenPanes.has(record.paneId)) continue;
 		rows.push({
 			paneId: record.paneId,
 			name: record.name,
+			agentId: record.agentId,
+			runId: record.runId,
+			sequence: record.sequence,
+			activity: record.lastStatus,
+			unread: record.unread ?? 0,
+			title: record.type ?? record.name,
 			kind: record.kind,
 			state: projectedLabel(record, deps, undefined, true, now()),
 			projected: true,
@@ -624,9 +643,7 @@ function projectedLabel(
 		now,
 	});
 	const label = proj.detail ? `${proj.status} · ${proj.detail}` : proj.status;
-	return record.promptSubmission === "uncertain"
-		? `${label} · prompt submission uncertain`
-		: label;
+	return label;
 }
 
 // ---- registration ----------------------------------------------------------
@@ -646,10 +663,12 @@ export function registerOrchestration(pi: ExtensionAPI): void {
 //    delivery path; resolvePaneId died with it (message resolves via its own
 //    `agent get`, which also carries the state the physics branch needs).
 
-/** One `- pane [state] name (kind, stance)` line. */
+/** Render only the #44 list contract; unknown legacy identity stays explicit. */
 function formatFleetRow(a: FleetRow): string {
-	const stance = a.stance ? `, ${a.stance}` : "";
-	return `- ${a.paneId ?? "?"} [${a.state}] ${a.name ?? ""} (${a.kind ?? "?"}${stance})`;
+	const identity = a.agentId && a.runId
+		? `agent=${a.agentId} run=${a.runId}#${a.sequence ?? "?"}`
+		: `identity=pending-review ref=${a.paneId ?? a.name ?? "unaddressable"}`;
+	return `- ${identity} [${a.state}] ${a.title ?? a.name ?? ""} (activity=${a.activity ?? "unknown"}, unread=${a.unread ?? 0})`;
 }
 
 // 5. list_agents ----------------------------------------------------------
@@ -669,10 +688,14 @@ function formatFleetRow(a: FleetRow): string {
 			const r = await listAgentsView({ signal });
 			if (!r.ok) return fail(r);
 			const { rows } = r.data;
-			const text = rows.length
+			const contractRows = rows.map(
+				({ paneId, name, agentId, runId, sequence, title, activity, unread, state }) =>
+					({ paneId, name, agentId, runId, sequence, title, activity, unread, state }),
+			);
+			const contractText = rows.length
 				? `${rows.length} agent(s):\n${rows.map(formatFleetRow).join("\n")}`
 				: "No agents running.";
-			return okText(text, { rows });
+			return okText(contractText, { rows: contractRows });
 		},
 	});
 }

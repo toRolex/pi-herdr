@@ -52,6 +52,7 @@ const agentsTool = await jiti.import(join(ROOT, "src/tools/agents.ts"), {
 const settingsMod = await jiti.import(join(ROOT, "src/settings.ts"), {
 	parent: ROOT,
 });
+const { mkdtempSync: mkRegistryTemp } = await import("node:fs");
 const TINTINWEB = JSON.parse(
 	readFileSync(
 		join(ROOT, "tests/fixtures/tintinweb-default-agents.json"),
@@ -63,6 +64,23 @@ const TINTINWEB = JSON.parse(
 function reset() {
 	spawn.clearSessionAgents();
 	spawn.clearSpawnRegistry();
+}
+
+// ---------------------------------------------------------------------------
+console.log("\n[0] registry persistence restores identity and preserves legacy unknowns");
+{
+	const dir = mkRegistryTemp(join(tmpdir(), "herdr-registry-"));
+	const owner = join(dir, "parent.jsonl");
+	const complete = { name: "persisted", kind: "pi", agentId: "agent-1", runId: "run-1", sequence: 7, prompt: "secret task", agentArgs: [], depth: 1, isolated: false, spawnedAt: 1, submitted: false, sawWorking: false, stance: "autonomous" };
+	spawn.writePersistedRegistry(owner, [complete]);
+	spawn.restoreSpawnRegistry(owner);
+	const restored = spawn.spawnRecords().get("persisted");
+	assert(restored?.agentId === "agent-1" && restored.runId === "run-1" && restored.sequence === 7, "registry reload round-trips stable identities and sequence");
+	spawn.writePersistedRegistry(owner, [{ name: "legacy", kind: "pi" }]);
+	spawn.restoreSpawnRegistry(owner);
+	const legacy = spawn.spawnRecords().get("legacy");
+	assert(legacy?.identityReviewRequired === true && legacy.agentId === undefined && legacy.runId === undefined, "legacy identity remains unknown and flagged for review");
+	rmSync(dir, { recursive: true, force: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -873,8 +891,11 @@ console.log("\n[12] Over-cap spawn queues; pane appears when a slot frees");
 		b.ok &&
 			b.data.status === "queued" &&
 			!b.data.paneId &&
-			b.data.queued === true,
-		"over-cap spawn accepted as queued with no pane",
+			b.data.queued === true &&
+			typeof b.data.agentId === "string" &&
+			typeof b.data.runId === "string" &&
+			b.data.sequence === 1,
+		"over-cap spawn accepted with stable agent/run identity and no pane",
 	);
 	assert(h.calls.start.length === 1, "queued record created no pane");
 	// bounded wait on a queued record returns the current (queued) state
@@ -892,6 +913,7 @@ console.log("\n[12] Over-cap spawn queues; pane appears when a slot frees");
 	assert(started === 1, "drain starts one queued record");
 	const rec = spawn.spawnRecords().get("second");
 	assert(!!rec?.paneId, "queued record now has a pane");
+	assert(rec.agentId === b.data.agentId && rec.runId === b.data.runId, "drained run retains its accepted identity");
 	const rec3 = spawn.spawnRecords().get("third");
 	assert(!rec3?.paneId, "the third stays queued (cap still held)");
 	// hand-spawned fleet panes never hold a session slot (watch-scope decision)
@@ -2173,7 +2195,13 @@ console.log("\n[35] detached tool acceptance delivers a later readback outcome")
 	assert(view.ok && view.data.promptSubmission === "uncertain", "result snapshot exposes uncertain readback");
 	const list = await jiti.import(join(ROOT, "src/tools/orchestration.ts"), { parent: ROOT });
 	const rows = await list.listAgentsView({ registry: spawn.spawnRecords, list: deps.list, readSidecar: deps.readSidecar });
-	assert(rows.ok && rows.data.rows[0].promptSubmission === "uncertain" && /uncertain/.test(rows.data.rows[0].state), "list exposes uncertain readback in structured and text state");
+	assert(rows.ok && rows.data.rows[0].promptSubmission === "uncertain", "internal fleet view retains submission diagnostics for UI");
+	const beforeList = JSON.stringify(spawn.spawnRecords().get(record.name));
+	const publicList = await list.listAgentsView({ list: async () => ({ ok: true, data: [{ paneId: record.paneId, agentStatus: "idle" }] }), registry: spawn.spawnRecords, readSidecar: deps.readSidecar });
+	assert(publicList.ok && publicList.data.rows.some((row) => row.runId === record.runId) && publicList.data.rows[0].unread === 0, "list projection publishes stable identity and unread summary");
+	assert(!JSON.stringify(publicList.data.rows).includes("one task") && !("prompt" in publicList.data.rows[0]), "list projection excludes prompt bodies");
+	assert(JSON.stringify(spawn.spawnRecords().get(record.name)) === beforeList, "repeated list read does not mutate registry or delivery state");
+	assert(rows.ok && rows.data.rows[0].agentId === record.agentId && rows.data.rows[0].runId === record.runId && rows.data.rows[0].sequence === record.sequence && rows.data.rows[0].title === record.type && rows.data.rows[0].unread === 0, `list view carries #44 fields (${JSON.stringify(rows.ok ? rows.data.rows[0] : rows.error)})`);
 	rmSync(dirname(owner), { recursive: true, force: true });
 }
 

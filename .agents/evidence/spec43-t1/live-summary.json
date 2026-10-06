@@ -1,0 +1,31 @@
+{
+  "at": "2026-10-06T21:41:27.107Z",
+  "session": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t1/.agents/evidence/spec43-t1/parent-1791322883648.jsonl",
+  "accepted": {
+    "agentId": "96c265d9-7259-40c7-9c04-243f60ff3b39",
+    "runId": "9752e863-d32a-4a41-aa08-1b9868d8b989",
+    "sequence": 1,
+    "name": "t1-live-1791322883658",
+    "status": "starting",
+    "kind": "pi",
+    "type": "general-purpose",
+    "depth": 3,
+    "stance": "autonomous",
+    "sessionPath": "/Users/rolex/.pi/agent/sessions/--Users-rolex-Documents-Codes-githubProject-MyProject-pi-herdr.spec43-t1--/2026-10-06T21-41-23-668Z_364c25d8-b792-4cb7-906b-8b9ad19b103c.jsonl",
+    "activityPath": "/Users/rolex/.pi/agent/sessions/--Users-rolex-Documents-Codes-githubProject-MyProject-pi-herdr.spec43-t1--/2026-10-06T21-41-23-668Z_364c25d8-b792-4cb7-906b-8b9ad19b103c.jsonl.activity.json"
+  },
+  "failure": {
+    "agentId": "2b10aedf-9a93-4d7e-9b8e-7c7c956cf232",
+    "runId": "83924872-8682-47cb-a822-955c7af7e673",
+    "sequence": 1,
+    "name": "t1-start-failure-1791322883675",
+    "status": "starting",
+    "kind": "pi",
+    "type": "general-purpose",
+    "depth": 2,
+    "stance": "autonomous",
+    "sessionPath": "/Users/rolex/.pi/agent/sessions/--Users-rolex-Documents-Codes-githubProject-MyProject-pi-herdr.spec43-t1--/2026-10-06T21-41-23-675Z_0e73dfb4-eb43-44a3-8020-933179767bf9.jsonl",
+    "activityPath": "/Users/rolex/.pi/agent/sessions/--Users-rolex-Documents-Codes-githubProject-MyProject-pi-herdr.spec43-t1--/2026-10-06T21-41-23-675Z_0e73dfb4-eb43-44a3-8020-933179767bf9.jsonl.activity.json"
+  },
+  "registryCount": 2
+}
