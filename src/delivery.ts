@@ -542,9 +542,12 @@ async function adoptOrphans(
 				continue;
 			}
 			const live = child.paneId ? statusByPane.get(child.paneId) : undefined;
-			if (live !== "done" && live !== "idle") continue;
+			// A typed terminal may leave only an unknown shell (or no pane).
+			// Only a successful fleet observation reaches here; active work and
+			// input overlays are never adopted, even with an earlier sidecar.
+			if (live !== undefined && live !== "unknown" && live !== "done" && live !== "idle") continue;
 			if (!child.sessionPath || child.kind.toLowerCase() !== "pi") continue;
-			if (child.lineage?.rootSession !== self) continue;
+			if (child.lineage?.rootSession !== self || child.lineage.ownerSession !== owner.sessionPath) continue;
 			const sidecar = (deps.readSidecar ?? readExitSidecar)(child.sessionPath);
 			if (sidecar.state !== "ok") continue;
 			if (sidecar.sidecar.rootSession && sidecar.sidecar.rootSession !== self) continue;
