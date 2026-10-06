@@ -17,11 +17,12 @@ const session = join(dir, 'child.jsonl');
 const old = process.env.PI_HERDR_SESSION;
 process.env.PI_HERDR_SESSION = session;
 try {
- writeFileSync(session, JSON.stringify({type:'message', message:{role:'assistant', content:[{type:'text',text:'final'}],stopReason:'stop'}})+'\n');
+ writeFileSync(session, '');
  const handlers = new Map(), tools = new Map();
  child.registerChildExtension({on:(n,f)=>handlers.set(n,f), registerTool:t=>tools.set(t.name,t), registerShortcut(){}, setSessionName(){}, getAllTools:()=>[]});
  handlers.get('session_start')({}, {ui:{setWidget(){}}});
  handlers.get('agent_start')();
+ writeFileSync(session, JSON.stringify({type:'message', message:{role:'assistant', content:[{type:'text',text:'final'}],stopReason:'stop'}})+'\n');
  let envelope;
  const deps = {env:{PI_HERDR_SESSION:session,PI_HERDR_NAME:'channel-child',PI_HERDR_ORCHESTRATOR_PANE:'w1:p1'},registry:()=>new Map(), agentGet:async()=>({ok:true,data:{paneId:'w1:p1',status:'working'}}),send:async(_p,t)=>{envelope=t;return {ok:true,data:true};}};
  const sent = await messageAgent({target:'orchestrator',text:'final',completion:true},deps);

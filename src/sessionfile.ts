@@ -426,6 +426,7 @@ export type ExitSidecar =
 			errorMessage: string;
 			stopReason: string;
 			rearm?: true;
+			text?: string;
 			rootSession?: string;
 			eventId?: string;
 	  };
@@ -466,7 +467,7 @@ export function parseExitSidecar(
 	// non-string values are absent so delivery falls back to the JSONL,
 	// including the empty-assistant sentence.
 	const text =
-		o.type === "done" && typeof o.text === "string" && o.text.trim()
+		typeof o.text === "string" && o.text.trim()
 			? { text: o.text }
 			: {};
 	// Root session pointer (issue 39). Blank and non-string values are absent
@@ -505,6 +506,7 @@ export function parseExitSidecar(
 				type: "error",
 				errorMessage: message,
 				stopReason,
+				...text,
 				...rearm,
 				...rootSession,
 				...eventId,

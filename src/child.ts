@@ -34,7 +34,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import {
 	assistantText,
 	clearSteerWatermark,
-	extractSessionResult,
+	parseSessionEntries,
 	inputMatchesSteer,
 	readSteerWatermark,
 	refuseBareDone,
@@ -220,11 +220,30 @@ export function buildCompletionSidecar(
 
 /**
  * Final assistant body to commit on a declared `agent_done`. Empty when the
- * session has none — the caller refuses the tool instead of writing a sidecar.
- * Reads the session file (the delivered letter), not the in-flight tool turn.
+ * current run has none — the caller refuses the tool instead of writing a sidecar.
+ * The SDK persists a tool-only assistant before execute; skip it, but never
+ * cross a user message or the latest agent_start's entry boundary.
  */
-export function finalAssistantText(sessionPath: string): string {
-	return extractSessionResult(sessionPath)?.text ?? "";
+export function finalAssistantText(sessionPath: string, runStart = 0): string {
+	const entries = completionEntries(sessionPath);
+	for (let i = entries.length - 1; i >= runStart; i--) {
+		const entry = entries[i];
+		if (entry.type !== "message") continue;
+		const message = entry.message as { role?: unknown } | null | undefined;
+		if (message?.role === "user") break;
+		if (message?.role !== "assistant") continue;
+		const text = assistantText(message);
+		if (text.trim()) return text;
+	}
+	return "";
+}
+
+function completionEntries(sessionPath: string): Record<string, unknown>[] {
+	try {
+		return parseSessionEntries(readFileSync(sessionPath, "utf8")).entries;
+	} catch {
+		return [];
+	}
 }
 
 export { assistantText, refuseBareDone };
@@ -463,6 +482,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	let expanded = false;
 
 	const sidecarPath = `${sessionFile}.exit`;
+	let runStart = 0;
 
 	/** Write the completion sidecar. Best-effort: a failed write must not
 	 * break the exit path (the session JSONL remains the readable truth).
@@ -477,6 +497,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 					type: "error";
 					errorMessage: string;
 					stopReason: string;
+					text?: string;
 					eventId?: string;
 			  },
 		rearm = false,
@@ -494,18 +515,22 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			const eventField = {
 				eventId: completionEventId,
 			};
+			const text = finalAssistantText(session, runStart);
+			const bodyField = text.trim() ? { text } : {};
 			writeFileSync(
 				sidecarPath,
 				JSON.stringify(
 					rearm
 						? {
 								...payload,
+								...bodyField,
 								...structuredField,
 								...rootField,
 								...eventField,
 								rearm: true,
 						  }
-						: { ...payload, ...structuredField, ...rootField, ...eventField },
+						: { ...payload,
+								...bodyField, ...structuredField, ...rootField, ...eventField },
 				),
 			);
 		} catch {
@@ -552,7 +577,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			"Never call it mid-task.",
 		parameters: Type.Object({}),
 		async execute(_id, _params, _signal, _onUpdate, ctx) {
-			const text = finalAssistantText(session);
+			const text = finalAssistantText(session, runStart);
 			const refusal = refuseBareDone(text);
 			// A validated StructuredOutput payload is itself the result (prose
 			// outside that call is discarded). Refuse only when there is neither.
@@ -644,6 +669,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	pi.on("agent_start", () => {
 		completionEventId = resetCompletionEvent(session);
 		latestMessages = undefined;
+		runStart = completionEntries(session).length;
 		// pi started (re)running — a retry survived the grace window decision,
 		// and a taken-over pane has new work; any pending re-arm is moot.
 		cancelErrorExit();

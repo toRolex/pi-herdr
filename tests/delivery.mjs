@@ -1944,6 +1944,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				pushes.push(m);
 			},
 			closePane: async (paneId) => {
+				// A real asynchronous CLI-style Result exposes missing awaits.
+				await sleep(15);
 				if (closeFails) {
 					closeNotes.push({ paneId, failed: true });
 					return { ok: false, error: { message: "orphan pane close failed" } };
@@ -1999,13 +2001,49 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			"a failed orphan pane close is observable and does not claim the pane closed",
 		);
 		assert(existsSync(leaf), "a failed close still retains the session file");
+		const savedFailure = JSON.parse(readFileSync(`${mid}.registry.json`, "utf8"))[0];
+		assert(
+			savedFailure.delivery?.kind === "done" &&
+				savedFailure.paneClosePending === true &&
+				savedFailure.paneCloseError === "orphan pane close failed",
+			"delayed failed close is awaited and its pending/error state is persisted",
+		);
+
+		// A fresh in-memory root registry simulates resume; retry must use disk.
+		const restoredRoot = () => JSON.parse(JSON.stringify(rootRecords));
+		for (const status of ["working", "blocked"]) {
+			fleet[0].status = status;
+			await delivery.deliverOnce(depsFor(restoredRoot()));
+			assert(
+				closeNotes.length === 1 && closes.length === 0 && pushes.length === 1,
+				`a restored pending orphan close waits while the pane is ${status}`,
+			);
+		}
+		fleet[0].status = "done";
 
 		// the empty pane is recycled only after the letter was delivered
 		closeFails = false;
-		await delivery.deliverOnce(depsFor(rootRecords));
+		await delivery.deliverOnce(depsFor(restoredRoot()));
 		assert(
 			closes.includes("w1:leaf") && pushes.length === 1 && existsSync(leaf),
 			"after the result is delivered the empty orphan pane is recycled and the session stays",
+		);
+
+		const savedSuccess = JSON.parse(readFileSync(`${mid}.registry.json`, "utf8"))[0];
+		assert(
+			!savedSuccess.paneClosePending && !savedSuccess.paneCloseError,
+			"a successful restored retry clears the persisted close failure",
+		);
+
+		// A human may take over between failure and retry, without registry writes.
+		writeFileSync(`${mid}.registry.json`, JSON.stringify([savedFailure]));
+		writeFileSync(`${leaf}.takeover`, JSON.stringify({ at: 1_000_001 }));
+		const beforeRetryTakeover = closes.length;
+		await delivery.deliverOnce(depsFor(restoredRoot()));
+		assert(
+			closes.length === beforeRetryTakeover && pushes.length === 1 &&
+				JSON.parse(readFileSync(`${mid}.registry.json`, "utf8"))[0].takenOver === true,
+			"a fresh-memory close retry rereads the takeover marker and holds the pane",
 		);
 
 		// takeover: the letter can be delivered, the pane is not recycled
@@ -2027,10 +2065,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 					name: "held",
 					paneId: "w1:held",
 					sessionPath: held,
-					takenOver: true,
 				},
 			]),
 		);
+		writeFileSync(`${held}.takeover`, JSON.stringify({ at: 1_000_002 }));
 		fleet.push({ paneId: "w1:held", status: "done" });
 		const beforeHeld = pushes.length;
 		const beforeClose = closes.length;
