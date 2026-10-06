@@ -11,6 +11,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HerdrSettings } from "./settings.js";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 /** How a push enters the orchestrator session. */
 export type DeliverAs = "steer" | "followUp" | "nextTurn";
@@ -37,12 +38,27 @@ export interface SteeredMessage {
  */
 export function makeDeliverySink(
 	pi: ExtensionAPI,
-	confirmation?: { getBranch(): readonly unknown[]; now?: () => number; timeoutMs?: number },
+	confirmation?: { getBranch(): readonly unknown[]; getSessionFile?: () => string | undefined; now?: () => number; timeoutMs?: number },
 ): (msg: SteeredMessage) => void {
 	let getBranch = confirmation?.getBranch;
+	let getSessionFile = confirmation?.getSessionFile;
+	const confirmed = (token: string): boolean => {
+		const matches = (entry: unknown): boolean => {
+			const row = entry as { type?: string; customType?: string; details?: { deliveryToken?: string } };
+			return row.type === "custom_message" && row.customType === "herdr-delivery" && row.details?.deliveryToken === token;
+		};
+		if (getSessionFile) {
+			const file = getSessionFile();
+			if (!file) return false;
+			try { return readFileSync(file, "utf8").split("\n").filter(Boolean).some(line => matches(JSON.parse(line))); }
+			catch { return false; }
+		}
+		return getBranch?.().some(matches) ?? false;
+	};
 	const pending = new Map<string, { token: string; at: number }>();
 	pi.on?.("session_start", (_event, ctx) => {
 		getBranch = () => ctx.sessionManager.getBranch();
+		getSessionFile = () => ctx.sessionManager.getSessionFile();
 		pending.clear();
 	});
 	return (msg: SteeredMessage): void => {
@@ -51,14 +67,9 @@ export function makeDeliverySink(
 			const now = (confirmation?.now ?? Date.now)();
 			const existing = pending.get(key);
 			if (existing) {
-				const confirmed = getBranch?.().some(entry => {
-					const row = entry as { type?: string; customType?: string; details?: { deliveryToken?: string } };
-					return row.type === "custom_message" && row.customType === "herdr-delivery" && row.details?.deliveryToken === existing.token;
-				});
-				if (confirmed) return;
+				if (confirmed(existing.token)) return;
 				if (now - existing.at >= (confirmation?.timeoutMs ?? 30_000)) {
-					pending.delete(key);
-					throw new Error("delivery confirmation timeout; retained for retry");
+					throw new Error("delivery confirmation timeout; outcome unknown, original token remains pending");
 				}
 				throw new Error("delivery pending durable confirmation");
 			}
@@ -79,11 +90,7 @@ export function makeDeliverySink(
 				},
 			);
 			if (getBranch) {
-				const confirmed = getBranch().some(entry => {
-					const row = entry as { type?: string; customType?: string; details?: { deliveryToken?: string } };
-					return row.type === "custom_message" && row.customType === "herdr-delivery" && row.details?.deliveryToken === token;
-				});
-				if (!confirmed) throw new Error("delivery pending durable confirmation");
+				if (!confirmed(token)) throw new Error("delivery pending durable confirmation");
 			}
 		} catch (err) {
 			// Surface the failure. Callers that recycle a pane (orphan
