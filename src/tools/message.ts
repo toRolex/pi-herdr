@@ -30,6 +30,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { PENDING_CAP } from "../inbox.js";
 import { readCompletionEvent, validEventId } from "../completion-event.js";
 import { fleetList, herdr } from "../herdr.js";
 import { sendAgentPrompt } from "./orchestration.js";
@@ -68,11 +69,7 @@ export interface MessageParams {
 	submit?: boolean;
 	/** Business event id. Absent means the envelope and receipt stay untagged. */
 	eventId?: string;
-	/**
-	 * Accept into the pending inbox instead of typing now. Only an idle
-	 * target holds; any other state still delivers immediately and drains
-	 * what was pending.
-	 */
+	/** Deprecated compatibility flag; receiver lifecycle owns pending input. */
 	pending?: boolean;
 }
 
@@ -471,216 +468,13 @@ async function defaultFleetList(signal?: AbortSignal): Promise<FleetHandle[]> {
 	return r.data.map((a) => ({ name: a.name, paneId: a.paneId }));
 }
 
-// ---- inbound rate limit ------------------------------------------------------------
+// Legacy test seams retained for API compatibility; enforcement belongs to the receiver.
+export { INBOUND_LIMIT, INBOUND_WINDOW_MS, PENDING_CAP } from "../inbox.js";
+export function resetInboundRateLimit(): void {}
+export function resetPendingInbox(): void {}
+export function admitInbound(_sender: string, _now: number): { ok: true } { return { ok: true }; }
 
-/** pi fleet budget: one declared sender, one receiving process. */
-export const INBOUND_LIMIT = 20;
-export const INBOUND_WINDOW_MS = 10_000;
-
-/**
- * What the limit is actually about. Labels are spawner-declared and never
- * verified, and every pane on this machine shares one OS user — so the
- * bucket is local courtesy, not an identity boundary.
- */
-const IDENTITY_SCOPE =
-	"Identity scope: local, same OS user. The sender label is spawner-declared and never verified; panes on this machine share one OS account, so this limit is not a trust boundary.";
-
-interface SenderBucket {
-	times: number[];
-	/** Refusals waiting to be named on the next aggregate receipt. */
-	pending: number;
-	/** When the current window's one receipt was returned. */
-	lastReceiptAt?: number;
-}
-
-const buckets = new Map<string, SenderBucket>();
-
-/** Test seam: drop every sender's window. */
-export function resetInboundRateLimit(): void {
-	buckets.clear();
-}
-
-/**
- * Admit one inbound send, or refuse it. A refusal is itself the aggregate
- * receipt for every refusal since the previous receipt — the refused send
- * is not delivered anywhere, so a receipt cannot spawn another refusal.
- *
- * Blocked-overlay answers do not enter here: that path is the target's
- * question, and starving it would leave the pane stuck.
- */
-export function admitInbound(
-	sender: string,
-	now: number,
-): { ok: true } | { ok: false; error: SendError } {
-	const cutoff = now - INBOUND_WINDOW_MS;
-	let bucket = buckets.get(sender);
-	if (!bucket) {
-		bucket = { times: [], pending: 0 };
-		buckets.set(sender, bucket);
-	}
-	bucket.times = bucket.times.filter((t) => t > cutoff);
-	if (bucket.times.length < INBOUND_LIMIT) {
-		bucket.times.push(now);
-		bucket.pending = 0;
-		bucket.lastReceiptAt = undefined;
-		return { ok: true };
-	}
-	bucket.pending += 1;
-	const cooled =
-		bucket.lastReceiptAt == null ||
-		now - bucket.lastReceiptAt >= INBOUND_WINDOW_MS;
-	if (!cooled) {
-		return {
-			ok: false,
-			error: err(
-				"RATE_LIMITED",
-				`Folded into the open aggregate receipt: refused ${bucket.pending} more inbound message${bucket.pending === 1 ? "" : "s"} from "${sender}" — not delivered, and no additional receipt. Limit is ${INBOUND_LIMIT} messages per ${INBOUND_WINDOW_MS / 1000} seconds per sender. ${IDENTITY_SCOPE}`,
-				{ sender, refused: bucket.pending, folded: true },
-			),
-		};
-	}
-	const refused = bucket.pending;
-	bucket.pending = 0;
-	bucket.lastReceiptAt = now;
-	return {
-		ok: false,
-		error: err(
-			"RATE_LIMITED",
-			`Aggregate receipt: refused ${refused} inbound message${refused === 1 ? "" : "s"} from "${sender}" — not delivered. Limit is ${INBOUND_LIMIT} messages per ${INBOUND_WINDOW_MS / 1000} seconds per sender. ${IDENTITY_SCOPE}`,
-			{
-				sender,
-				refused,
-				limit: INBOUND_LIMIT,
-				windowSeconds: INBOUND_WINDOW_MS / 1000,
-			},
-		),
-	};
-}
-
-// ---- pending inbox ----------------------------------------------------------------
-
-/**
- * How many accepted-but-not-yet-typed messages one pane holds. A pi fleet
- * is a handful of panes; eight is already a burst waiting on one busy
- * agent. Not the CC 50/100 figures.
- */
-export const PENDING_CAP = 8;
-
-interface PendingItem {
-	from: string;
-	text: string;
-	submit: boolean;
-	name?: string;
-	to: string;
-	eventId?: string;
-}
-
-interface Inbox {
-	items: PendingItem[];
-	/** Dropped senders still waiting to be named on the open aggregate receipt. */
-	dropped: string[];
-	/** The one aggregate receipt for the current burst, returned to whoever caused it. */
-	aggregate?: string;
-	/** Senders who have already been shown that receipt. */
-	told: Set<string>;
-}
-
-const inboxes = new Map<string, Inbox>();
-
-/** Test seam: drop every pane's pending inbox. */
-export function resetPendingInbox(): void {
-	inboxes.clear();
-}
-
-function inboxFor(paneId: string): Inbox {
-	let inbox = inboxes.get(paneId);
-	if (!inbox) {
-		inbox = { items: [], dropped: [], told: new Set() };
-		inboxes.set(paneId, inbox);
-	}
-	return inbox;
-}
-
-function dropNotice(dropped: readonly string[], fresh: boolean): string {
-	const who = dropped.map((s) => `"${s}"`).join(", ");
-	const noun = dropped.length === 1 ? "message" : "messages";
-	if (fresh) {
-		return (
-			`Aggregate receipt: dropped ${dropped.length} oldest pending ${noun} from ${who} — not delivered. ` +
-			`Pending inbox holds ${PENDING_CAP}. The receiver is told on this receipt; the dropped sender is told here if they caused it, otherwise on their next call. ` +
-			`already-delivered text is kept. This receipt is the call result, not a new inbound message.`
-		);
-	}
-	return (
-		`Folded into the open aggregate inbox receipt: dropped ${dropped.length} oldest pending ${noun} from ${who} — not delivered, and no additional receipt. ` +
-		`Pending inbox holds ${PENDING_CAP}. The receiver is told on this receipt. already-delivered text is kept.`
-	);
-}
-
-function personalDrop(sender: string, dropped: readonly string[]): string {
-	const who = dropped.map((s) => `"${s}"`).join(", ");
-	return (
-		`Pending message from "${sender}" was dropped (oldest pending, senders ${who}) — not delivered. ` +
-		`Pending inbox holds ${PENDING_CAP}; already-delivered text is kept. ` +
-		`The receiver was told on the open aggregate inbox receipt; this is not a new receipt.`
-	);
-}
-
-/**
- * Accept one message into the pane's pending inbox. Over the cap, the
- * oldest pending item is dropped. The first drop of a burst is the one
- * aggregate receipt; later drops in that burst fold into it. Nothing here
- * is typed into a pane, so the receipt cannot loop.
- */
-function enqueuePending(paneId: string, item: PendingItem): { dropped: boolean; notice?: string } {
-	const inbox = inboxFor(paneId);
-	inbox.items.push(item);
-	if (inbox.items.length <= PENDING_CAP) return { dropped: false };
-	const oldest = inbox.items.shift();
-	if (!oldest) return { dropped: false };
-	inbox.dropped.push(oldest.from);
-	const fresh = inbox.aggregate == null;
-	inbox.aggregate = dropNotice(inbox.dropped, fresh);
-	inbox.told.add(item.from);
-	return { dropped: true, notice: inbox.aggregate };
-}
-
-/** Notice owed to this sender from an earlier drop, without opening a new receipt. */
-function owedNotice(paneId: string, sender: string): string | undefined {
-	const inbox = inboxes.get(paneId);
-	if (!inbox || inbox.told.has(sender) || !inbox.dropped.includes(sender)) return undefined;
-	inbox.told.add(sender);
-	const notice = personalDrop(sender, inbox.dropped);
-	if (inbox.items.length === 0 && inbox.dropped.every((s) => inbox.told.has(s))) {
-		inboxes.delete(paneId);
-	}
-	return notice;
-}
-
-/** Take the pending items off the inbox for a drain. Put them back on failure. */
-function takePending(paneId: string): PendingItem[] {
-	const inbox = inboxes.get(paneId);
-	if (!inbox) return [];
-	const items = inbox.items;
-	inbox.items = [];
-	inbox.aggregate = undefined;
-	return items;
-}
-
-function restorePending(paneId: string, items: PendingItem[]): void {
-	const inbox = inboxFor(paneId);
-	inbox.items = [...items, ...inbox.items].slice(-PENDING_CAP);
-}
-
-function finishDrain(paneId: string): void {
-	const inbox = inboxes.get(paneId);
-	if (!inbox) return;
-	// Dropped senders who have not been told yet still get the personal
-	// note on their next call. Senders already told do not get another.
-	if (inbox.items.length === 0 && inbox.dropped.every((s) => inbox.told.has(s))) {
-		inboxes.delete(paneId);
-	}
-}
+interface PendingItem { from: string; text: string; submit: boolean; to: string; name?: string; eventId?: string; }
 
 // ---- the engine ----------------------------------------------------------------
 
@@ -708,14 +502,7 @@ export async function messageAgent(
 
 	const submit = params.submit !== false;
 	const blocked = resolved.state === "blocked";
-	// A burst is held only while the pane is idle and the caller asked to
-	// queue it. Working, blocked, and done type immediately.
-	const holding = resolved.state === "idle" && params.pending === true;
 	const from = await senderLabel(deps);
-	if (!blocked) {
-		const admitted = admitInbound(from, (deps.now ?? Date.now)());
-		if (!admitted.ok) return admitted;
-	}
 
 	const send = deps.send ?? sendAgentPrompt;
 	const deliver = async (
@@ -766,34 +553,9 @@ export async function messageAgent(
 		...(params.eventId ? { eventId: params.eventId } : {}),
 	};
 
-	// Idle: the pane has not started on this burst. Hold it. Over the cap,
-	// drop the oldest pending item. The receipt stays on this call — it is
-	// never typed into the pane, so it cannot loop.
-	if (holding) {
-		const held = enqueuePending(resolved.paneId, item);
-		const notice = held.notice ?? owedNotice(resolved.paneId, from);
-		return receipt({
-			delivered: false,
-			queued: true,
-			...(notice ? { notice } : {}),
-		});
-	}
-
-	// Leaving idle (done drains; working / blocked type now). Pending text
-	// goes out oldest-first, then this message. Already-typed text stays.
-	// A failed drain puts the untyped remainder back; nothing already typed
-	// is rewritten.
-	const waiting = takePending(resolved.paneId);
-	for (let i = 0; i < waiting.length; i++) {
-		const drained = await deliver(waiting[i], false);
-		if (!drained.ok) {
-			restorePending(resolved.paneId, waiting.slice(i));
-			return drained;
-		}
-	}
+	// Always type: the receiving session owns admission and automatic draining.
 	const r = await deliver(item, blocked);
 	if (!r.ok) return r;
-	finishDrain(resolved.paneId);
 	return receipt({});
 }
 
@@ -816,9 +578,9 @@ const DESCRIPTION =
 	"(herdr_get_agent_result(wait) is the wait). A gone target errors naming the handle — see herdr_list_agents; " +
 	"a queued spawn (accepted over the parallel cap, no pane yet) has nothing to deliver to and errors the same way. " +
 	"Inbound sends are limited to 20 messages per 10 seconds per sender label. The label is spawner-declared and never verified, and the scope is local (same OS user) — not a trust boundary. " +
-	"Over the limit, nothing is typed into the target; the error is one aggregate receipt for the refused sends, not a message back (that would loop). " +
+	"Admission is enforced by the receiving pi session, not this sender process. Refused inputs produce an out-of-band aggregate receipt to the receiver and affected sender. " +
 	"A BLOCKED overlay answer does not count and is never refused by this limit. " +
-	"An idle target can accept a pending burst of 8; over that, the oldest pending message is dropped and both sides hear one aggregate receipt. Already-typed text is kept.";
+	"A busy receiver holds 8 pending messages shared across senders, automatically drains on settle, and drops the oldest pending input on overflow. Already-delivered text is kept.";
 
 export function registerMessageTool(pi: ExtensionAPI): void {
 	pi.registerTool({
@@ -846,7 +608,7 @@ export function registerMessageTool(pi: ExtensionAPI): void {
 			pending: Type.Optional(
 				Type.Boolean({
 					description:
-						"Accept into the pending inbox instead of typing now. Only an idle target holds; the inbox holds 8 and drops the oldest. Any other state drains the inbox, oldest first, then types this message.",
+						"Deprecated compatibility flag; receiving pi automatically holds busy input and drains on settle. This flag does not change transport delivery.",
 				}),
 			),
 			completion: Type.Optional(Type.Boolean({ description: "Final report only. Read this child's run completion event ID; the sidecar uses the same ID. Ordinary progress must omit this flag." })),
