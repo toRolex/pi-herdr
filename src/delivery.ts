@@ -136,6 +136,8 @@ export interface DeliveryDeps {
 	/** Write a registry back after an adopted delivery so resume does not
 	 * push the same letter again. */
 	writeRegistry?: (sessionPath: string, records: readonly SpawnRecord[]) => void;
+	/** Adoption's owner mark must be durable before pane recycling. */
+	persistAdopted?: () => void;
 }
 
 // ---- push composition ---------------------------------------------------------
@@ -337,7 +339,7 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 		if (isPi && record.sessionPath) {
 			const sidecar = (deps.readSidecar ?? readExitSidecar)(record.sessionPath);
 			if (sidecar.state === "ok") {
-				deliverSidecar(record, sidecar.sidecar, deps, paneLive(record.paneId));
+				await deliverSidecar(record, sidecar.sidecar, deps, paneLive(record.paneId));
 				continue;
 			}
 		}
@@ -546,15 +548,15 @@ async function adoptOrphans(
 			const sidecar = (deps.readSidecar ?? readExitSidecar)(child.sessionPath);
 			if (sidecar.state !== "ok") continue;
 			if (sidecar.sidecar.rootSession && sidecar.sidecar.rootSession !== self) continue;
-			await deliverSidecar(child, sidecar.sidecar, deps, false, true);
+			await deliverSidecar(child, sidecar.sidecar, {
+				...deps,
+				persistAdopted: () => write(owner.sessionPath!, children),
+			}, false, true);
 			dirty = true;
 		}
 		if (!dirty) continue;
-		try {
-			write(owner.sessionPath, children);
-		} catch {
-			/* the in-memory mark is lost with this read; the next tick retries */
-		}
+		try { write(owner.sessionPath, children); }
+		catch (error) { throw new Error(`adopted registry persistence failed: ${String(error)}`); }
 	}
 }
 
@@ -780,7 +782,15 @@ async function deliverAdopted(
 		}
 	}
 	record.pushError = undefined;
+	const previousDelivery = record.delivery;
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
+	record.paneClosePending = !!record.paneId;
+	try { deps.persistAdopted?.(); }
+	catch (error) {
+		record.delivery = previousDelivery;
+		record.pushError = `adopted registry persistence failed: ${String(error)}`;
+		throw new Error(record.pushError);
+	}
 	await closeDeliveredPane(deps, record, msg.details.rearm === true, paneLive);
 }
 

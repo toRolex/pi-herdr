@@ -24,4 +24,7 @@
 - async SDK wrapper 的错误不能通过 await 捕获；持久入口缺失由 pending confirmation/timeout 可见，pane保持。
 - 同进程 tick 串行；不声称跨进程互斥。
 - own terminal ack 后、close 前持久化delivery；tick完成再次写全部own标志（含submissionnotified）。写失败恢复volatile dedupe并throw/pushError，不当已持久。
+- adopted ack后先持久owner delivery+closePending，再close，最后写close outcome；失败抛错可见，不吞。真实registry EISDIR回归close前备份已含done；own sidecar await链消除unhandled rejection。
+- sink reload额外按实际JSONL terminal eventId去重，owner标志写失败也不重enqueue已持久正文。
+- 证据 `fix-registry-order-{red,green}.log`，测试 `delivery-registry-failure-sdk.mjs`。
 - actual SDK session_start reload 回归：diskdelivery done / reload mapdone / queue1；证据 `fix-reload-{red,green}.log`，测试 `delivery-reload-sdk.mjs`。

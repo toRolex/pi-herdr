@@ -42,6 +42,17 @@ export function makeDeliverySink(
 ): (msg: SteeredMessage) => void {
 	let getBranch = confirmation?.getBranch;
 	let getSessionFile = confirmation?.getSessionFile;
+	const hasDurableEvent = (eventId: unknown): boolean => {
+		if (typeof eventId !== "string" || !getSessionFile) return false;
+		const file = getSessionFile();
+		if (!file) return false;
+		try {
+			return readFileSync(file, "utf8").split("\n").filter(Boolean).some(line => {
+				const row = JSON.parse(line);
+				return row.type === "custom_message" && row.customType === "herdr-delivery" && row.details?.eventId === eventId;
+			});
+		} catch { return false; }
+	};
 	const confirmed = (token: string): boolean => {
 		const matches = (entry: unknown): boolean => {
 			const row = entry as { type?: string; customType?: string; details?: { deliveryToken?: string } };
@@ -66,6 +77,7 @@ export function makeDeliverySink(
 			const key = JSON.stringify([msg.details.eventId, msg.details.sessionPath, msg.details.name, msg.details.kind, msg.content]);
 			const now = (confirmation?.now ?? Date.now)();
 			const existing = pending.get(key);
+			if (hasDurableEvent(msg.details.eventId)) return;
 			if (existing) {
 				if (confirmed(existing.token)) return;
 				if (now - existing.at >= (confirmation?.timeoutMs ?? 30_000)) {

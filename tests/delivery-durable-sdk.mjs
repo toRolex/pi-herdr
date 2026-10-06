@@ -30,6 +30,8 @@ try{
  const quietEntries=host._pendingNextTurnMessages.splice(0);
  for(const app of quietEntries)await host._handleAgentEvent({type:'message_end',message:app});
  sink(quiet);
+ const reloadSink=makeDeliverySink({...actions,on(){}},{getBranch:()=>manager.getBranch(),getSessionFile:()=>manager.getSessionFile()});
+ reloadSink(quiet);assert.equal(host._pendingNextTurnMessages.length,0,'durable event ID dedupes after sink reload');
  const diskQuiet=readFileSync(path,'utf8').trim().split('\n').map(JSON.parse).filter(r=>r.type==='custom_message');
  console.log('REAL_SDK_QUIET_TIMEOUT_DUPLICATE',JSON.stringify({queueCount:quietEntries.length,diskEntries:diskQuiet.length,tokens:diskQuiet.map(r=>r.details.deliveryToken)}));
  // Actual SDK busy followUp queue, same 30s retry creates duplicate.
