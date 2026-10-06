@@ -377,14 +377,16 @@ console.log("\n[7] Child extension — registration against a mock pi");
 	const sess = join(dir, "s.jsonl");
 	writeFileSync(
 		sess,
-		JSON.stringify({
-			type: "message",
-			message: {
-				role: "assistant",
-				content: [{ type: "text", text: "final letter" }],
-				stopReason: "stop",
-			},
-		}) + "\n",
+		[
+			{ type: "message", message: { role: "user", content: "current task" } },
+			{ type: "message", message: {
+				role: "assistant", content: [{ type: "text", text: "final letter" }], stopReason: "stop",
+			} },
+			{ type: "message", message: {
+				role: "assistant", stopReason: "toolUse",
+				content: [{ type: "toolCall", id: "t1", name: "agent_done", arguments: {} }],
+			} },
+		].map((entry) => JSON.stringify(entry)).join("\n") + "\n",
 	);
 	process.env.PI_HERDR_SESSION = sess;
 	process.env.PI_HERDR_NAME = "scout";
