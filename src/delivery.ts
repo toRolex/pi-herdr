@@ -515,7 +515,7 @@ async function deliverSidecar(
 	record: SpawnRecord,
 	sidecar:
 		| { type: "done"; rearm?: true; text?: string }
-		| { type: "error"; errorMessage: string; stopReason: string; rearm?: true },
+		| { type: "error"; errorMessage: string; stopReason: string; rearm?: true; text?: string },
 	deps: DeliveryDeps,
 	paneLive = false,
 	adopted = false,
@@ -555,13 +555,18 @@ async function deliverSidecar(
 		record,
 		"error",
 		{
-			content: errorContent(record, sidecar.errorMessage, extracted, rearm),
+			content: errorContent(
+				record, sidecar.errorMessage,
+				sidecar.text?.trim() ? { message: extracted?.message ?? {}, text: sidecar.text } : extracted,
+				rearm,
+			),
 			details: {
 				name: record.name,
 				kind: "error",
 				...adoptedFlag,
 				...(rearm ? { rearm: true } : {}),
 				error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
+				...(sidecar.text?.trim() ? { result: sidecar.text } : {}),
 				...(extracted ? { message: extracted.message } : {}),
 				...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 			},
