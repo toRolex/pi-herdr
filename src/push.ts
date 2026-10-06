@@ -30,6 +30,13 @@ export interface SteeredMessage {
 	deliverAs?: DeliverAs;
 }
 
+type PendingAcknowledgement = { token: string; at: number };
+const pendingSessionsKey = Symbol.for("pi-herdr.pending-delivery-acknowledgements");
+const pendingHost = globalThis as typeof globalThis & {
+	[pendingSessionsKey]?: Map<string, Map<string, PendingAcknowledgement>>;
+};
+const pendingSessions = pendingHost[pendingSessionsKey] ??= new Map();
+
 /**
  * Build the steer sink for a session: pi.sendMessage with delivery's exact
  * envelope (`herdr-delivery`, wake → steer/nextTurn flags). ONE factory so
@@ -66,14 +73,26 @@ export function makeDeliverySink(
 		}
 		return getBranch?.().some(matches) ?? false;
 	};
-	const pending = new Map<string, { token: string; at: number }>();
+	let pending = new Map<string, PendingAcknowledgement>();
+	const selectPendingSession = (): void => {
+		const file = getSessionFile?.();
+		if (!file) return; // Unknown session/queue outcome must not release a token.
+		let sessionPending = pendingSessions.get(file);
+		if (!sessionPending) {
+			sessionPending = new Map();
+			pendingSessions.set(file, sessionPending);
+		}
+		pending = sessionPending;
+	};
+	selectPendingSession();
 	pi.on?.("session_start", (_event, ctx) => {
 		getBranch = () => ctx.sessionManager.getBranch();
 		getSessionFile = () => ctx.sessionManager.getSessionFile();
-		pending.clear();
+		selectPendingSession();
 	});
 	return (msg: SteeredMessage): void => {
 		try {
+			selectPendingSession();
 			const key = JSON.stringify([msg.details.eventId, msg.details.sessionPath, msg.details.name, msg.details.kind, msg.content]);
 			const now = (confirmation?.now ?? Date.now)();
 			const existing = pending.get(key);
