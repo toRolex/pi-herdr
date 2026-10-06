@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict';
+import { createJiti } from 'jiti';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const jiti = createJiti(import.meta.url);
+const child = await jiti.import('../src/child.ts');
+const { messageAgent } = await jiti.import('../src/tools/message.ts');
+const { deliverOnce } = await jiti.import('../src/delivery.ts');
+const { makeDeliverySink } = await jiti.import('../src/push.ts');
+const { presentNotices, registerDeliveryRenderer } = await jiti.import('../src/delivery-render.ts');
+const { initTheme } = await jiti.import('../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js');
+initTheme('dark',false);
+const { CustomMessageComponent } = await jiti.import('../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/custom-message.js');
+const dir = mkdtempSync(join(tmpdir(), 'herdr-channel-'));
+const session = join(dir, 'child.jsonl');
+const old = process.env.PI_HERDR_SESSION;
+process.env.PI_HERDR_SESSION = session;
+try {
+ writeFileSync(session, '');
+ const handlers = new Map(), tools = new Map();
+ child.registerChildExtension({on:(n,f)=>handlers.set(n,f), registerTool:t=>tools.set(t.name,t), registerShortcut(){}, setSessionName(){}, getAllTools:()=>[]});
+ handlers.get('session_start')({}, {ui:{setWidget(){}}});
+ handlers.get('agent_start')();
+ writeFileSync(session, JSON.stringify({type:'message', message:{role:'assistant', content:[{type:'text',text:'final'}],stopReason:'stop'}})+'\n');
+ let envelope;
+ const deps = {env:{PI_HERDR_SESSION:session,PI_HERDR_NAME:'channel-child',PI_HERDR_ORCHESTRATOR_PANE:'w1:p1'},registry:()=>new Map(), agentGet:async()=>({ok:true,data:{paneId:'w1:p1',status:'working'}}),send:async(_p,t)=>{envelope=t;return {ok:true,data:true};}};
+ const sent = await messageAgent({target:'orchestrator',text:'final',completion:true},deps);
+ assert.ok(sent.ok && sent.data.eventId, 'completion tool reads child run event ID');
+ await tools.get('agent_done').execute('done',{},undefined,undefined,{shutdown(){}});
+ const sidecar = JSON.parse(readFileSync(session+'.exit','utf8'));
+ assert.equal(sidecar.eventId,sent.data.eventId,'sidecar and terminal envelope share event ID');
+ const { registerAgentMessageInput } = await jiti.import('../src/agent-message.ts');
+ for (const busy of [false,true]) for (const reverse of [false,true]) {
+  const rows=[], sinks=[], renderers=new Map(); let input;
+  const pi={on:(n,f)=>{if(n==='input')input=f;},sendMessage:(m,o)=>{rows.push({type:'custom_message',id:String(rows.length),...m});sinks.push(o);},registerMessageRenderer:(t,f)=>renderers.set(t,f)};
+  registerAgentMessageInput(pi);
+  registerDeliveryRenderer(pi,{getBranch:()=>rows});
+  const theme={bg:(_k,t)=>t,fg:(_k,t)=>t};
+  let liveComponent, sdkComponent;
+  const live = ()=>{assert.deepEqual(input({text:envelope},{isIdle:()=>!busy}),{action:'handled'});liveComponent=renderers.get('herdr-agent-message')(rows.at(-1),{expanded:false,outputPad:1},theme);assert.ok(liveComponent);sdkComponent=new CustomMessageComponent({...rows.at(-1),role:'custom'},renderers.get('herdr-agent-message'));sdkComponent.render(80);};
+  const done = async()=>{const rec={name:'child',kind:'pi',paneId:'w1:p2',sessionPath:session,stance:'autonomous',submitted:true,sawWorking:true};await deliverOnce({registry:()=>new Map([['child',rec]]),load:()=>({notifications:'normal'}),list:async()=>({ok:true,data:[{paneId:'w1:p2',agentStatus:'done'}]}),push:makeDeliverySink(pi),closePane:async()=>{},now:()=>1});};
+  if(reverse){await done();live();}else{live();assert.ok(liveComponent.render(80).length);await done();}
+  assert.equal(presentNotices(rows).length,1,'real session entries merge both arrival orders');
+  assert.deepEqual(liveComponent.render(80),[],'old live component reevaluates after terminal arrival');
+  assert.equal(sdkComponent.render(80).join('').trim(),'','real SDK component hides live body without rebuilding (its fixed spacer remains)');
+  const reload=JSON.parse(JSON.stringify(rows));
+  assert.equal(presentNotices(reload).length,1,'reload from persisted custom_message entries merges');
+  assert.deepEqual(sinks[reverse?1:0],{triggerTurn:true,deliverAs:busy?'followUp':'steer'});
+  assert.deepEqual(input({text:'<agent-message from="a" to="b">progress</agent-message>'},{isIdle:()=>true}),{action:'continue'});
+  assert.deepEqual(input({text:'<agent-message from="a" to="b" event="bad id">final</agent-message>'},{isIdle:()=>true}),{action:'continue'});
+  assert.equal(rows.length,2,'progress and malformed event IDs do not create custom completions');
+  assert.equal(sinks.length,2,'handled input produces one custom send, not a second user trigger');
+  assert.equal(presentNotices([...reload,{type:'custom_message',customType:'herdr-agent-message',details:{eventId:'other'},content:'other'}]).length,2);
+ }
+ handlers.get('agent_start')();
+ const next = await messageAgent({target:'orchestrator',text:'new final',completion:true},deps);
+ assert.notEqual(next.data.eventId,sent.data.eventId,'new run resets event ID');
+ const mismatch = await messageAgent({target:'orchestrator',text:'final',completion:true,eventId:'foreign'},deps);
+ assert.equal(mismatch.ok,false,'completion refuses a conflicting explicit ID');
+ const progress = await messageAgent({target:'orchestrator',text:'checkpoint'},deps);
+ assert.equal(progress.data.eventId,undefined,'ordinary progress is untagged');
+ child.registerChildExtension({on(){},registerTool(){},registerShortcut(){}});
+ const resumed = await messageAgent({target:'orchestrator',text:'resumed final',completion:true},deps);
+ assert.notEqual(resumed.data.eventId,next.data.eventId,'extension reload/resume resets event marker');
+ console.log('completion-channel: passed');
+} finally { if(old===undefined)delete process.env.PI_HERDR_SESSION;else process.env.PI_HERDR_SESSION=old;rmSync(dir,{recursive:true,force:true}); }

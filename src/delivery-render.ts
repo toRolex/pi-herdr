@@ -58,8 +58,9 @@ export interface NoticeEntry {
 	details?: unknown;
 }
 
-function noticeOf(entry: object): NoticeEntry | undefined {
-	const row = entry as NoticeEntry & { message?: NoticeEntry };
+export interface NoticeSessionEntry extends NoticeEntry { type?: string; message?: NoticeEntry }
+
+function noticeOf(row: NoticeSessionEntry): NoticeEntry | undefined {
 	if (row.customType) return row;
 	if (row.message && typeof row.message === "object" && row.message.customType) {
 		return row.message;
@@ -83,16 +84,18 @@ function eventIdOf(entry: NoticeEntry): string | undefined {
  * takeover, blocked) stay. Idempotent, so a reload of the same transcript
  * does not grow a second copy. Content of what remains is unchanged.
  */
-export function presentNotices<T extends NoticeEntry>(entries: readonly T[]): T[] {
+export function presentNotices<T extends NoticeSessionEntry>(entries: readonly T[]): T[] {
 	const completionIds = new Set<string>();
 	for (const entry of entries) {
-		if (entry.customType !== HERDR_DELIVERY_CUSTOM_TYPE) continue;
-		const id = eventIdOf(entry);
+		const notice = noticeOf(entry);
+		if (notice?.customType !== HERDR_DELIVERY_CUSTOM_TYPE) continue;
+		const id = eventIdOf(notice);
 		if (id) completionIds.add(id);
 	}
 	return entries.filter((entry) => {
-		if (entry.customType !== HERDR_AGENT_MESSAGE_CUSTOM_TYPE) return true;
-		const id = eventIdOf(entry);
+		const notice = noticeOf(entry);
+		if (notice?.customType !== HERDR_AGENT_MESSAGE_CUSTOM_TYPE) return true;
+		const id = eventIdOf(notice);
 		return !(id && completionIds.has(id));
 	});
 }
@@ -105,7 +108,7 @@ export function presentNotices<T extends NoticeEntry>(entries: readonly T[]): T[
  */
 /** Session view the merge reads. Tests inject a fixed branch. */
 export interface NoticeSession {
-	getBranch(): readonly object[];
+	getBranch(): readonly NoticeSessionEntry[];
 }
 
 /**
@@ -134,17 +137,23 @@ export function registerDeliveryRenderer(
 	);
 	pi.registerMessageRenderer(
 		HERDR_AGENT_MESSAGE_CUSTOM_TYPE,
-		(message, _options, theme) => {
-			const branch = session.getBranch() as NoticeEntry[];
-			const shown = presentNotices(
-				branch.includes(message) ? branch : [...branch, message],
-			);
-			// Hidden half of a pair: an empty component draws nothing. A live
-			// message that is still the only copy falls through to pi's default.
-			if (!shown.includes(message)) {
-				return new Box(0, 0, (line) => theme.bg("customMessageBg", line));
-			}
-			return undefined;
+		(message, { outputPad }, theme) => {
+			const box = new Box(outputPad, 1, (line) => theme.bg("customMessageBg", line));
+			box.addChild(new Text(theme.fg("customMessageText", deliveryBody(message)), 0, 0));
+			// Pi does not invalidate old custom components when appending a
+			// completion. Read the current branch on EVERY render, not only
+			// when the renderer factory is called (also works after reload).
+			return {
+				invalidate: () => box.invalidate(),
+				render: (width: number) => {
+					const id = eventIdOf({ ...message, customType: HERDR_AGENT_MESSAGE_CUSTOM_TYPE });
+					const paired = id && session.getBranch().some((entry) => {
+						const notice = noticeOf(entry);
+						return notice?.customType === HERDR_DELIVERY_CUSTOM_TYPE && eventIdOf(notice) === id;
+					});
+					return paired ? [] : box.render(width);
+				},
+			};
 		},
 	);
 }
