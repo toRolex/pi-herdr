@@ -17,6 +17,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { registerOrchestration } from "./tools/orchestration.js";
 import { registerResultTool } from "./tools/result.js";
 import { registerMessageTool } from "./tools/message.js";
+import { registerSendTool } from "./tools/send.js";
+import { registerQueueOnlyReceiver } from "./queue-only-inbox.js";
 import { parseAgentMessage, handleAgentMessageInput } from "./agent-message.js";
 import { registerReceiverInbox } from "./inbox.js";
 import { registerLifecycle } from "./tools/lifecycle.js";
@@ -45,6 +47,8 @@ export default function (pi: ExtensionAPI): void {
 	registerOrchestration(pi);
 	registerResultTool(pi);
 	registerMessageTool(pi);
+	registerSendTool(pi);
+	registerQueueOnlyReceiver(pi);
 	registerReceiverInbox(pi, { parse: parseAgentMessage, deliver: handleAgentMessageInput });
 	// Lifecycle actions (v0.6 issue 10): herdr_interrupt_agent (turn cancel)
 	// + herdr_resume_agent (the gone-agent recovery move on the retained
