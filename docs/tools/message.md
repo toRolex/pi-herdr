@@ -66,26 +66,29 @@ notification.
 
 ## Inbound limit
 
-Each sender label may deliver **20 messages per 10 seconds** into this
-process. The 21st is not typed into the target. The refusal returned to the
-sender is one aggregate receipt (`RATE_LIMITED`); further refusals in that
-window fold into it and are not delivered, so the receipt is never itself a
-new inbound message. The receipt states the limit and the identity scope:
-local, same OS user — the label is spawner-declared and never verified.
-A **blocked** target's overlay answer does not count and is not refused.
+Each receiving pi session admits **20 messages per 10 seconds per sender
+label**, across sender processes. Transport delivery is not admission: the
+21st envelope may reach the pane but is not delivered to the model. The
+receiver emits one aggregate custom receipt and immediately sends a separate
+`<agent-receipt>` to the affected sender. Further refusals in that window
+fold into the receipt without another conversational input or turn. The
+identity scope is local, same OS user; labels are spawner-declared and never
+verified. Receipt delivery failures are shown in the receiver transcript
+and UI. A **blocked** target's raw overlay answer has no envelope, does not
+count, and is not refused.
 
 ## Pending inbox
 
-`pending: true` on an **idle** target accepts the message into that pane's
-pending inbox instead of typing it. The inbox holds **8**. A ninth pending
-message drops the oldest pending one and keeps the newest. The call result
-is one aggregate receipt naming the dropped senders, the cap, and that
-already-delivered text is kept. Later drops in the same burst fold into that
-receipt; they are not typed back into the pane, so the receipt cannot loop.
-A sender who was dropped and was not the caller hears it on their next call,
-still as that one receipt, not a second one.
+A **busy** receiving pi session automatically holds accepted envelopes in
+one inbox shared by all senders. No caller opt-in is needed; `pending` is a
+deprecated compatibility parameter. The inbox holds **8**. A ninth pending
+input drops only the oldest pending message and keeps the newest. Already
+delivered text is unchanged. The receiver gets one custom aggregate receipt;
+each affected dropped sender gets that receipt immediately, not on its next
+call. Receipt envelopes bypass admission and never generate replies.
 
-Any other state (`working`, `blocked`, `done`) types immediately and first
-drains whatever is still pending, oldest first. Text that was already typed
-is left where it is. A drain that fails to type puts the untyped remainder
-back.
+`agent_settled` drains the surviving pending inputs oldest first, without a
+new inbound message. Idle input is delivered immediately. A sink failure
+retains the unprocessed message and remainder; a visible failure receipt
+reports the problem, and a later settle retries. These guarantees apply to
+pi receivers with the inbox extension; non-pi panes keep raw transport.
