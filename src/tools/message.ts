@@ -359,12 +359,14 @@ function senderOwner(
  * is still live. A registry read that throws is a failed observation — it
  * propagates, it is not an empty registry and it is not permission to send.
  */
+type KnownTarget = Pick<SpawnRecord, "name" | "paneId" | "lineage"> & { root?: true };
+
 function knownLive(
 	root: string,
 	fleet: readonly FleetHandle[],
 	read: (sessionPath: string) => readonly SpawnRecord[],
-): Map<string, SpawnRecord> {
-	const byPane = new Map<string, SpawnRecord>();
+): Map<string, KnownTarget> {
+	const byPane = new Map<string, KnownTarget>();
 	const seen = new Set<string>();
 	const pending = [root];
 	while (pending.length > 0) {
@@ -373,6 +375,17 @@ function knownLive(
 		seen.add(session);
 		for (const rec of read(session)) {
 			if (rec.sessionPath) pending.push(rec.sessionPath);
+			// The root is not itself a spawn. A root-owned child's persisted
+			// parent pane identifies it without inventing a root SpawnRecord.
+			if (session === root && rec.lineage?.rootSession === root &&
+				rec.lineage.ownerSession === root && rec.orchestratorPane &&
+				fleet.some((a) => a.paneId === rec.orchestratorPane)) {
+				byPane.set(rec.orchestratorPane, {
+					name: fleet.find((a) => a.paneId === rec.orchestratorPane)?.name ?? rec.orchestratorPane,
+					paneId: rec.orchestratorPane,
+					root: true,
+				});
+			}
 			if (!rec.paneId || !rec.lineage?.ownerSession) continue;
 			const live = fleet.some((a) => a.paneId === rec.paneId);
 			if (live) byPane.set(rec.paneId, rec);
@@ -381,7 +394,7 @@ function knownLive(
 	return byPane;
 }
 
-function handleOf(rec: SpawnRecord, fleet: readonly FleetHandle[]): string {
+function handleOf(rec: KnownTarget, fleet: readonly FleetHandle[]): string {
 	return (
 		rec.name ||
 		fleet.find((a) => a.paneId === rec.paneId)?.name ||
@@ -424,7 +437,7 @@ async function generationGate(
 		);
 	}
 
-	let known: Map<string, SpawnRecord>;
+	let known: Map<string, KnownTarget>;
 	let mine: string | undefined;
 	try {
 		known = knownLive(root, fleet, read);
@@ -438,10 +451,11 @@ async function generationGate(
 	}
 
 	const target = known.get(resolved.paneId);
-	if (!target?.lineage?.ownerSession) return undefined;
+	if (!target || (!target.root && !target.lineage?.ownerSession)) return undefined;
+	if (target.root && self === root) return undefined;
 
-	const directChild = target.lineage.ownerSession === self;
-	const peer = mine != null && target.lineage.ownerSession === mine;
+	const directChild = target.lineage?.ownerSession === self;
+	const peer = mine != null && target.lineage?.ownerSession === mine;
 	if (directChild || peer) return undefined;
 
 	const usable = [...known.values()].flatMap((rec) => {
