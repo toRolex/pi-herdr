@@ -13,7 +13,7 @@
 // isolated worktrees, the poll loop, kill-all's pane closes). The /subagents
 // command is the only command.
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerOrchestration } from "./tools/orchestration.js";
 import { registerResultTool } from "./tools/result.js";
 import { registerMessageTool } from "./tools/message.js";
@@ -62,12 +62,13 @@ export default function (pi: ExtensionAPI): void {
 	// `notifications` setting (blocked always wakes).
 	registerDelivery(pi);
 	// Transcript fold (issue #30) and the one-notice merge (issue #38).
-	// pi.registerMessageRenderer replaces display; steered content stays.
-	pi.on("session_start", (_event, ctx) => {
-		registerDeliveryRenderer(pi, {
-			getBranch: () => ctx.sessionManager.getBranch(),
-		});
+	// Reload rebuilds history before session_start; register now, read the
+	// fresh context only when rendering. Steered content stays unchanged.
+	let renderContext: ExtensionContext | undefined;
+	registerDeliveryRenderer(pi, {
+		getBranch: () => renderContext?.sessionManager.getBranch() ?? [],
 	});
+	pi.on("session_start", (_event, ctx) => { renderContext = ctx; });
 	pi.on("session_shutdown", () => {
 		stopDeliveryLoop();
 		// Workflow runs do not outlive their session (issue 12): terminate the

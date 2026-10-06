@@ -89,18 +89,26 @@ export function makeDeliverySink(
 			if (getBranch) pending.set(key, { token, at: now });
 			const deliverAs: DeliverAs =
 				msg.deliverAs ?? (msg.wake ? "steer" : "nextTurn");
-			pi.sendMessage(
-				{
-					customType: "herdr-delivery",
-					content: msg.content,
-					display: true,
-					details: getBranch ? { ...msg.details, deliveryToken: token } : msg.details,
-				},
-				{
-					triggerTurn: deliverAs !== "nextTurn",
-					deliverAs,
-				},
-			);
+			try {
+				pi.sendMessage(
+					{
+						customType: "herdr-delivery",
+						content: msg.content,
+						display: true,
+						details: getBranch ? { ...msg.details, deliveryToken: token } : msg.details,
+					},
+					{
+						triggerTurn: deliverAs !== "nextTurn",
+						deliverAs,
+					},
+				);
+			} catch (error) {
+				// A synchronous dispatch rejection did not enqueue. Only this
+				// definite failure releases the token; async void outcomes and
+				// confirmation timeouts retain it to avoid duplicate delivery.
+				pending.delete(key);
+				throw error;
+			}
 			if (getBranch) {
 				if (!confirmed(token)) throw new Error("delivery pending durable confirmation");
 			}

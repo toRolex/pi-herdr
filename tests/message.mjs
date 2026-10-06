@@ -575,6 +575,17 @@ console.log("\n[9] Known generations — refuse a cross-generation send and name
 		"orchestrator still resolves only to the direct parent pane",
 	);
 
+	// Real CLI lineage: root has no record of its own. Its direct child's
+	// orchestratorPane identifies it alongside rootSession/ownerSession.
+	parent.orchestratorPane = "w74:p2";
+	fleet.push({ name: "c-root-resume", paneId: "w74:p2" });
+	const rootBefore = send.calls.length;
+	const rootSend = await msg.messageAgent({ target: "w74:p2", text: "skip parent" }, deps());
+	assert(!rootSend.ok && rootSend.error.code === "VALIDATION_ERROR", "known root pane without its own SpawnRecord is refused from a grandchild");
+	assert(send.calls.length === rootBefore, "known root refusal neither sends nor redirects");
+	const rootDirect = await msg.messageAgent({ target: "w74:p2", text: "direct parent" }, deps({ env: { PI_HERDR_SESSION: PARENT, PI_HERDR_ROOT_SESSION: GP, PI_HERDR_ORCHESTRATOR_PANE: "w74:p2" } }));
+	assert(rootDirect.ok, "root metadata does not block its direct child");
+
 	const before = send.calls.length;
 	const skip = await msg.messageAgent({ target: "grandchild", text: "skip a generation" }, deps());
 	const skipMsg = skip.ok ? "" : skip.error.message;
