@@ -275,7 +275,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 		// --- never started (a queued record failed in the drain loop, after
 		// the spawn tool had already returned "queued")
 		if (record.startError) {
-			deliverTerminal(deps, record, "start-error", {
+			await deliverTerminal(deps, record, "start-error", {
 				content: `Agent "${record.name}" never started: ${record.startError}`,
 				details: { name: record.name, kind: "start-error" },
 				wake: terminalWake(notifications(deps)),
@@ -314,7 +314,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 					// still deliverable (typed error when stopReason=error)
 					const mined = minedAssistantError(extracted.message);
 					if (mined) {
-						deliverTerminal(
+						await deliverTerminal(
 							deps,
 							record,
 							"error",
@@ -331,7 +331,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 							},
 						);
 					} else {
-						deliverTerminal(
+						await deliverTerminal(
 							deps,
 							record,
 							"done",
@@ -352,7 +352,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 				}
 			}
 			// route 3: nothing on disk — an honest gone note (session retained)
-			deliverTerminal(
+			await deliverTerminal(
 				deps,
 				record,
 				"gone",
@@ -406,7 +406,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 				const stop = (extracted?.message as { stopReason?: unknown } | undefined)?.stopReason;
 				if (extracted && (stop === "stop" || stop === "error")) {
 					const mined = minedAssistantError(extracted.message);
-					deliverTerminal(
+					await deliverTerminal(
 						deps,
 						record,
 						mined ? "error" : "done",
@@ -431,7 +431,7 @@ export async function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 				// the next tick retries. An empty tail is not a result.
 				const text = await readPaneTail(deps, record.paneId);
 				if (!text.trim()) continue;
-				deliverTerminal(deps, record, "done", {
+				await deliverTerminal(deps, record, "done", {
 					content: tailContent(record, text),
 					details: { name: record.name, kind: "done", result: text },
 					wake: terminalWake(notifications(deps)),
@@ -528,7 +528,7 @@ async function deliverSidecar(
 	const adoptedFlag = adopted ? { adopted: true as const } : {};
 	if (sidecar.type === "done") {
 		const committed = sidecar.text?.trim() ? sidecar.text : undefined;
-		deliverTerminal(
+		await deliverTerminal(
 			deps,
 			record,
 			"done",
@@ -716,6 +716,11 @@ async function closeDeliveredPane(
 	paneLive: boolean,
 ): Promise<void> {
 	if (!record.paneId) return;
+	// Adoption restores the owner's registry, which may predate a human's
+	// takeover. Refresh the marker on both the first close and each retry.
+	if (record.sessionPath && (deps.readTakeover ?? readTakeoverMarker)(record.sessionPath).taken) {
+		record.takenOver = true;
+	}
 	if (record.takenOver && !rearm) return;
 	if (paneLive) {
 		record.paneClosePending = true;
