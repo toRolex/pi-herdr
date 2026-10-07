@@ -1,0 +1,4 @@
+{
+  "message": "one persisted aggregate custom message\n\n0 !== 1\n",
+  "stack": "AssertionError [ERR_ASSERTION]: one persisted aggregate custom message\n\n0 !== 1\n\n    at file:///Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t4/tests/queue-only-live.mjs:70:9"
+}

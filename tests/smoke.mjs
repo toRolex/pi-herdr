@@ -82,6 +82,8 @@ const expected = [
 	"herdr_message_agent",
 	"herdr_wake_subscription",
 	"herdr_trigger_turn",
+	"herdr_send_agent",
+	// the lifecycle pair (issue 10): turn cancel + the gone-agent recovery move
 	"herdr_interrupt_agent",
 	"herdr_resume_agent",
 	// the fleet's single introspection tool

@@ -29,6 +29,7 @@
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { registerQueueOnlyReceiver } from "./queue-only-inbox.js";
 import { resetCompletionEvent } from "./completion-event.js";
 import { parseTriggerTurn } from "./agent-message.js";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -800,5 +801,6 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 
 /** Default factory — the `-e` entry point. */
 export default function (pi: ExtensionAPI): void {
+	registerQueueOnlyReceiver(pi);
 	registerChildExtension(pi);
 }
