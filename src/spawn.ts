@@ -757,8 +757,6 @@ export interface SpawnRecord {
 	 * original prompt must NOT be resubmitted. Rides the record so the
 	 * queue drain's startRecordNow stays silent too. */
 	resumeSilent?: boolean;
-	/** The quiet `user took over <agent>` note was sent. */
-	tookNotified?: boolean;
 	/** A blocked wake was pushed for the current blocked episode. */
 	blockedNotified?: boolean;
 	/** First absence evidence — the bounded-grace measurement (ms epoch). */
@@ -1585,6 +1583,7 @@ function buildChildEnv(record: SpawnRecord): Record<string, string> {
 		stamp("PI_HERDR_ACTIVITY_FILE", record.activityPath);
 
 		stamp("PI_HERDR_ROOT_SESSION", record.lineage?.rootSession);
+		stamp("PI_HERDR_PARENT_SESSION", record.lineage?.ownerSession);
 	}
 	for (const [k, v] of Object.entries(record.extraEnv ?? {})) stamp(k, v);
 	return env;
@@ -1760,7 +1759,6 @@ export async function drainQueueOnce(deps: SpawnDeps = {}): Promise<number> {
 				record.sawWorking = false;
 				record.startedAt = undefined;
 				record.goneAt = undefined;
-
 			}
 			const r = await startRecordNow(record, deps);
 			if (!r.ok) {

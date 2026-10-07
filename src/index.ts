@@ -16,7 +16,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerOrchestration } from "./tools/orchestration.js";
 import { registerResultTool } from "./tools/result.js";
+import { registerWaitTool } from "./tools/wait.js";
 import { registerMessageTool } from "./tools/message.js";
+import { registerWakeTools } from "./tools/wake.js";
+import { registerSendTool } from "./tools/send.js";
+import { registerQueueOnlyReceiver } from "./queue-only-inbox.js";
 import { parseAgentMessage, handleAgentMessageInput } from "./agent-message.js";
 import { registerReceiverInbox } from "./inbox.js";
 import { registerLifecycle } from "./tools/lifecycle.js";
@@ -44,11 +48,13 @@ export default function (pi: ExtensionAPI): void {
 
 	registerOrchestration(pi);
 	registerResultTool(pi);
+	registerWaitTool(pi);
 	registerMessageTool(pi);
+	registerWakeTools(pi);
+	registerSendTool(pi);
+	registerQueueOnlyReceiver(pi);
 	registerReceiverInbox(pi, { parse: parseAgentMessage, deliver: handleAgentMessageInput });
-	// Lifecycle actions (v0.6 issue 10): herdr_interrupt_agent (turn cancel)
-	// + herdr_resume_agent (the gone-agent recovery move on the retained
-	// session file).
+	// Lifecycle actions and explicit T5 followup trigger.
 	registerLifecycle(pi);
 	registerAgents(pi);
 	registerPaneSync(pi);

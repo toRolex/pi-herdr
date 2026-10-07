@@ -68,17 +68,21 @@ await ext.default(mockPi);
 const names = tools.map((t) => t.name);
 const expected = [
 	// the v0.6 surface (issue 02 cut + issue 04 substrate): ONE surface.
-	// Later tickets register theirs (05 → message_agent, 10 → interrupt/resume,
-	// 12 → run_workflow) and the count converges to 12.
+	// Later tickets register theirs (05 → message_agent, T5 → trigger_turn,
+	// 10 → interrupt/resume, 12 → run_workflow).
 	"herdr_spawn_agent",
 	// the `.md` registry persistence tool (issue 03; ungated by decision)
 	"herdr_save_agent",
 	// the pull/inspection tool (issue 04) — retired wait_agent + read_agent of
 	// the legacy result trio
 	"herdr_get_agent_result",
+	"herdr_wait_agent_event",
 	// the open message channel (issue 05) — absorbed send_prompt, the last of
 	// the legacy trio
 	"herdr_message_agent",
+	"herdr_wake_subscription",
+	"herdr_trigger_turn",
+	"herdr_send_agent",
 	// the lifecycle pair (issue 10): turn cancel + the gone-agent recovery move
 	"herdr_interrupt_agent",
 	"herdr_resume_agent",
@@ -157,8 +161,8 @@ assert(
 	"agent_start: self-report, delivery busy tracker, and receiver inbox — no footer hook",
 );
 assert(
-	!events.turn_end?.length,
-	"no turn_end footer hook (footer is probe-diagnostics)",
+	(events.turn_end?.length ?? 0) === 1,
+	"one turn_end durable result confirmation hook (footer remains probe-diagnostics)",
 );
 assert(
 	events.session_start?.length === (selfReportActive ? 9 : 8),

@@ -12,6 +12,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { HerdrSettings } from "./settings.js";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { DeliveryLedger, type EventReference } from "./delivery-ledger.js";
+import { assertDeliveryDispatchOptions, registerDeliveryMessageGate } from "./delivery-host.js";
 
 /** How a push enters the orchestrator session. */
 export type DeliverAs = "steer" | "followUp" | "nextTurn";
@@ -36,6 +38,12 @@ const pendingHost = globalThis as typeof globalThis & {
 	[pendingSessionsKey]?: Map<string, Map<string, PendingAcknowledgement>>;
 };
 const pendingSessions = pendingHost[pendingSessionsKey] ??= new Map();
+const gatedHosts = new WeakSet<object>();
+const hostBoundaries = new WeakMap<object, { allowCommit(details: Record<string, unknown>): boolean }>();
+const parentSinks = new WeakMap<object, (msg: SteeredMessage) => void>();
+export function rememberParentDeliverySink(pi: ExtensionAPI, sink: (msg: SteeredMessage) => void): void {
+	parentSinks.set(pi, sink);
+}
 
 /**
  * Build the steer sink for a session: pi.sendMessage with delivery's exact
@@ -46,9 +54,16 @@ const pendingSessions = pendingHost[pendingSessionsKey] ??= new Map();
 export function makeDeliverySink(
 	pi: ExtensionAPI,
 	confirmation?: { getBranch(): readonly unknown[]; getSessionFile?: () => string | undefined; now?: () => number; timeoutMs?: number },
+	boundary?: { allowCommit(details: Record<string, unknown>): boolean },
 ): (msg: SteeredMessage) => void {
+	if (boundary) hostBoundaries.set(pi, boundary);
+	if (!confirmation && !boundary) {
+		const governed = parentSinks.get(pi);
+		if (governed) return governed;
+	}
 	let getBranch = confirmation?.getBranch;
 	let getSessionFile = confirmation?.getSessionFile;
+	let lastKnownHostFile: string | undefined;
 	const hasDurableEvent = (eventId: unknown): boolean => {
 		if (typeof eventId !== "string" || !getSessionFile) return false;
 		const file = getSessionFile();
@@ -84,8 +99,40 @@ export function makeDeliverySink(
 			pendingSessions.set(file, sessionPending);
 		}
 		pending = sessionPending;
+		// Migration cannot depend on the latest body formatting matching the old key.
+		for (const [key, acknowledgement] of sessionPending) {
+			let fields: unknown[];
+			try { fields = JSON.parse(key); } catch { continue; }
+			const eventId = fields[0];
+			if (typeof eventId === "string") new DeliveryLedger(file).migratePending({ eventId, sessionPath: typeof fields[1] === "string" ? fields[1] : undefined }, acknowledgement.token);
+		}
 	};
 	selectPendingSession();
+	if (typeof pi.on === "function" && !gatedHosts.has(pi)) {
+		gatedHosts.add(pi);
+		registerDeliveryMessageGate(pi, {
+			owns: details => Boolean(details.delivery && typeof details.delivery === "object") || (typeof details.eventId === "string" && typeof details.deliveryToken === "string"),
+			allow: (details, ctx) => {
+				const file = ctx.sessionManager.getSessionFile();
+				if (!file) return false;
+				const ledger = new DeliveryLedger(file);
+				const proof = details.delivery as { hostFile?: string; eventId?: string; token?: string; channel?: string } | undefined;
+				if (!proof) {
+					if (typeof details.eventId !== "string" || typeof details.deliveryToken !== "string") return false;
+					ledger.migratePending({ eventId: details.eventId, sessionPath: details.sessionPath as string | undefined }, details.deliveryToken);
+					// Unknown legacy queue outcomes stay pending for review; never unlock or replay.
+					return false;
+				}
+				if (proof.hostFile !== file || !proof.eventId || !proof.token || proof.channel !== "push") return false;
+				const currentBoundary = hostBoundaries.get(pi);
+				if (currentBoundary && !currentBoundary.allowCommit(details)) {
+					ledger.deferPush(proof.eventId, proof.token);
+					return false;
+				}
+				return ledger.claimPush(proof.eventId, proof.token);
+			},
+		});
+	}
 	pi.on?.("session_start", (_event, ctx) => {
 		getBranch = () => ctx.sessionManager.getBranch();
 		getSessionFile = () => ctx.sessionManager.getSessionFile();
@@ -94,6 +141,37 @@ export function makeDeliverySink(
 	return (msg: SteeredMessage): void => {
 		try {
 			selectPendingSession();
+			const currentFile = getSessionFile?.();
+			if (currentFile) lastKnownHostFile = currentFile;
+			const hostFile = currentFile ?? lastKnownHostFile;
+			const eventId = msg.details.eventId;
+			if (typeof eventId === "string" && msg.details.agentId && msg.details.runId) {
+				if (!hostFile || typeof pi.on !== "function") throw new Error("durable completion push requires a receiver host and message_end hook");
+				readFileSync(hostFile, "utf8"); // Production stable-identity events never downgrade on unknown host evidence.
+			}
+			if (hostFile && typeof eventId === "string" && typeof pi.on === "function") {
+				const ledger = new DeliveryLedger(hostFile);
+				const ref: EventReference = { eventId, agentId: msg.details.agentId as string | undefined, runId: msg.details.runId as string | undefined, sequence: msg.details.sequence as number | undefined, sessionPath: msg.details.sessionPath as string | undefined };
+				const claim = ledger.queuePush(ref);
+				if (!claim.bodyAllowed) {
+					if (claim.record.status === "delivered" || claim.record.status === "acked") return;
+					throw new Error(`delivery pending durable confirmation; outcome unknown (${claim.record.status}); no timeout retry; original token remains pending`);
+				}
+				const proof = ledger.proof(claim.record);
+				const deliverAs: DeliverAs = msg.deliverAs ?? (msg.wake ? "steer" : "nextTurn");
+				assertDeliveryDispatchOptions({ triggerTurn: deliverAs !== "nextTurn", deliverAs });
+				try {
+					pi.sendMessage({ customType: "herdr-delivery", content: msg.content, display: true, details: { ...msg.details, deliveryToken: proof.token, delivery: proof } }, { triggerTurn: deliverAs !== "nextTurn", deliverAs });
+				} catch (error) {
+					// The void extension binding cannot prove a thrown adapter rejected before enqueue.
+					if ((error as { deliveryOutcome?: string })?.deliveryOutcome === "not-submitted") ledger.reject(eventId, proof.token, String(error));
+					else ledger.uncertain(eventId, proof.token, String(error));
+					throw error;
+				}
+				const submitted = ledger.reconcile(eventId);
+				if (submitted?.status !== "delivered" && submitted?.status !== "acked") throw new Error("delivery pending durable confirmation; SDK accepted but host commit unconfirmed");
+				return;
+			}
 			const key = JSON.stringify([msg.details.eventId, msg.details.sessionPath, msg.details.name, msg.details.kind, msg.content]);
 			const now = (confirmation?.now ?? Date.now)();
 			const existing = pending.get(key);

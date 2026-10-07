@@ -1,0 +1,2520 @@
+{
+  "sdkVersion": "1.0.2",
+  "realSDK": true,
+  "realExtensionRunner": true,
+  "realSessionManager": true,
+  "network": false,
+  "bodyCountSource": "individual message.content; excludes details metadata; initial pre-completion request=0, every post-completion request=1",
+  "cases": [
+    {
+      "scenario": "push-first",
+      "sessionSnapshot": [
+        {
+          "type": "message",
+          "id": "94ad9e00",
+          "parentId": null,
+          "timestamp": "2026-10-07T07:58:32.487Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "start"
+              }
+            ],
+            "timestamp": 1
+          }
+        },
+        {
+          "type": "message",
+          "id": "6d96dae7",
+          "parentId": "94ad9e00",
+          "timestamp": "2026-10-07T07:58:32.498Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "execute real registered consumption and push gate"
+              }
+            ],
+            "timestamp": 1791359912498
+          }
+        },
+        {
+          "type": "message",
+          "id": "ac438af3",
+          "parentId": "6d96dae7",
+          "timestamp": "2026-10-07T07:58:32.498Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "provider finished"
+              }
+            ],
+            "stopReason": "stop",
+            "timestamp": 1791359912498,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        },
+        {
+          "type": "custom_message",
+          "customType": "herdr-delivery",
+          "content": "COMPLETE DURABLE BODY\nfinal line",
+          "display": true,
+          "details": {
+            "name": "child",
+            "kind": "done",
+            "eventId": "event-30",
+            "agentId": "agent-30",
+            "runId": "event-30",
+            "sequence": 1,
+            "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30/child.jsonl",
+            "deliveryToken": "56a6f1b0-04c8-481d-9e49-dfb3696073ab",
+            "delivery": {
+              "eventId": "event-30",
+              "token": "56a6f1b0-04c8-481d-9e49-dfb3696073ab",
+              "channel": "push",
+              "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30/2026-10-07T07-58-32-487Z_01a1155f-0a27-761b-939f-06f5b5c42c57.jsonl",
+              "bodyCommitted": true
+            },
+            "deliveryHostBodyCommitted": true
+          },
+          "id": "5daca17e",
+          "parentId": "ac438af3",
+          "timestamp": "2026-10-07T07:58:32.504Z"
+        },
+        {
+          "type": "message",
+          "id": "8dea93fa",
+          "parentId": "5daca17e",
+          "timestamp": "2026-10-07T07:58:32.504Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "provider finished"
+              }
+            ],
+            "stopReason": "stop",
+            "timestamp": 1791359912504,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        }
+      ],
+      "actualProviderContexts": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912498
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912498
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "provider finished"
+                }
+              ],
+              "stopReason": "stop",
+              "timestamp": 1791359912498,
+              "api": "offline",
+              "provider": "offline",
+              "model": "offline",
+              "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "thinkingLevel": "off"
+            },
+            {
+              "role": "custom",
+              "customType": "herdr-delivery",
+              "content": "COMPLETE DURABLE BODY\nfinal line",
+              "display": true,
+              "details": {
+                "name": "child",
+                "kind": "done",
+                "eventId": "event-30",
+                "agentId": "agent-30",
+                "runId": "event-30",
+                "sequence": 1,
+                "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30/child.jsonl",
+                "deliveryToken": "56a6f1b0-04c8-481d-9e49-dfb3696073ab",
+                "delivery": {
+                  "eventId": "event-30",
+                  "token": "56a6f1b0-04c8-481d-9e49-dfb3696073ab",
+                  "channel": "push",
+                  "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30/2026-10-07T07-58-32-487Z_01a1155f-0a27-761b-939f-06f5b5c42c57.jsonl",
+                  "bodyCommitted": true
+                },
+                "deliveryHostBodyCommitted": true
+              },
+              "timestamp": 1791359912498
+            }
+          ]
+        }
+      ],
+      "persistedBodyMessages": 1,
+      "providerBodyCounts": [
+        0,
+        1
+      ],
+      "ledger": {
+        "eventId": "event-30",
+        "agentId": "agent-30",
+        "runId": "event-30",
+        "sequence": 1,
+        "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30/child.jsonl",
+        "status": "delivered",
+        "updatedAt": 1791359912504,
+        "token": "56a6f1b0-04c8-481d-9e49-dfb3696073ab",
+        "channel": "push"
+      },
+      "parentJSONL": "{\"type\":\"session\",\"version\":3,\"id\":\"01a1155f-0a27-761b-939f-06f5b5c42c57\",\"timestamp\":\"2026-10-07T07:58:32.487Z\",\"cwd\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30\"}\n{\"type\":\"message\",\"id\":\"94ad9e00\",\"parentId\":null,\"timestamp\":\"2026-10-07T07:58:32.487Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"start\"}],\"timestamp\":1}}\n{\"type\":\"message\",\"id\":\"6d96dae7\",\"parentId\":\"94ad9e00\",\"timestamp\":\"2026-10-07T07:58:32.498Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"execute real registered consumption and push gate\"}],\"timestamp\":1791359912498}}\n{\"type\":\"message\",\"id\":\"ac438af3\",\"parentId\":\"6d96dae7\",\"timestamp\":\"2026-10-07T07:58:32.498Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"provider finished\"}],\"stopReason\":\"stop\",\"timestamp\":1791359912498,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n{\"type\":\"custom_message\",\"customType\":\"herdr-delivery\",\"content\":\"COMPLETE DURABLE BODY\\nfinal line\",\"display\":true,\"details\":{\"name\":\"child\",\"kind\":\"done\",\"eventId\":\"event-30\",\"agentId\":\"agent-30\",\"runId\":\"event-30\",\"sequence\":1,\"sessionPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30/child.jsonl\",\"deliveryToken\":\"56a6f1b0-04c8-481d-9e49-dfb3696073ab\",\"delivery\":{\"eventId\":\"event-30\",\"token\":\"56a6f1b0-04c8-481d-9e49-dfb3696073ab\",\"channel\":\"push\",\"hostFile\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30/2026-10-07T07-58-32-487Z_01a1155f-0a27-761b-939f-06f5b5c42c57.jsonl\",\"bodyCommitted\":true},\"deliveryHostBodyCommitted\":true},\"id\":\"5daca17e\",\"parentId\":\"ac438af3\",\"timestamp\":\"2026-10-07T07:58:32.504Z\"}\n{\"type\":\"message\",\"id\":\"8dea93fa\",\"parentId\":\"5daca17e\",\"timestamp\":\"2026-10-07T07:58:32.504Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"provider finished\"}],\"stopReason\":\"stop\",\"timestamp\":1791359912504,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n"
+    },
+    {
+      "scenario": "pull-first",
+      "sessionSnapshot": [
+        {
+          "type": "message",
+          "id": "374148f8",
+          "parentId": null,
+          "timestamp": "2026-10-07T07:58:32.509Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "start"
+              }
+            ],
+            "timestamp": 1
+          }
+        },
+        {
+          "type": "message",
+          "id": "27f24f9f",
+          "parentId": "374148f8",
+          "timestamp": "2026-10-07T07:58:32.510Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "execute real registered consumption and push gate"
+              }
+            ],
+            "timestamp": 1791359912510
+          }
+        },
+        {
+          "type": "message",
+          "id": "1238da07",
+          "parentId": "27f24f9f",
+          "timestamp": "2026-10-07T07:58:32.510Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "public-pull",
+                "name": "herdr_get_agent_result",
+                "arguments": {
+                  "target": "child"
+                }
+              }
+            ],
+            "stopReason": "toolUse",
+            "timestamp": 1791359912510,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        },
+        {
+          "type": "message",
+          "id": "5b1974a1",
+          "parentId": "1238da07",
+          "timestamp": "2026-10-07T07:58:32.521Z",
+          "message": {
+            "role": "toolResult",
+            "toolCallId": "public-pull",
+            "toolName": "herdr_get_agent_result",
+            "content": [
+              {
+                "type": "text",
+                "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+              }
+            ],
+            "details": {
+              "target": "child",
+              "name": "child",
+              "kind": "pi",
+              "stance": "autonomous",
+              "source": "session-jsonl",
+              "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/child.jsonl",
+              "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/child.jsonl.exit",
+              "agentId": "agent-31",
+              "runId": "event-31",
+              "sequence": 1,
+              "eventId": "event-31",
+              "status": "done",
+              "result": "COMPLETE DURABLE BODY\nfinal line",
+              "delivery": {
+                "eventId": "event-31",
+                "token": "44c35c55-fb34-4979-9f16-15ff553d9d86",
+                "channel": "pull",
+                "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/2026-10-07T07-58-32-509Z_01a1155f-0a3d-761b-939f-06f6d73e1390.jsonl",
+                "bodyCommitted": true
+              }
+            },
+            "isError": false,
+            "timestamp": 1791359912521
+          }
+        },
+        {
+          "type": "message",
+          "id": "7180c3d0",
+          "parentId": "5b1974a1",
+          "timestamp": "2026-10-07T07:58:32.526Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "provider finished"
+              }
+            ],
+            "stopReason": "stop",
+            "timestamp": 1791359912526,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        }
+      ],
+      "actualProviderContexts": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912510
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912510
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "toolCall",
+                  "id": "public-pull",
+                  "name": "herdr_get_agent_result",
+                  "arguments": {
+                    "target": "child"
+                  }
+                }
+              ],
+              "stopReason": "toolUse",
+              "timestamp": 1791359912510,
+              "api": "offline",
+              "provider": "offline",
+              "model": "offline",
+              "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "thinkingLevel": "off"
+            },
+            {
+              "role": "toolResult",
+              "toolCallId": "public-pull",
+              "toolName": "herdr_get_agent_result",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+                }
+              ],
+              "details": {
+                "target": "child",
+                "name": "child",
+                "kind": "pi",
+                "stance": "autonomous",
+                "source": "session-jsonl",
+                "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/child.jsonl",
+                "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/child.jsonl.exit",
+                "agentId": "agent-31",
+                "runId": "event-31",
+                "sequence": 1,
+                "eventId": "event-31",
+                "status": "done",
+                "result": "COMPLETE DURABLE BODY\nfinal line",
+                "delivery": {
+                  "eventId": "event-31",
+                  "token": "44c35c55-fb34-4979-9f16-15ff553d9d86",
+                  "channel": "pull",
+                  "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/2026-10-07T07-58-32-509Z_01a1155f-0a3d-761b-939f-06f6d73e1390.jsonl",
+                  "bodyCommitted": true
+                }
+              },
+              "isError": false,
+              "timestamp": 1791359912521
+            }
+          ]
+        }
+      ],
+      "persistedBodyMessages": 1,
+      "providerBodyCounts": [
+        0,
+        1
+      ],
+      "ledger": {
+        "eventId": "event-31",
+        "agentId": "agent-31",
+        "runId": "event-31",
+        "sequence": 1,
+        "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/child.jsonl",
+        "status": "delivered",
+        "updatedAt": 1791359912521,
+        "token": "44c35c55-fb34-4979-9f16-15ff553d9d86",
+        "channel": "pull",
+        "toolCallId": "public-pull"
+      },
+      "parentJSONL": "{\"type\":\"session\",\"version\":3,\"id\":\"01a1155f-0a3d-761b-939f-06f6d73e1390\",\"timestamp\":\"2026-10-07T07:58:32.509Z\",\"cwd\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31\"}\n{\"type\":\"message\",\"id\":\"374148f8\",\"parentId\":null,\"timestamp\":\"2026-10-07T07:58:32.509Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"start\"}],\"timestamp\":1}}\n{\"type\":\"message\",\"id\":\"27f24f9f\",\"parentId\":\"374148f8\",\"timestamp\":\"2026-10-07T07:58:32.510Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"execute real registered consumption and push gate\"}],\"timestamp\":1791359912510}}\n{\"type\":\"message\",\"id\":\"1238da07\",\"parentId\":\"27f24f9f\",\"timestamp\":\"2026-10-07T07:58:32.510Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"toolCall\",\"id\":\"public-pull\",\"name\":\"herdr_get_agent_result\",\"arguments\":{\"target\":\"child\"}}],\"stopReason\":\"toolUse\",\"timestamp\":1791359912510,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n{\"type\":\"message\",\"id\":\"5b1974a1\",\"parentId\":\"1238da07\",\"timestamp\":\"2026-10-07T07:58:32.521Z\",\"message\":{\"role\":\"toolResult\",\"toolCallId\":\"public-pull\",\"toolName\":\"herdr_get_agent_result\",\"content\":[{\"type\":\"text\",\"text\":\"Agent \\\"child\\\" finished — exact final message:\\n\\nCOMPLETE DURABLE BODY\\nfinal line\"}],\"details\":{\"target\":\"child\",\"name\":\"child\",\"kind\":\"pi\",\"stance\":\"autonomous\",\"source\":\"session-jsonl\",\"sessionPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/child.jsonl\",\"exitPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/child.jsonl.exit\",\"agentId\":\"agent-31\",\"runId\":\"event-31\",\"sequence\":1,\"eventId\":\"event-31\",\"status\":\"done\",\"result\":\"COMPLETE DURABLE BODY\\nfinal line\",\"delivery\":{\"eventId\":\"event-31\",\"token\":\"44c35c55-fb34-4979-9f16-15ff553d9d86\",\"channel\":\"pull\",\"hostFile\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-31/2026-10-07T07-58-32-509Z_01a1155f-0a3d-761b-939f-06f6d73e1390.jsonl\",\"bodyCommitted\":true}},\"isError\":false,\"timestamp\":1791359912521}}\n{\"type\":\"message\",\"id\":\"7180c3d0\",\"parentId\":\"5b1974a1\",\"timestamp\":\"2026-10-07T07:58:32.526Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"provider finished\"}],\"stopReason\":\"stop\",\"timestamp\":1791359912526,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n"
+    },
+    {
+      "scenario": "queued-stale",
+      "sessionSnapshot": [
+        {
+          "type": "message",
+          "id": "62f71f49",
+          "parentId": null,
+          "timestamp": "2026-10-07T07:58:32.527Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "start"
+              }
+            ],
+            "timestamp": 1
+          }
+        },
+        {
+          "type": "message",
+          "id": "7f3b4875",
+          "parentId": "62f71f49",
+          "timestamp": "2026-10-07T07:58:32.538Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "execute real registered consumption and push gate"
+              }
+            ],
+            "timestamp": 1791359912538
+          }
+        },
+        {
+          "type": "message",
+          "id": "f918b596",
+          "parentId": "7f3b4875",
+          "timestamp": "2026-10-07T07:58:32.538Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "public-pull",
+                "name": "herdr_get_agent_result",
+                "arguments": {
+                  "target": "child"
+                }
+              }
+            ],
+            "stopReason": "toolUse",
+            "timestamp": 1791359912538,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        },
+        {
+          "type": "message",
+          "id": "daae73e3",
+          "parentId": "f918b596",
+          "timestamp": "2026-10-07T07:58:32.544Z",
+          "message": {
+            "role": "toolResult",
+            "toolCallId": "public-pull",
+            "toolName": "herdr_get_agent_result",
+            "content": [
+              {
+                "type": "text",
+                "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+              }
+            ],
+            "details": {
+              "target": "child",
+              "name": "child",
+              "kind": "pi",
+              "stance": "autonomous",
+              "source": "session-jsonl",
+              "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl",
+              "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl.exit",
+              "agentId": "agent-32",
+              "runId": "event-32",
+              "sequence": 1,
+              "eventId": "event-32",
+              "status": "done",
+              "result": "COMPLETE DURABLE BODY\nfinal line",
+              "delivery": {
+                "eventId": "event-32",
+                "token": "8b522de6-7c1d-462c-bbeb-e365b624a145",
+                "channel": "pull",
+                "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/2026-10-07T07-58-32-527Z_01a1155f-0a4f-761b-939f-06f8ebd51256.jsonl",
+                "bodyCommitted": true
+              }
+            },
+            "isError": false,
+            "timestamp": 1791359912544
+          }
+        },
+        {
+          "type": "message",
+          "id": "68deaf68",
+          "parentId": "daae73e3",
+          "timestamp": "2026-10-07T07:58:32.549Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "provider finished"
+              }
+            ],
+            "stopReason": "stop",
+            "timestamp": 1791359912549,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        },
+        {
+          "type": "custom_message",
+          "customType": "herdr-delivery",
+          "content": [],
+          "display": false,
+          "details": {
+            "deliveryHostWithdrawn": true,
+            "eventId": "event-32",
+            "deliveryToken": "21ff1ffe-fa50-48a2-b3ca-91291ab90c05"
+          },
+          "id": "a7e6519d",
+          "parentId": "68deaf68",
+          "timestamp": "2026-10-07T07:58:32.549Z"
+        },
+        {
+          "type": "message",
+          "id": "58b4d6a1",
+          "parentId": "a7e6519d",
+          "timestamp": "2026-10-07T07:58:32.549Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "provider finished"
+              }
+            ],
+            "stopReason": "stop",
+            "timestamp": 1791359912549,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        }
+      ],
+      "actualProviderContexts": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912538
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912538
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "toolCall",
+                  "id": "public-pull",
+                  "name": "herdr_get_agent_result",
+                  "arguments": {
+                    "target": "child"
+                  }
+                }
+              ],
+              "stopReason": "toolUse",
+              "timestamp": 1791359912538,
+              "api": "offline",
+              "provider": "offline",
+              "model": "offline",
+              "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "thinkingLevel": "off"
+            },
+            {
+              "role": "toolResult",
+              "toolCallId": "public-pull",
+              "toolName": "herdr_get_agent_result",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+                }
+              ],
+              "details": {
+                "target": "child",
+                "name": "child",
+                "kind": "pi",
+                "stance": "autonomous",
+                "source": "session-jsonl",
+                "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl",
+                "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl.exit",
+                "agentId": "agent-32",
+                "runId": "event-32",
+                "sequence": 1,
+                "eventId": "event-32",
+                "status": "done",
+                "result": "COMPLETE DURABLE BODY\nfinal line",
+                "delivery": {
+                  "eventId": "event-32",
+                  "token": "8b522de6-7c1d-462c-bbeb-e365b624a145",
+                  "channel": "pull",
+                  "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/2026-10-07T07-58-32-527Z_01a1155f-0a4f-761b-939f-06f8ebd51256.jsonl",
+                  "bodyCommitted": true
+                }
+              },
+              "isError": false,
+              "timestamp": 1791359912544
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912538
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "toolCall",
+                  "id": "public-pull",
+                  "name": "herdr_get_agent_result",
+                  "arguments": {
+                    "target": "child"
+                  }
+                }
+              ],
+              "stopReason": "toolUse",
+              "timestamp": 1791359912538,
+              "api": "offline",
+              "provider": "offline",
+              "model": "offline",
+              "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "thinkingLevel": "off"
+            },
+            {
+              "role": "toolResult",
+              "toolCallId": "public-pull",
+              "toolName": "herdr_get_agent_result",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+                }
+              ],
+              "details": {
+                "target": "child",
+                "name": "child",
+                "kind": "pi",
+                "stance": "autonomous",
+                "source": "session-jsonl",
+                "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl",
+                "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl.exit",
+                "agentId": "agent-32",
+                "runId": "event-32",
+                "sequence": 1,
+                "eventId": "event-32",
+                "status": "done",
+                "result": "COMPLETE DURABLE BODY\nfinal line",
+                "delivery": {
+                  "eventId": "event-32",
+                  "token": "8b522de6-7c1d-462c-bbeb-e365b624a145",
+                  "channel": "pull",
+                  "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/2026-10-07T07-58-32-527Z_01a1155f-0a4f-761b-939f-06f8ebd51256.jsonl",
+                  "bodyCommitted": true
+                }
+              },
+              "isError": false,
+              "timestamp": 1791359912544
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "provider finished"
+                }
+              ],
+              "stopReason": "stop",
+              "timestamp": 1791359912549,
+              "api": "offline",
+              "provider": "offline",
+              "model": "offline",
+              "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "thinkingLevel": "off"
+            },
+            {
+              "role": "custom",
+              "customType": "herdr-delivery",
+              "content": [],
+              "display": false,
+              "details": {
+                "deliveryHostWithdrawn": true,
+                "eventId": "event-32",
+                "deliveryToken": "21ff1ffe-fa50-48a2-b3ca-91291ab90c05"
+              },
+              "timestamp": 1791359912538
+            }
+          ]
+        }
+      ],
+      "persistedBodyMessages": 1,
+      "providerBodyCounts": [
+        0,
+        1,
+        1
+      ],
+      "ledger": {
+        "eventId": "event-32",
+        "agentId": "agent-32",
+        "runId": "event-32",
+        "sequence": 1,
+        "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl",
+        "status": "delivered",
+        "updatedAt": 1791359912544,
+        "token": "8b522de6-7c1d-462c-bbeb-e365b624a145",
+        "channel": "pull",
+        "toolCallId": "public-pull"
+      },
+      "parentJSONL": "{\"type\":\"session\",\"version\":3,\"id\":\"01a1155f-0a4f-761b-939f-06f8ebd51256\",\"timestamp\":\"2026-10-07T07:58:32.527Z\",\"cwd\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32\"}\n{\"type\":\"message\",\"id\":\"62f71f49\",\"parentId\":null,\"timestamp\":\"2026-10-07T07:58:32.527Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"start\"}],\"timestamp\":1}}\n{\"type\":\"message\",\"id\":\"7f3b4875\",\"parentId\":\"62f71f49\",\"timestamp\":\"2026-10-07T07:58:32.538Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"execute real registered consumption and push gate\"}],\"timestamp\":1791359912538}}\n{\"type\":\"message\",\"id\":\"f918b596\",\"parentId\":\"7f3b4875\",\"timestamp\":\"2026-10-07T07:58:32.538Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"toolCall\",\"id\":\"public-pull\",\"name\":\"herdr_get_agent_result\",\"arguments\":{\"target\":\"child\"}}],\"stopReason\":\"toolUse\",\"timestamp\":1791359912538,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n{\"type\":\"message\",\"id\":\"daae73e3\",\"parentId\":\"f918b596\",\"timestamp\":\"2026-10-07T07:58:32.544Z\",\"message\":{\"role\":\"toolResult\",\"toolCallId\":\"public-pull\",\"toolName\":\"herdr_get_agent_result\",\"content\":[{\"type\":\"text\",\"text\":\"Agent \\\"child\\\" finished — exact final message:\\n\\nCOMPLETE DURABLE BODY\\nfinal line\"}],\"details\":{\"target\":\"child\",\"name\":\"child\",\"kind\":\"pi\",\"stance\":\"autonomous\",\"source\":\"session-jsonl\",\"sessionPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl\",\"exitPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl.exit\",\"agentId\":\"agent-32\",\"runId\":\"event-32\",\"sequence\":1,\"eventId\":\"event-32\",\"status\":\"done\",\"result\":\"COMPLETE DURABLE BODY\\nfinal line\",\"delivery\":{\"eventId\":\"event-32\",\"token\":\"8b522de6-7c1d-462c-bbeb-e365b624a145\",\"channel\":\"pull\",\"hostFile\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/2026-10-07T07-58-32-527Z_01a1155f-0a4f-761b-939f-06f8ebd51256.jsonl\",\"bodyCommitted\":true}},\"isError\":false,\"timestamp\":1791359912544}}\n{\"type\":\"message\",\"id\":\"68deaf68\",\"parentId\":\"daae73e3\",\"timestamp\":\"2026-10-07T07:58:32.549Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"provider finished\"}],\"stopReason\":\"stop\",\"timestamp\":1791359912549,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n{\"type\":\"custom_message\",\"customType\":\"herdr-delivery\",\"content\":[],\"display\":false,\"details\":{\"deliveryHostWithdrawn\":true,\"eventId\":\"event-32\",\"deliveryToken\":\"21ff1ffe-fa50-48a2-b3ca-91291ab90c05\"},\"id\":\"a7e6519d\",\"parentId\":\"68deaf68\",\"timestamp\":\"2026-10-07T07:58:32.549Z\"}\n{\"type\":\"message\",\"id\":\"58b4d6a1\",\"parentId\":\"a7e6519d\",\"timestamp\":\"2026-10-07T07:58:32.549Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"provider finished\"}],\"stopReason\":\"stop\",\"timestamp\":1791359912549,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n"
+    },
+    {
+      "scenario": "parallel-pulls",
+      "sessionSnapshot": [
+        {
+          "type": "message",
+          "id": "b90d2c2e",
+          "parentId": null,
+          "timestamp": "2026-10-07T07:58:32.550Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "start"
+              }
+            ],
+            "timestamp": 1
+          }
+        },
+        {
+          "type": "message",
+          "id": "8e6aad60",
+          "parentId": "b90d2c2e",
+          "timestamp": "2026-10-07T07:58:32.551Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "execute real registered consumption and push gate"
+              }
+            ],
+            "timestamp": 1791359912551
+          }
+        },
+        {
+          "type": "message",
+          "id": "9cbe778b",
+          "parentId": "8e6aad60",
+          "timestamp": "2026-10-07T07:58:32.551Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "public-pull-a",
+                "name": "herdr_get_agent_result",
+                "arguments": {
+                  "target": "child"
+                }
+              },
+              {
+                "type": "toolCall",
+                "id": "public-pull-b",
+                "name": "herdr_get_agent_result",
+                "arguments": {
+                  "target": "child"
+                }
+              }
+            ],
+            "stopReason": "toolUse",
+            "timestamp": 1791359912551,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        },
+        {
+          "type": "message",
+          "id": "1ed1d901",
+          "parentId": "9cbe778b",
+          "timestamp": "2026-10-07T07:58:32.561Z",
+          "message": {
+            "role": "toolResult",
+            "toolCallId": "public-pull-a",
+            "toolName": "herdr_get_agent_result",
+            "content": [
+              {
+                "type": "text",
+                "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+              }
+            ],
+            "details": {
+              "target": "child",
+              "name": "child",
+              "kind": "pi",
+              "stance": "autonomous",
+              "source": "session-jsonl",
+              "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl",
+              "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl.exit",
+              "agentId": "agent-33",
+              "runId": "event-33",
+              "sequence": 1,
+              "eventId": "event-33",
+              "status": "done",
+              "result": "COMPLETE DURABLE BODY\nfinal line",
+              "delivery": {
+                "eventId": "event-33",
+                "token": "057d4bc7-4be3-4df9-a156-e1ad41afbaf7",
+                "channel": "pull",
+                "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/2026-10-07T07-58-32-550Z_01a1155f-0a66-761b-939f-06fa9f061ef2.jsonl",
+                "bodyCommitted": true
+              }
+            },
+            "isError": false,
+            "timestamp": 1791359912561
+          }
+        },
+        {
+          "type": "message",
+          "id": "32357403",
+          "parentId": "1ed1d901",
+          "timestamp": "2026-10-07T07:58:32.561Z",
+          "message": {
+            "role": "toolResult",
+            "toolCallId": "public-pull-b",
+            "toolName": "herdr_get_agent_result",
+            "content": [
+              {
+                "type": "text",
+                "text": "Completion event-33 is pending via pull; this call is a status reference, not another body delivery."
+              }
+            ],
+            "details": {
+              "target": "child",
+              "name": "child",
+              "kind": "pi",
+              "stance": "autonomous",
+              "source": "registry",
+              "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl",
+              "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl.exit",
+              "agentId": "agent-33",
+              "runId": "event-33",
+              "sequence": 1,
+              "eventId": "event-33",
+              "status": "done",
+              "delivery": {
+                "eventId": "event-33",
+                "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/2026-10-07T07-58-32-550Z_01a1155f-0a66-761b-939f-06fa9f061ef2.jsonl",
+                "status": "pending",
+                "channel": "pull",
+                "token": "057d4bc7-4be3-4df9-a156-e1ad41afbaf7"
+              },
+              "note": "completion body already claimed; status reference only"
+            },
+            "isError": false,
+            "timestamp": 1791359912561
+          }
+        },
+        {
+          "type": "message",
+          "id": "fc1751f0",
+          "parentId": "32357403",
+          "timestamp": "2026-10-07T07:58:32.566Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "provider finished"
+              }
+            ],
+            "stopReason": "stop",
+            "timestamp": 1791359912566,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        }
+      ],
+      "actualProviderContexts": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912551
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912551
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "toolCall",
+                  "id": "public-pull-a",
+                  "name": "herdr_get_agent_result",
+                  "arguments": {
+                    "target": "child"
+                  }
+                },
+                {
+                  "type": "toolCall",
+                  "id": "public-pull-b",
+                  "name": "herdr_get_agent_result",
+                  "arguments": {
+                    "target": "child"
+                  }
+                }
+              ],
+              "stopReason": "toolUse",
+              "timestamp": 1791359912551,
+              "api": "offline",
+              "provider": "offline",
+              "model": "offline",
+              "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "thinkingLevel": "off"
+            },
+            {
+              "role": "toolResult",
+              "toolCallId": "public-pull-a",
+              "toolName": "herdr_get_agent_result",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+                }
+              ],
+              "details": {
+                "target": "child",
+                "name": "child",
+                "kind": "pi",
+                "stance": "autonomous",
+                "source": "session-jsonl",
+                "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl",
+                "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl.exit",
+                "agentId": "agent-33",
+                "runId": "event-33",
+                "sequence": 1,
+                "eventId": "event-33",
+                "status": "done",
+                "result": "COMPLETE DURABLE BODY\nfinal line",
+                "delivery": {
+                  "eventId": "event-33",
+                  "token": "057d4bc7-4be3-4df9-a156-e1ad41afbaf7",
+                  "channel": "pull",
+                  "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/2026-10-07T07-58-32-550Z_01a1155f-0a66-761b-939f-06fa9f061ef2.jsonl",
+                  "bodyCommitted": true
+                }
+              },
+              "isError": false,
+              "timestamp": 1791359912561
+            },
+            {
+              "role": "toolResult",
+              "toolCallId": "public-pull-b",
+              "toolName": "herdr_get_agent_result",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Completion event-33 is pending via pull; this call is a status reference, not another body delivery."
+                }
+              ],
+              "details": {
+                "target": "child",
+                "name": "child",
+                "kind": "pi",
+                "stance": "autonomous",
+                "source": "registry",
+                "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl",
+                "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl.exit",
+                "agentId": "agent-33",
+                "runId": "event-33",
+                "sequence": 1,
+                "eventId": "event-33",
+                "status": "done",
+                "delivery": {
+                  "eventId": "event-33",
+                  "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/2026-10-07T07-58-32-550Z_01a1155f-0a66-761b-939f-06fa9f061ef2.jsonl",
+                  "status": "pending",
+                  "channel": "pull",
+                  "token": "057d4bc7-4be3-4df9-a156-e1ad41afbaf7"
+                },
+                "note": "completion body already claimed; status reference only"
+              },
+              "isError": false,
+              "timestamp": 1791359912561
+            }
+          ]
+        }
+      ],
+      "persistedBodyMessages": 1,
+      "providerBodyCounts": [
+        0,
+        1
+      ],
+      "ledger": {
+        "eventId": "event-33",
+        "agentId": "agent-33",
+        "runId": "event-33",
+        "sequence": 1,
+        "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl",
+        "status": "delivered",
+        "updatedAt": 1791359912561,
+        "token": "057d4bc7-4be3-4df9-a156-e1ad41afbaf7",
+        "channel": "pull",
+        "toolCallId": "public-pull-a"
+      },
+      "parentJSONL": "{\"type\":\"session\",\"version\":3,\"id\":\"01a1155f-0a66-761b-939f-06fa9f061ef2\",\"timestamp\":\"2026-10-07T07:58:32.550Z\",\"cwd\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33\"}\n{\"type\":\"message\",\"id\":\"b90d2c2e\",\"parentId\":null,\"timestamp\":\"2026-10-07T07:58:32.550Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"start\"}],\"timestamp\":1}}\n{\"type\":\"message\",\"id\":\"8e6aad60\",\"parentId\":\"b90d2c2e\",\"timestamp\":\"2026-10-07T07:58:32.551Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"execute real registered consumption and push gate\"}],\"timestamp\":1791359912551}}\n{\"type\":\"message\",\"id\":\"9cbe778b\",\"parentId\":\"8e6aad60\",\"timestamp\":\"2026-10-07T07:58:32.551Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"toolCall\",\"id\":\"public-pull-a\",\"name\":\"herdr_get_agent_result\",\"arguments\":{\"target\":\"child\"}},{\"type\":\"toolCall\",\"id\":\"public-pull-b\",\"name\":\"herdr_get_agent_result\",\"arguments\":{\"target\":\"child\"}}],\"stopReason\":\"toolUse\",\"timestamp\":1791359912551,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n{\"type\":\"message\",\"id\":\"1ed1d901\",\"parentId\":\"9cbe778b\",\"timestamp\":\"2026-10-07T07:58:32.561Z\",\"message\":{\"role\":\"toolResult\",\"toolCallId\":\"public-pull-a\",\"toolName\":\"herdr_get_agent_result\",\"content\":[{\"type\":\"text\",\"text\":\"Agent \\\"child\\\" finished — exact final message:\\n\\nCOMPLETE DURABLE BODY\\nfinal line\"}],\"details\":{\"target\":\"child\",\"name\":\"child\",\"kind\":\"pi\",\"stance\":\"autonomous\",\"source\":\"session-jsonl\",\"sessionPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl\",\"exitPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl.exit\",\"agentId\":\"agent-33\",\"runId\":\"event-33\",\"sequence\":1,\"eventId\":\"event-33\",\"status\":\"done\",\"result\":\"COMPLETE DURABLE BODY\\nfinal line\",\"delivery\":{\"eventId\":\"event-33\",\"token\":\"057d4bc7-4be3-4df9-a156-e1ad41afbaf7\",\"channel\":\"pull\",\"hostFile\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/2026-10-07T07-58-32-550Z_01a1155f-0a66-761b-939f-06fa9f061ef2.jsonl\",\"bodyCommitted\":true}},\"isError\":false,\"timestamp\":1791359912561}}\n{\"type\":\"message\",\"id\":\"32357403\",\"parentId\":\"1ed1d901\",\"timestamp\":\"2026-10-07T07:58:32.561Z\",\"message\":{\"role\":\"toolResult\",\"toolCallId\":\"public-pull-b\",\"toolName\":\"herdr_get_agent_result\",\"content\":[{\"type\":\"text\",\"text\":\"Completion event-33 is pending via pull; this call is a status reference, not another body delivery.\"}],\"details\":{\"target\":\"child\",\"name\":\"child\",\"kind\":\"pi\",\"stance\":\"autonomous\",\"source\":\"registry\",\"sessionPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl\",\"exitPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl.exit\",\"agentId\":\"agent-33\",\"runId\":\"event-33\",\"sequence\":1,\"eventId\":\"event-33\",\"status\":\"done\",\"delivery\":{\"eventId\":\"event-33\",\"hostFile\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/2026-10-07T07-58-32-550Z_01a1155f-0a66-761b-939f-06fa9f061ef2.jsonl\",\"status\":\"pending\",\"channel\":\"pull\",\"token\":\"057d4bc7-4be3-4df9-a156-e1ad41afbaf7\"},\"note\":\"completion body already claimed; status reference only\"},\"isError\":false,\"timestamp\":1791359912561}}\n{\"type\":\"message\",\"id\":\"fc1751f0\",\"parentId\":\"32357403\",\"timestamp\":\"2026-10-07T07:58:32.566Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"provider finished\"}],\"stopReason\":\"stop\",\"timestamp\":1791359912566,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n"
+    },
+    {
+      "scenario": "concurrent-push-pull",
+      "sessionSnapshot": [
+        {
+          "type": "message",
+          "id": "f5bdf1dd",
+          "parentId": null,
+          "timestamp": "2026-10-07T07:58:32.567Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "start"
+              }
+            ],
+            "timestamp": 1
+          }
+        },
+        {
+          "type": "message",
+          "id": "789406b0",
+          "parentId": "f5bdf1dd",
+          "timestamp": "2026-10-07T07:58:32.568Z",
+          "message": {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "execute real registered consumption and push gate"
+              }
+            ],
+            "timestamp": 1791359912568
+          }
+        },
+        {
+          "type": "message",
+          "id": "96119885",
+          "parentId": "789406b0",
+          "timestamp": "2026-10-07T07:58:32.568Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "public-pull",
+                "name": "herdr_get_agent_result",
+                "arguments": {
+                  "target": "child"
+                }
+              }
+            ],
+            "stopReason": "toolUse",
+            "timestamp": 1791359912568,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        },
+        {
+          "type": "message",
+          "id": "0a8d0aae",
+          "parentId": "96119885",
+          "timestamp": "2026-10-07T07:58:32.585Z",
+          "message": {
+            "role": "toolResult",
+            "toolCallId": "public-pull",
+            "toolName": "herdr_get_agent_result",
+            "content": [
+              {
+                "type": "text",
+                "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+              }
+            ],
+            "details": {
+              "target": "child",
+              "name": "child",
+              "kind": "pi",
+              "stance": "autonomous",
+              "source": "session-jsonl",
+              "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/child.jsonl",
+              "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/child.jsonl.exit",
+              "agentId": "agent-34",
+              "runId": "event-34",
+              "sequence": 1,
+              "eventId": "event-34",
+              "status": "done",
+              "result": "COMPLETE DURABLE BODY\nfinal line",
+              "delivery": {
+                "eventId": "event-34",
+                "token": "30aa0f12-d48b-4316-9e15-757f36a0c675",
+                "channel": "pull",
+                "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/2026-10-07T07-58-32-567Z_01a1155f-0a77-761b-939f-06fc24ebd7fb.jsonl",
+                "bodyCommitted": true
+              }
+            },
+            "isError": false,
+            "timestamp": 1791359912585
+          }
+        },
+        {
+          "type": "message",
+          "id": "46db4175",
+          "parentId": "0a8d0aae",
+          "timestamp": "2026-10-07T07:58:32.591Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "provider finished"
+              }
+            ],
+            "stopReason": "stop",
+            "timestamp": 1791359912591,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        },
+        {
+          "type": "custom_message",
+          "customType": "herdr-delivery",
+          "content": [],
+          "display": false,
+          "details": {
+            "deliveryHostWithdrawn": true,
+            "eventId": "event-34",
+            "deliveryToken": "912cc248-1c60-4a52-8653-eaedc98eab94"
+          },
+          "id": "2ea01a49",
+          "parentId": "46db4175",
+          "timestamp": "2026-10-07T07:58:32.591Z"
+        },
+        {
+          "type": "message",
+          "id": "5ef26a0a",
+          "parentId": "2ea01a49",
+          "timestamp": "2026-10-07T07:58:32.591Z",
+          "message": {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": "provider finished"
+              }
+            ],
+            "stopReason": "stop",
+            "timestamp": 1791359912591,
+            "api": "offline",
+            "provider": "offline",
+            "model": "offline",
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "thinkingLevel": "off"
+          }
+        }
+      ],
+      "actualProviderContexts": [
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912568
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912568
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "toolCall",
+                  "id": "public-pull",
+                  "name": "herdr_get_agent_result",
+                  "arguments": {
+                    "target": "child"
+                  }
+                }
+              ],
+              "stopReason": "toolUse",
+              "timestamp": 1791359912568,
+              "api": "offline",
+              "provider": "offline",
+              "model": "offline",
+              "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "thinkingLevel": "off"
+            },
+            {
+              "role": "toolResult",
+              "toolCallId": "public-pull",
+              "toolName": "herdr_get_agent_result",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+                }
+              ],
+              "details": {
+                "target": "child",
+                "name": "child",
+                "kind": "pi",
+                "stance": "autonomous",
+                "source": "session-jsonl",
+                "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/child.jsonl",
+                "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/child.jsonl.exit",
+                "agentId": "agent-34",
+                "runId": "event-34",
+                "sequence": 1,
+                "eventId": "event-34",
+                "status": "done",
+                "result": "COMPLETE DURABLE BODY\nfinal line",
+                "delivery": {
+                  "eventId": "event-34",
+                  "token": "30aa0f12-d48b-4316-9e15-757f36a0c675",
+                  "channel": "pull",
+                  "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/2026-10-07T07-58-32-567Z_01a1155f-0a77-761b-939f-06fc24ebd7fb.jsonl",
+                  "bodyCommitted": true
+                }
+              },
+              "isError": false,
+              "timestamp": 1791359912585
+            }
+          ]
+        },
+        {
+          "messages": [
+            {
+              "role": "system",
+              "content": "",
+              "toolsAdded": [
+                {
+                  "name": "herdr_get_agent_result",
+                  "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+                  "parameters": {
+                    "type": "object",
+                    "required": [
+                      "target"
+                    ],
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                      },
+                      "reread": {
+                        "type": "boolean",
+                        "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                      },
+                      "ack": {
+                        "type": "object",
+                        "required": [
+                          "eventId",
+                          "agentId",
+                          "runId",
+                          "sequence",
+                          "hostFile"
+                        ],
+                        "properties": {
+                          "eventId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "runId": {
+                            "type": "string"
+                          },
+                          "sequence": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "hostFile": {
+                            "type": "string",
+                            "description": "Exact receiving session file from the result reference."
+                          }
+                        },
+                        "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
+                      },
+                      "lines": {
+                        "type": "integer",
+                        "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                      }
+                    }
+                  }
+                }
+              ],
+              "timestamp": 0
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "execute real registered consumption and push gate"
+                }
+              ],
+              "timestamp": 1791359912568
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "toolCall",
+                  "id": "public-pull",
+                  "name": "herdr_get_agent_result",
+                  "arguments": {
+                    "target": "child"
+                  }
+                }
+              ],
+              "stopReason": "toolUse",
+              "timestamp": 1791359912568,
+              "api": "offline",
+              "provider": "offline",
+              "model": "offline",
+              "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "thinkingLevel": "off"
+            },
+            {
+              "role": "toolResult",
+              "toolCallId": "public-pull",
+              "toolName": "herdr_get_agent_result",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "Agent \"child\" finished — exact final message:\n\nCOMPLETE DURABLE BODY\nfinal line"
+                }
+              ],
+              "details": {
+                "target": "child",
+                "name": "child",
+                "kind": "pi",
+                "stance": "autonomous",
+                "source": "session-jsonl",
+                "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/child.jsonl",
+                "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/child.jsonl.exit",
+                "agentId": "agent-34",
+                "runId": "event-34",
+                "sequence": 1,
+                "eventId": "event-34",
+                "status": "done",
+                "result": "COMPLETE DURABLE BODY\nfinal line",
+                "delivery": {
+                  "eventId": "event-34",
+                  "token": "30aa0f12-d48b-4316-9e15-757f36a0c675",
+                  "channel": "pull",
+                  "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/2026-10-07T07-58-32-567Z_01a1155f-0a77-761b-939f-06fc24ebd7fb.jsonl",
+                  "bodyCommitted": true
+                }
+              },
+              "isError": false,
+              "timestamp": 1791359912585
+            },
+            {
+              "role": "assistant",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "provider finished"
+                }
+              ],
+              "stopReason": "stop",
+              "timestamp": 1791359912591,
+              "api": "offline",
+              "provider": "offline",
+              "model": "offline",
+              "usage": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "thinkingLevel": "off"
+            },
+            {
+              "role": "custom",
+              "customType": "herdr-delivery",
+              "content": [],
+              "display": false,
+              "details": {
+                "deliveryHostWithdrawn": true,
+                "eventId": "event-34",
+                "deliveryToken": "912cc248-1c60-4a52-8653-eaedc98eab94"
+              },
+              "timestamp": 1791359912579
+            }
+          ]
+        }
+      ],
+      "persistedBodyMessages": 1,
+      "providerBodyCounts": [
+        0,
+        1,
+        1
+      ],
+      "simultaneousBoundary": {
+        "scheduling": "same execute boundary Promise.allSettled microtasks",
+        "order": [
+          "push",
+          "pull"
+        ],
+        "pushOutcome": "delivery pending durable confirmation; SDK accepted but host commit unconfirmed",
+        "pullOutcome": {
+          "eventId": "event-34",
+          "token": "30aa0f12-d48b-4316-9e15-757f36a0c675",
+          "channel": "pull",
+          "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/2026-10-07T07-58-32-567Z_01a1155f-0a77-761b-939f-06fc24ebd7fb.jsonl",
+          "bodyCommitted": true
+        }
+      },
+      "ledger": {
+        "eventId": "event-34",
+        "agentId": "agent-34",
+        "runId": "event-34",
+        "sequence": 1,
+        "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/child.jsonl",
+        "status": "delivered",
+        "updatedAt": 1791359912585,
+        "token": "30aa0f12-d48b-4316-9e15-757f36a0c675",
+        "channel": "pull",
+        "toolCallId": "public-pull"
+      },
+      "parentJSONL": "{\"type\":\"session\",\"version\":3,\"id\":\"01a1155f-0a77-761b-939f-06fc24ebd7fb\",\"timestamp\":\"2026-10-07T07:58:32.567Z\",\"cwd\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34\"}\n{\"type\":\"message\",\"id\":\"f5bdf1dd\",\"parentId\":null,\"timestamp\":\"2026-10-07T07:58:32.567Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"start\"}],\"timestamp\":1}}\n{\"type\":\"message\",\"id\":\"789406b0\",\"parentId\":\"f5bdf1dd\",\"timestamp\":\"2026-10-07T07:58:32.568Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"execute real registered consumption and push gate\"}],\"timestamp\":1791359912568}}\n{\"type\":\"message\",\"id\":\"96119885\",\"parentId\":\"789406b0\",\"timestamp\":\"2026-10-07T07:58:32.568Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"toolCall\",\"id\":\"public-pull\",\"name\":\"herdr_get_agent_result\",\"arguments\":{\"target\":\"child\"}}],\"stopReason\":\"toolUse\",\"timestamp\":1791359912568,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n{\"type\":\"message\",\"id\":\"0a8d0aae\",\"parentId\":\"96119885\",\"timestamp\":\"2026-10-07T07:58:32.585Z\",\"message\":{\"role\":\"toolResult\",\"toolCallId\":\"public-pull\",\"toolName\":\"herdr_get_agent_result\",\"content\":[{\"type\":\"text\",\"text\":\"Agent \\\"child\\\" finished — exact final message:\\n\\nCOMPLETE DURABLE BODY\\nfinal line\"}],\"details\":{\"target\":\"child\",\"name\":\"child\",\"kind\":\"pi\",\"stance\":\"autonomous\",\"source\":\"session-jsonl\",\"sessionPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/child.jsonl\",\"exitPath\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/child.jsonl.exit\",\"agentId\":\"agent-34\",\"runId\":\"event-34\",\"sequence\":1,\"eventId\":\"event-34\",\"status\":\"done\",\"result\":\"COMPLETE DURABLE BODY\\nfinal line\",\"delivery\":{\"eventId\":\"event-34\",\"token\":\"30aa0f12-d48b-4316-9e15-757f36a0c675\",\"channel\":\"pull\",\"hostFile\":\"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-34/2026-10-07T07-58-32-567Z_01a1155f-0a77-761b-939f-06fc24ebd7fb.jsonl\",\"bodyCommitted\":true}},\"isError\":false,\"timestamp\":1791359912585}}\n{\"type\":\"message\",\"id\":\"46db4175\",\"parentId\":\"0a8d0aae\",\"timestamp\":\"2026-10-07T07:58:32.591Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"provider finished\"}],\"stopReason\":\"stop\",\"timestamp\":1791359912591,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n{\"type\":\"custom_message\",\"customType\":\"herdr-delivery\",\"content\":[],\"display\":false,\"details\":{\"deliveryHostWithdrawn\":true,\"eventId\":\"event-34\",\"deliveryToken\":\"912cc248-1c60-4a52-8653-eaedc98eab94\"},\"id\":\"2ea01a49\",\"parentId\":\"46db4175\",\"timestamp\":\"2026-10-07T07:58:32.591Z\"}\n{\"type\":\"message\",\"id\":\"5ef26a0a\",\"parentId\":\"2ea01a49\",\"timestamp\":\"2026-10-07T07:58:32.591Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"provider finished\"}],\"stopReason\":\"stop\",\"timestamp\":1791359912591,\"api\":\"offline\",\"provider\":\"offline\",\"model\":\"offline\",\"usage\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"totalTokens\":0,\"cost\":{\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0,\"total\":0}},\"thinkingLevel\":\"off\"}}\n"
+    }
+  ],
+  "ledgerAckWriteFailure": {
+    "injected": true,
+    "diskReceiptBeforeRepair": "persisted",
+    "ledgerBeforeRepair": "pending",
+    "ledgerAfterRepair": "delivered",
+    "errors": [
+      {
+        "error": "injected ledger ACK write failure",
+        "eventId": "event-27"
+      }
+    ]
+  },
+  "result": "passed",
+  "cleanup": {
+    "temporaryDirectoryRemovedInFinally": true,
+    "spawnedPanes": 0,
+    "otherSessionsTouched": false
+  }
+}

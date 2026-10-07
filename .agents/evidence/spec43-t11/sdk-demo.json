@@ -1,0 +1,20 @@
+[
+  {
+    "scenario": "queued-ack",
+    "sdk": "1.0.4",
+    "normalBodies": 0,
+    "rereadBodies": 0,
+    "stateAfterReopen": "acked",
+    "ackUI": "Completion event-32 ACK: caller declared handled; this does not claim model reading or understanding. No body returned.",
+    "withdrawnPushes": 1
+  },
+  {
+    "scenario": "pull-ack-reread",
+    "sdk": "1.0.4",
+    "normalBodies": 1,
+    "rereadBodies": 1,
+    "stateAfterReopen": "acked",
+    "ackUI": "Completion event-33 ACK: caller declared handled; this does not claim model reading or understanding. No body returned.",
+    "withdrawnPushes": 0
+  }
+]

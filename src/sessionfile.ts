@@ -404,7 +404,8 @@ export function sidecarPathFor(sessionPath: string): string {
 	return `${sessionPath}.exit`;
 }
 
-/** A durable completion sidecar payload. Unknown legacy fields are ignored. */
+/** A durable completion sidecar payload. Unknown legacy fields (including the
+ * retired idle-re-arm `rearm` flag) are ignored, never an error. */
 export type ExitSidecar = { agentId?: string; runId?: string; sequence?: number } & (
 	| {
 			type: "done";
@@ -454,7 +455,8 @@ export function parseExitSidecar(
 	}
 	if (!parsed || typeof parsed !== "object") return { ok: false };
 	const o = parsed as Record<string, unknown>;
-	// Unknown fields are ignored for legacy compatibility.
+	// Unknown fields are ignored for legacy compatibility — including the
+	// retired idle-re-arm `rearm` flag on old sidecars.
 	const identity = {
 		...(typeof o.agentId === "string" ? { agentId: o.agentId } : {}),
 		...(typeof o.runId === "string" ? { runId: o.runId } : {}),

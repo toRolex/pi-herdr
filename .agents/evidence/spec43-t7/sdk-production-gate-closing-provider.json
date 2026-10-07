@@ -1,0 +1,188 @@
+[
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-gate-closing\n</cwd>"
+        },
+        "timestamp": 1791359914290
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "establish prior run"
+          }
+        ],
+        "timestamp": 1791359914290
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-gate-closing\n</cwd>"
+        },
+        "timestamp": 1791359914290
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "establish prior run"
+          }
+        ],
+        "timestamp": 1791359914290
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "finished"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791359914288,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [],
+        "timestamp": 1791359914331
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-gate-closing\n</cwd>"
+        },
+        "timestamp": 1791359914290
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "establish prior run"
+          }
+        ],
+        "timestamp": 1791359914290
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "finished"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791359914288,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [],
+        "timestamp": 1791359914331
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "extra provider request"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791359914332,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "permitted recovery natural run"
+          }
+        ],
+        "timestamp": 1791359914342
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "REJECTED SDK BODY closing"
+          }
+        ],
+        "timestamp": 1791359914350
+      }
+    ]
+  }
+]

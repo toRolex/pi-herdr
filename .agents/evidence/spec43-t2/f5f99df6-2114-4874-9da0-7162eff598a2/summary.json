@@ -1,0 +1,18 @@
+{
+  "id": "f5f99df6-2114-4874-9da0-7162eff598a2",
+  "evidence": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/.agents/evidence/spec43-t2/f5f99df6-2114-4874-9da0-7162eff598a2",
+  "runId": "t2-f5f99df6-2114-4874-9da0-7162eff598a2",
+  "agentId": "agent-f5f99df6-2114-4874-9da0-7162eff598a2",
+  "finalBytes": 10171,
+  "childSource": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/src/child.ts",
+  "childSha256": "035161a6dc71456b702bb11f7508b41de91f8f3aa773b224dfe8a9405fcbfe5a",
+  "recycleSha256": "651be92ff2f0d5cac15127134fc71cd1783a989e16697cb99d618f9d8d323c10",
+  "deliveryPasses": 0,
+  "ackWrites": 0,
+  "parentMode": "inert node tracer; delivery module never imported",
+  "workspace": "w8A",
+  "pane": "w8A:p1",
+  "success": false,
+  "error": "Error: timeout: completion declaration\n    at until (file:///Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/tests/spec43-t2-live.mjs:45:8)\n    at async file:///Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/tests/spec43-t2-live.mjs:82:2",
+  "cleanup": "owned workspace closed after assertions"
+}

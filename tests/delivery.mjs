@@ -1,12 +1,8 @@
-// Offline tests for push delivery + user takeover + idle re-arm (issue 06).
+// Offline tests for push delivery (issue 06, spec43).
 //
 // Sections:
-//   [1] sessionfile: sidecar rearm typing, takeover/steer markers, the
-//       steer-watermark matcher (human typing vs the parent's own steering)
-//   [2] child extension: takeover flag/marker, idle re-arm timer, error-grace
-//       suppression under takeover
 //   [3] delivery loop: the three detection routes, wake flags, push labels,
-//       single-push dedupe, takeover suppression
+//       single-push dedupe
 //
 // No live herdr server required: every herdr-facing seam is injected.
 //

@@ -549,8 +549,6 @@ async function resumeAgentSerial(
 	record.watch = undefined;
 	record.delivery = undefined;
 	record.blockedNotified = false;
-	record.takenOver = false;
-	record.tookNotified = false;
 	record.interruptedAt = undefined;
 	record.lastStatus = undefined;
 	record.taskArtifactPath = undefined;

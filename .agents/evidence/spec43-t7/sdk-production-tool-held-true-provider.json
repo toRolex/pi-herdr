@@ -1,0 +1,133 @@
+[
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-tool-held-true\n</cwd>"
+        },
+        "timestamp": 1791359914207,
+        "toolsAdded": [
+          {
+            "name": "t7_production_hold",
+            "description": "Hold production run tool",
+            "parameters": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "production run tool"
+          }
+        ],
+        "timestamp": 1791359914207
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-tool-held-true\n</cwd>"
+        },
+        "timestamp": 1791359914207,
+        "toolsAdded": [
+          {
+            "name": "t7_production_hold",
+            "description": "Hold production run tool",
+            "parameters": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "production run tool"
+          }
+        ],
+        "timestamp": 1791359914207
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "toolCall",
+            "id": "t7-production-tool",
+            "name": "t7_production_hold",
+            "arguments": {}
+          }
+        ],
+        "stopReason": "toolUse",
+        "timestamp": 1791359914205,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "toolResult",
+        "toolCallId": "t7-production-tool",
+        "toolName": "t7_production_hold",
+        "content": [
+          {
+            "type": "text",
+            "text": "PRODUCTION TOOL DONE"
+          }
+        ],
+        "details": {},
+        "isError": false,
+        "timestamp": 1791359914233
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "natural next user run consumes held completion"
+          }
+        ],
+        "timestamp": 1791359914257
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "PRODUCTION BUSY HELD BODY terminate=true"
+          }
+        ],
+        "timestamp": 1791359914272
+      }
+    ]
+  }
+]

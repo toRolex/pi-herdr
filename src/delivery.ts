@@ -21,11 +21,8 @@
 // the orchestrator is busy queues as followUp + wake instead of steer — the
 // running tool is not cancelled. blocked and stalled stay steer. error keeps
 // the notifications matrix (quiet → nextTurn, none → no push, normal → steer).
-// A BLOCKED child always wakes regardless of the setting — unless a human took
-// the pane over (no mid-conversation pushes from a taken-over pane; the human
-// is right there).
+// A BLOCKED child always wakes regardless of the setting.
 //
-
 
 import { readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { spawn } from "node:child_process";
@@ -69,12 +66,9 @@ import {
 	type SteeredMessage,
 	makeDeliverySink,
 	rememberOrchestratorSession,
-	rememberParentDeliverySink,
 	trackOrchestratorBusy,
 	terminalWake,
 } from "./push.js";
-
-import { registerParentDelivery } from "./parent-delivery.js";
 
 export { makeDeliverySink };
 
@@ -163,7 +157,7 @@ async function readPaneTail(deps: DeliveryDeps, paneId: string | undefined): Pro
 	return read(paneId);
 }
 
-/** Autonomous, not taken over, not a workflow child. Those panes stay open. */
+/** Autonomous, not a workflow child. Those panes stay open. */
 function ownsPane(record: SpawnRecord): boolean {
 	return record.stance === "autonomous" && !record.workflow;
 }
@@ -862,7 +856,6 @@ async function closeDeliveredPane(
 		record.paneCloseAuthorization.agentId !== record.agentId ||
 		record.paneCloseAuthorization.paneId !== record.paneId
 	)) return;
-
 	if (paneLive) {
 		record.paneClosePending = true;
 		return;
@@ -1222,11 +1215,7 @@ export function registerDelivery(pi: ExtensionAPI): void {
 			}
 		}
 	});
-	let parent: ReturnType<typeof registerParentDelivery>;
-	const sink = makeDeliverySink(pi, undefined, { allowCommit: details => parent.allowCommit(details) });
-	parent = registerParentDelivery(pi, sink, () => defaultLoad().notifications);
-	const push = parent.accept;
-	rememberParentDeliverySink(pi, push);
+	const push = makeDeliverySink(pi);
 	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {
 		try {

@@ -1,7 +1,7 @@
 // Real SDK persistence order: message_end stores the tool-call assistant before execute.
 import assert from "node:assert/strict";
 import { createJiti } from "jiti";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const jiti = createJiti(import.meta.url);
@@ -49,6 +49,20 @@ try {
  assert.equal(pushes[0].content, letter, "push is the exact complete final answer without protocol shell");
  assert.equal(pushes[0].details.sessionPath, session, "session path remains metadata");
  console.log("✓ persisted toolCall-only declaration delivers full sidecar + push body");
+
+ // Sidecar write failures must keep the pane open and report governance failure.
+ clean(); persist([user]); child = boot(); await child.emit("agent_start"); persist([user, body, doneCall]);
+ const exitDir = `${session}.exit`; mkdirSync(exitDir);
+ const failed = await child.tools.find(t => t.name === "agent_done").execute("done-failed", {}, undefined, undefined, child.ctx);
+ assert.equal(failed.isError, true);
+ assert.equal(child.shutdowns(), 0);
+ const events = [];
+ const failedRecord = { ...record, delivery: undefined };
+ await deliverOnce({ registry: () => new Map([[failedRecord.name, failedRecord]]), load: () => ({ notifications: "normal" }), list: async () => ({ ok: true, data: [{ paneId: failedRecord.paneId, agentStatus: "working" }] }), readSidecar: () => ({ state: "ok", sidecar: { type: "persistence-error", errorMessage: "completion persistence failed", eventId: "stable" } }), push: p => events.push(p), closePane: async () => ({ ok: true }) });
+ assert.equal(events[0]?.details.kind, "persistence-error");
+ assert.equal(failedRecord.delivery, undefined);
+ rmSync(exitDir, { recursive: true, force: true });
+ console.log("✓ sidecar persistence failure is visible and never closes the pane");
 
  for (const entries of [[user, body, user, doneCall], [user, doneCall]]) {
   clean(); persist(entries); child = boot();
