@@ -1,0 +1,208 @@
+[
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-Di2sfH/production-gate-policy-none\n</cwd>"
+        },
+        "timestamp": 1791337466586
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "establish prior run"
+          }
+        ],
+        "timestamp": 1791337466586
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-Di2sfH/production-gate-policy-none\n</cwd>"
+        },
+        "timestamp": 1791337466586
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "establish prior run"
+          }
+        ],
+        "timestamp": 1791337466586
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "finished"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791337466585,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "natural run with denied stale body"
+          }
+        ],
+        "timestamp": 1791337466602
+      },
+      {
+        "role": "user",
+        "content": [],
+        "timestamp": 1791337466606
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-Di2sfH/production-gate-policy-none\n</cwd>"
+        },
+        "timestamp": 1791337466586
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "establish prior run"
+          }
+        ],
+        "timestamp": 1791337466586
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "finished"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791337466585,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "natural run with denied stale body"
+          }
+        ],
+        "timestamp": 1791337466602
+      },
+      {
+        "role": "user",
+        "content": [],
+        "timestamp": 1791337466606
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "extra provider request"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791337466606,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "permitted recovery natural run"
+          }
+        ],
+        "timestamp": 1791337466611
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "REJECTED SDK BODY policy-none"
+          }
+        ],
+        "timestamp": 1791337466616
+      }
+    ]
+  }
+]

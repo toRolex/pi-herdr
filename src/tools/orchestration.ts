@@ -25,6 +25,9 @@ import {
 	type ToolReturn,
 } from "../env.js";
 import { spawnRecords, type SpawnRecord } from "../spawn.js";
+import { ParentNotifyStore, pendingMessageKey } from "../parent-notify-store.js";
+import { DeliveryLedger } from "../delivery-ledger.js";
+import { currentOrchestratorSession } from "../push.js";
 import { readExitSidecar, type ReadSidecarResult } from "../sessionfile.js";
 import {
 	isSubstrateChild,
@@ -554,6 +557,16 @@ export async function listAgentsView(
 	const registry = deps.registry ?? spawnRecords;
 	const now = deps.now ?? (() => Date.now());
 	const rows: FleetRow[] = [];
+	const hostFile = currentOrchestratorSession();
+	const unread = (record: SpawnRecord): number => {
+		if (!hostFile) return record.unread ?? 0;
+		return new ParentNotifyStore(hostFile).pending().filter(msg => {
+			if (record.agentId ? msg.details.agentId !== record.agentId : msg.details.name !== record.name) return false;
+			const eventId = typeof msg.details.eventId === "string" ? msg.details.eventId : `parent-notice:${pendingMessageKey(msg)}`;
+			const status = new DeliveryLedger(hostFile).reconcile(eventId)?.status;
+			return status !== "delivered" && status !== "acked";
+		}).length;
+	};
 	const seenPanes = new Set<string>();
 	// The registry is keyed by handle (name); fleet rows address panes.
 	const byPane = new Map<string, SpawnRecord>();
@@ -584,7 +597,7 @@ export async function listAgentsView(
 			runId: record.runId,
 			sequence: record.sequence,
 			activity: a.agentStatus,
-			unread: record.unread ?? 0,
+			unread: unread(record),
 			title: record.type ?? record.name,
 			kind: record.kind,
 			state: projectedLabel(record, deps, a.agentStatus, false, now()),
@@ -599,7 +612,7 @@ export async function listAgentsView(
 	// pane that just vanished (undelivered → stalled/finalizing, honest
 	// snapshot). Delivered (consumed) records leave the table.
 	for (const record of registry().values()) {
-		if (record.delivery && !record.startError) continue;
+		if (record.delivery && !record.startError && unread(record) === 0) continue;
 		if (record.paneId && seenPanes.has(record.paneId)) continue;
 		rows.push({
 			paneId: record.paneId,
@@ -608,7 +621,7 @@ export async function listAgentsView(
 			runId: record.runId,
 			sequence: record.sequence,
 			activity: record.lastStatus,
-			unread: record.unread ?? 0,
+			unread: unread(record),
 			title: record.type ?? record.name,
 			kind: record.kind,
 			state: projectedLabel(record, deps, undefined, true, now()),

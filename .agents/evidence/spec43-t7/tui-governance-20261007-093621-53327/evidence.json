@@ -1,0 +1,17 @@
+{
+  "feature": "t7-parent-governance",
+  "phase": "driven",
+  "artifacts": [
+    "children",
+    "doctor-commands.jsonl",
+    "doctor.json",
+    "launch-commands.jsonl",
+    "parent.jsonl",
+    "result.json",
+    "run.json",
+    "t7-provider.jsonl",
+    "transport.jsonl"
+  ],
+  "childCopies": 0,
+  "parentSha256": "32804916fa8b0375fc3267a7113024ae90012f1ad37310694970fc9a74243f6f"
+}

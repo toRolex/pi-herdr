@@ -154,7 +154,7 @@ export const SETTING_KEYS: readonly SettingKeyDef[] = [
 		values: ["none", "quiet", "normal"],
 		default: "normal",
 		path: ["notifications"],
-		description: "Verbosity of agent-completion notifications.",
+		description: "Completion delivery: normal = safe run boundaries, finished stays unread unless explicitly subscribed; quiet = next natural run, no wake; none = stored pull-only. Subscriptions never override quiet/none.",
 	},
 	{
 		key: "idle_rearm_minutes",

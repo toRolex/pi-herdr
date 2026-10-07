@@ -115,6 +115,13 @@ export class DeliveryLedger {
 		events[eventId] = { ...record, status: "pending", updatedAt: Date.now(), diagnostic: "SDK accepted; awaiting host disk commit (no timeout retry)" };
 		this.save(events); return true;
 	}
+	/** Called only inside the public host gate when the old body is synchronously withdrawn. */
+	deferPush(eventId: string, token: string): void {
+		const events = this.load(), record = events[eventId];
+		if (!record || record.token !== token || record.channel !== "push" || record.status !== "queued") return;
+		events[eventId] = { ...record, status: "available", token: undefined, channel: undefined, updatedAt: Date.now(), diagnostic: "host boundary withdrew queued body; deferred until next natural run" };
+		this.save(events);
+	}
 	uncertain(eventId: string, token: string, error: string): void {
 		const events = this.load(), record = events[eventId];
 		if (!record || record.token !== token || record.status === "delivered" || record.status === "acked") return;

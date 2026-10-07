@@ -1,0 +1,19 @@
+{
+  "feature": "message-ack",
+  "phase": "driving",
+  "artifacts": [
+    "children",
+    "doctor-commands.jsonl",
+    "doctor.json",
+    "drive-commands.jsonl",
+    "drive.mjs",
+    "input-events.jsonl",
+    "launch-commands.jsonl",
+    "parent.jsonl",
+    "run.json",
+    "terminal.json",
+    "transport.jsonl"
+  ],
+  "childCopies": 1,
+  "parentSha256": "b1b826da79251a7192632b30be8cc9674d1734a7fcfd444cc19b7e22c27c1f67"
+}
