@@ -1,7 +1,52 @@
 {
-  "ticket": "spec43-t6",
-  "issue": 49,
-  "automated": "tests/spec43-t6.mjs",
-  "scenarios": ["event already durable", "arrival while waiting", "timeout", "AbortSignal cancellation", "parallel independent waiters", "body excluded from wait response"],
-  "liveHost": "tests/spec43-t6-live.mjs is a host registration/cancel/timeout probe; full child lifecycle was unavailable in this subagent runtime"
+  "host": "real-herdr-cli+pi-spawn",
+  "scenarios": [
+    {
+      "scenario": "event-first result completed",
+      "ok": true,
+      "status": "done"
+    },
+    {
+      "scenario": "event-first wait observes persisted completion",
+      "ok": true,
+      "status": "available",
+      "eventId": "015821ed-d9d0-4f02-b7b0-da5b0c374689"
+    },
+    {
+      "scenario": "event-first completion event persisted",
+      "ok": true,
+      "sessionPath": "/Users/rolex/.pi/agent/sessions/--private-var-folders-d9-_0gbv97x6332wsrqhr4fcyj80000gn-T-pi-herdr-spec43-t6-live-6lhFrS--/2026-10-07T01-18-15-304Z_a5589cea-96ad-4699-9d7b-dab87b83d106.jsonl"
+    },
+    {
+      "scenario": "wait-first resolves on child completion",
+      "ok": true,
+      "status": "available",
+      "eventId": "3fd6946d-a641-45ef-a61a-bd37c54bb3c6"
+    },
+    {
+      "scenario": "cancellation returns cancelled",
+      "ok": true,
+      "status": "cancelled"
+    },
+    {
+      "scenario": "result retrievable after cancellation",
+      "ok": true,
+      "status": "done",
+      "result": "CANCEL_RESULT_OK"
+    },
+    {
+      "scenario": "completion event remains observable after cancellation",
+      "ok": true,
+      "status": "available",
+      "eventId": "5e522988-7d00-4aeb-9307-6433cc8074f7"
+    }
+  ],
+  "pass": 7,
+  "fail": 0,
+  "childHandles": [
+    "t6live-eventfirst-1791335895288",
+    "t6live-waitfirst-1791336015444",
+    "t6live-cancel-1791336135466"
+  ],
+  "paneIds": []
 }
