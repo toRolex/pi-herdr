@@ -6,9 +6,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-closing-finished-natural\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-closing-finished-natural\n</cwd>"
         },
-        "timestamp": 1791359913734
+        "timestamp": 1791362536778
       },
       {
         "role": "user",
@@ -18,7 +18,7 @@
             "text": "production final answer"
           }
         ],
-        "timestamp": 1791359913734
+        "timestamp": 1791362536778
       }
     ]
   },
@@ -29,9 +29,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-closing-finished-natural\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-closing-finished-natural\n</cwd>"
         },
-        "timestamp": 1791359913734
+        "timestamp": 1791362536778
       },
       {
         "role": "user",
@@ -41,7 +41,7 @@
             "text": "production final answer"
           }
         ],
-        "timestamp": 1791359913734
+        "timestamp": 1791362536778
       },
       {
         "role": "assistant",
@@ -52,7 +52,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359913733,
+        "timestamp": 1791362536778,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -80,7 +80,7 @@
             "text": "production natural next run"
           }
         ],
-        "timestamp": 1791359913889
+        "timestamp": 1791362536820
       },
       {
         "role": "user",
@@ -90,7 +90,7 @@
             "text": "PRODUCTION CLOSING BODY"
           }
         ],
-        "timestamp": 1791359913906
+        "timestamp": 1791362536825
       },
       {
         "role": "user",
@@ -100,7 +100,7 @@
             "text": "PRODUCTION FINISHED BODY"
           }
         ],
-        "timestamp": 1791359913923
+        "timestamp": 1791362536830
       }
     ]
   },
@@ -111,9 +111,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-closing-finished-natural\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-closing-finished-natural\n</cwd>"
         },
-        "timestamp": 1791359913734
+        "timestamp": 1791362536778
       },
       {
         "role": "user",
@@ -123,7 +123,7 @@
             "text": "production final answer"
           }
         ],
-        "timestamp": 1791359913734
+        "timestamp": 1791362536778
       },
       {
         "role": "assistant",
@@ -134,7 +134,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359913733,
+        "timestamp": 1791362536778,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -162,7 +162,7 @@
             "text": "production natural next run"
           }
         ],
-        "timestamp": 1791359913889
+        "timestamp": 1791362536820
       },
       {
         "role": "user",
@@ -172,7 +172,7 @@
             "text": "PRODUCTION CLOSING BODY"
           }
         ],
-        "timestamp": 1791359913906
+        "timestamp": 1791362536825
       },
       {
         "role": "user",
@@ -182,7 +182,7 @@
             "text": "PRODUCTION FINISHED BODY"
           }
         ],
-        "timestamp": 1791359913923
+        "timestamp": 1791362536830
       },
       {
         "role": "assistant",
@@ -193,7 +193,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359913923,
+        "timestamp": 1791362536830,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -221,7 +221,7 @@
             "text": "PRODUCTION EXPLICIT BODY"
           }
         ],
-        "timestamp": 1791359914092
+        "timestamp": 1791362536895
       }
     ]
   }

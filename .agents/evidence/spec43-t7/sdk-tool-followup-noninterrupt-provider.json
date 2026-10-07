@@ -6,9 +6,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/tool-followup-noninterrupt\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/tool-followup-noninterrupt\n</cwd>"
         },
-        "timestamp": 1791359913732,
+        "timestamp": 1791362536776,
         "toolsAdded": [
           {
             "name": "t7_hold",
@@ -28,7 +28,7 @@
             "text": "run real tool"
           }
         ],
-        "timestamp": 1791359913732
+        "timestamp": 1791362536776
       }
     ]
   },
@@ -39,9 +39,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/tool-followup-noninterrupt\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/tool-followup-noninterrupt\n</cwd>"
         },
-        "timestamp": 1791359913732,
+        "timestamp": 1791362536776,
         "toolsAdded": [
           {
             "name": "t7_hold",
@@ -61,7 +61,7 @@
             "text": "run real tool"
           }
         ],
-        "timestamp": 1791359913732
+        "timestamp": 1791362536776
       },
       {
         "role": "assistant",
@@ -74,7 +74,7 @@
           }
         ],
         "stopReason": "toolUse",
-        "timestamp": 1791359913731,
+        "timestamp": 1791362536776,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -106,7 +106,7 @@
         ],
         "details": {},
         "isError": false,
-        "timestamp": 1791359913733
+        "timestamp": 1791362536777
       }
     ]
   },
@@ -117,9 +117,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/tool-followup-noninterrupt\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/tool-followup-noninterrupt\n</cwd>"
         },
-        "timestamp": 1791359913732,
+        "timestamp": 1791362536776,
         "toolsAdded": [
           {
             "name": "t7_hold",
@@ -139,7 +139,7 @@
             "text": "run real tool"
           }
         ],
-        "timestamp": 1791359913732
+        "timestamp": 1791362536776
       },
       {
         "role": "assistant",
@@ -152,7 +152,7 @@
           }
         ],
         "stopReason": "toolUse",
-        "timestamp": 1791359913731,
+        "timestamp": 1791362536776,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -184,7 +184,7 @@
         ],
         "details": {},
         "isError": false,
-        "timestamp": 1791359913733
+        "timestamp": 1791362536777
       },
       {
         "role": "assistant",
@@ -195,7 +195,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359913731,
+        "timestamp": 1791362536776,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -223,7 +223,7 @@
             "text": "BUSY FOLLOWUP BODY"
           }
         ],
-        "timestamp": 1791359913733
+        "timestamp": 1791362536777
       }
     ]
   }

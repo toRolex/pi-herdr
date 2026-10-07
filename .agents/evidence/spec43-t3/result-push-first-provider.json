@@ -70,7 +70,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791359912498
+        "timestamp": 1791362535610
       }
     ]
   },
@@ -145,7 +145,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791359912498
+        "timestamp": 1791362535610
       },
       {
         "role": "assistant",
@@ -156,7 +156,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359912498,
+        "timestamp": 1791362535611,
         "api": "offline",
         "provider": "offline",
         "model": "offline",
@@ -188,18 +188,18 @@
           "agentId": "agent-30",
           "runId": "event-30",
           "sequence": 1,
-          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30/child.jsonl",
-          "deliveryToken": "56a6f1b0-04c8-481d-9e49-dfb3696073ab",
+          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-30/child.jsonl",
+          "deliveryToken": "7873b8e8-c612-4830-9f51-48f13728f136",
           "delivery": {
             "eventId": "event-30",
-            "token": "56a6f1b0-04c8-481d-9e49-dfb3696073ab",
+            "token": "7873b8e8-c612-4830-9f51-48f13728f136",
             "channel": "push",
-            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-30/2026-10-07T07-58-32-487Z_01a1155f-0a27-761b-939f-06f5b5c42c57.jsonl",
+            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-30/2026-10-07T08-42-15-599Z_01a11587-10af-72f5-b1ab-7174c77db583.jsonl",
             "bodyCommitted": true
           },
           "deliveryHostBodyCommitted": true
         },
-        "timestamp": 1791359912498
+        "timestamp": 1791362535610
       }
     ]
   }

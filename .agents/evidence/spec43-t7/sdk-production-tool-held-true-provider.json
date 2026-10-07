@@ -6,9 +6,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-tool-held-true\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-tool-held-true\n</cwd>"
         },
-        "timestamp": 1791359914207,
+        "timestamp": 1791362536927,
         "toolsAdded": [
           {
             "name": "t7_production_hold",
@@ -28,7 +28,7 @@
             "text": "production run tool"
           }
         ],
-        "timestamp": 1791359914207
+        "timestamp": 1791362536927
       }
     ]
   },
@@ -39,9 +39,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-tool-held-true\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-tool-held-true\n</cwd>"
         },
-        "timestamp": 1791359914207,
+        "timestamp": 1791362536927,
         "toolsAdded": [
           {
             "name": "t7_production_hold",
@@ -61,7 +61,7 @@
             "text": "production run tool"
           }
         ],
-        "timestamp": 1791359914207
+        "timestamp": 1791362536927
       },
       {
         "role": "assistant",
@@ -74,7 +74,7 @@
           }
         ],
         "stopReason": "toolUse",
-        "timestamp": 1791359914205,
+        "timestamp": 1791362536927,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -106,7 +106,7 @@
         ],
         "details": {},
         "isError": false,
-        "timestamp": 1791359914233
+        "timestamp": 1791362536937
       },
       {
         "role": "user",
@@ -116,7 +116,7 @@
             "text": "natural next user run consumes held completion"
           }
         ],
-        "timestamp": 1791359914257
+        "timestamp": 1791362536947
       },
       {
         "role": "user",
@@ -126,7 +126,7 @@
             "text": "PRODUCTION BUSY HELD BODY terminate=true"
           }
         ],
-        "timestamp": 1791359914272
+        "timestamp": 1791362536952
       }
     ]
   }

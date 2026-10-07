@@ -6,9 +6,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/closing-followup-counterexample\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/closing-followup-counterexample\n</cwd>"
         },
-        "timestamp": 1791359913722
+        "timestamp": 1791362536771
       },
       {
         "role": "user",
@@ -18,7 +18,7 @@
             "text": "finish baseline"
           }
         ],
-        "timestamp": 1791359913721
+        "timestamp": 1791362536770
       }
     ]
   },
@@ -29,9 +29,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/closing-followup-counterexample\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/closing-followup-counterexample\n</cwd>"
         },
-        "timestamp": 1791359913722
+        "timestamp": 1791362536771
       },
       {
         "role": "user",
@@ -41,7 +41,7 @@
             "text": "finish baseline"
           }
         ],
-        "timestamp": 1791359913721
+        "timestamp": 1791362536770
       },
       {
         "role": "assistant",
@@ -52,7 +52,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359913718,
+        "timestamp": 1791362536767,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -80,7 +80,7 @@
             "text": "LATE BASELINE FOLLOWUP"
           }
         ],
-        "timestamp": 1791359913726
+        "timestamp": 1791362536772
       }
     ]
   }

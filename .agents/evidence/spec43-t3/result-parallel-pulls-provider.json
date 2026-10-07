@@ -70,7 +70,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791359912551
+        "timestamp": 1791362535660
       }
     ]
   },
@@ -145,7 +145,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791359912551
+        "timestamp": 1791362535660
       },
       {
         "role": "assistant",
@@ -168,7 +168,7 @@
           }
         ],
         "stopReason": "toolUse",
-        "timestamp": 1791359912551,
+        "timestamp": 1791362535660,
         "api": "offline",
         "provider": "offline",
         "model": "offline",
@@ -204,8 +204,8 @@
           "kind": "pi",
           "stance": "autonomous",
           "source": "session-jsonl",
-          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl",
-          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl.exit",
+          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-33/child.jsonl",
+          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-33/child.jsonl.exit",
           "agentId": "agent-33",
           "runId": "event-33",
           "sequence": 1,
@@ -214,14 +214,14 @@
           "result": "COMPLETE DURABLE BODY\nfinal line",
           "delivery": {
             "eventId": "event-33",
-            "token": "057d4bc7-4be3-4df9-a156-e1ad41afbaf7",
+            "token": "00b2f6fc-55e1-4e02-a7d6-6b28a864fdee",
             "channel": "pull",
-            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/2026-10-07T07-58-32-550Z_01a1155f-0a66-761b-939f-06fa9f061ef2.jsonl",
+            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-33/2026-10-07T08-42-15-659Z_01a11587-10eb-72f5-b1ab-717bd0d010a1.jsonl",
             "bodyCommitted": true
           }
         },
         "isError": false,
-        "timestamp": 1791359912561
+        "timestamp": 1791362535670
       },
       {
         "role": "toolResult",
@@ -239,8 +239,8 @@
           "kind": "pi",
           "stance": "autonomous",
           "source": "registry",
-          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl",
-          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/child.jsonl.exit",
+          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-33/child.jsonl",
+          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-33/child.jsonl.exit",
           "agentId": "agent-33",
           "runId": "event-33",
           "sequence": 1,
@@ -248,15 +248,15 @@
           "status": "done",
           "delivery": {
             "eventId": "event-33",
-            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-33/2026-10-07T07-58-32-550Z_01a1155f-0a66-761b-939f-06fa9f061ef2.jsonl",
+            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-33/2026-10-07T08-42-15-659Z_01a11587-10eb-72f5-b1ab-717bd0d010a1.jsonl",
             "status": "pending",
             "channel": "pull",
-            "token": "057d4bc7-4be3-4df9-a156-e1ad41afbaf7"
+            "token": "00b2f6fc-55e1-4e02-a7d6-6b28a864fdee"
           },
           "note": "completion body already claimed; status reference only"
         },
         "isError": false,
-        "timestamp": 1791359912561
+        "timestamp": 1791362535670
       }
     ]
   }

@@ -6,9 +6,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-gate-closing\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-gate-closing\n</cwd>"
         },
-        "timestamp": 1791359914290
+        "timestamp": 1791362536963
       },
       {
         "role": "user",
@@ -18,7 +18,7 @@
             "text": "establish prior run"
           }
         ],
-        "timestamp": 1791359914290
+        "timestamp": 1791362536963
       }
     ]
   },
@@ -29,9 +29,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-gate-closing\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-gate-closing\n</cwd>"
         },
-        "timestamp": 1791359914290
+        "timestamp": 1791362536963
       },
       {
         "role": "user",
@@ -41,7 +41,7 @@
             "text": "establish prior run"
           }
         ],
-        "timestamp": 1791359914290
+        "timestamp": 1791362536963
       },
       {
         "role": "assistant",
@@ -52,7 +52,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359914288,
+        "timestamp": 1791362536962,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -75,7 +75,7 @@
       {
         "role": "user",
         "content": [],
-        "timestamp": 1791359914331
+        "timestamp": 1791362536992
       }
     ]
   },
@@ -86,9 +86,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-S67Gqu/production-gate-closing\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-gate-closing\n</cwd>"
         },
-        "timestamp": 1791359914290
+        "timestamp": 1791362536963
       },
       {
         "role": "user",
@@ -98,7 +98,7 @@
             "text": "establish prior run"
           }
         ],
-        "timestamp": 1791359914290
+        "timestamp": 1791362536963
       },
       {
         "role": "assistant",
@@ -109,7 +109,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359914288,
+        "timestamp": 1791362536962,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -132,7 +132,7 @@
       {
         "role": "user",
         "content": [],
-        "timestamp": 1791359914331
+        "timestamp": 1791362536992
       },
       {
         "role": "assistant",
@@ -143,7 +143,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359914332,
+        "timestamp": 1791362536992,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -171,7 +171,7 @@
             "text": "permitted recovery natural run"
           }
         ],
-        "timestamp": 1791359914342
+        "timestamp": 1791362536998
       },
       {
         "role": "user",
@@ -181,7 +181,7 @@
             "text": "REJECTED SDK BODY closing"
           }
         ],
-        "timestamp": 1791359914350
+        "timestamp": 1791362537003
       }
     ]
   }

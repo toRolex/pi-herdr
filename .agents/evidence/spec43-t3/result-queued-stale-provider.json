@@ -70,7 +70,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791359912538
+        "timestamp": 1791362535648
       }
     ]
   },
@@ -145,7 +145,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791359912538
+        "timestamp": 1791362535648
       },
       {
         "role": "assistant",
@@ -160,7 +160,7 @@
           }
         ],
         "stopReason": "toolUse",
-        "timestamp": 1791359912538,
+        "timestamp": 1791362535648,
         "api": "offline",
         "provider": "offline",
         "model": "offline",
@@ -196,8 +196,8 @@
           "kind": "pi",
           "stance": "autonomous",
           "source": "session-jsonl",
-          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl",
-          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl.exit",
+          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/child.jsonl",
+          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/child.jsonl.exit",
           "agentId": "agent-32",
           "runId": "event-32",
           "sequence": 1,
@@ -206,14 +206,14 @@
           "result": "COMPLETE DURABLE BODY\nfinal line",
           "delivery": {
             "eventId": "event-32",
-            "token": "8b522de6-7c1d-462c-bbeb-e365b624a145",
+            "token": "3555e026-7c28-44f4-93da-d50a77c63479",
             "channel": "pull",
-            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/2026-10-07T07-58-32-527Z_01a1155f-0a4f-761b-939f-06f8ebd51256.jsonl",
+            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/2026-10-07T08-42-15-638Z_01a11587-10d6-72f5-b1ab-7178913434d3.jsonl",
             "bodyCommitted": true
           }
         },
         "isError": false,
-        "timestamp": 1791359912544
+        "timestamp": 1791362535653
       }
     ]
   },
@@ -288,7 +288,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791359912538
+        "timestamp": 1791362535648
       },
       {
         "role": "assistant",
@@ -303,7 +303,7 @@
           }
         ],
         "stopReason": "toolUse",
-        "timestamp": 1791359912538,
+        "timestamp": 1791362535648,
         "api": "offline",
         "provider": "offline",
         "model": "offline",
@@ -339,8 +339,8 @@
           "kind": "pi",
           "stance": "autonomous",
           "source": "session-jsonl",
-          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl",
-          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/child.jsonl.exit",
+          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/child.jsonl",
+          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/child.jsonl.exit",
           "agentId": "agent-32",
           "runId": "event-32",
           "sequence": 1,
@@ -349,14 +349,14 @@
           "result": "COMPLETE DURABLE BODY\nfinal line",
           "delivery": {
             "eventId": "event-32",
-            "token": "8b522de6-7c1d-462c-bbeb-e365b624a145",
+            "token": "3555e026-7c28-44f4-93da-d50a77c63479",
             "channel": "pull",
-            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-LaAf3e/case-32/2026-10-07T07-58-32-527Z_01a1155f-0a4f-761b-939f-06f8ebd51256.jsonl",
+            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/2026-10-07T08-42-15-638Z_01a11587-10d6-72f5-b1ab-7178913434d3.jsonl",
             "bodyCommitted": true
           }
         },
         "isError": false,
-        "timestamp": 1791359912544
+        "timestamp": 1791362535653
       },
       {
         "role": "assistant",
@@ -367,7 +367,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791359912549,
+        "timestamp": 1791362535658,
         "api": "offline",
         "provider": "offline",
         "model": "offline",
@@ -395,9 +395,9 @@
         "details": {
           "deliveryHostWithdrawn": true,
           "eventId": "event-32",
-          "deliveryToken": "21ff1ffe-fa50-48a2-b3ca-91291ab90c05"
+          "deliveryToken": "003ef8ed-f34f-4555-99e3-b157cc399dd6"
         },
-        "timestamp": 1791359912538
+        "timestamp": 1791362535648
       }
     ]
   }
