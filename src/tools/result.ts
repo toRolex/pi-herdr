@@ -868,17 +868,19 @@ export function registerResultTool(pi: ExtensionAPI, deps: GetResultDeps = {}): 
 		name: "herdr_get_agent_result",
 		label: "Get herdr agent result",
 		description:
-			"Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. " +
+			"Consume an agent's result — for agents you spawned with herdr_spawn_agent. " +
 			"For pi children, only a durable completion event can deliver the full final body once. " +
 			"Mid-flight calls report status without reading drafts; already claimed events return status references. " +
 			"Use reread:true to explicitly review the original full body without changing its identity or delivery state. " +
 			"Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. " +
+			"Waiting is a separate tool: herdr_wait_agent_event returns only the event reference — never block or poll this tool for arrival. " +
 			"For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. " +
 			"A gone pane still answers with its last-known metadata; its session file stays readable and resumable. " +
 			"Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
-		promptSnippet: "Pull an agent's result (exact final message for pi children)",
+		promptSnippet: "Consume an agent's result (exact final message for pi children)",
 		promptGuidelines: [
 			"Use herdr_get_agent_result to fetch a spawned agent's result — it returns the exact final assistant message, not a screen scrape.",
+			"Wait for event availability with herdr_wait_agent_event first; herdr_get_agent_result consumes the body and never waits.",
 			"A 'gone' result still carries last-known metadata and the retained session path; sessions are never deleted.",
 		],
 		parameters: Type.Object({

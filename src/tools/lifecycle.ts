@@ -211,7 +211,7 @@ export async function interruptAgent(
 	if (was === "idle" || was === "done") {
 		return err(
 			"VALIDATION_ERROR",
-			`"${record.name}" is settled (${was}) — no turn to cancel. Send new work with herdr_message_agent.`,
+			`"${record.name}" is settled (${was}) — no turn to cancel. Send new work with herdr_trigger_turn.`,
 			{ name: record.name, state: was },
 		);
 	}
@@ -452,7 +452,7 @@ async function resumeAgentSerial(
 	if (record.paneId && livePaneIds.has(record.paneId) && !deps.forceStart) {
 		return err(
 			"VALIDATION_ERROR",
-			`"${record.name}" is still live (pane ${record.paneId}) — interrupt its turn with herdr_interrupt_agent or steer it with herdr_message_agent instead of resuming.`,
+			`"${record.name}" is still live (pane ${record.paneId}) — interrupt its turn with herdr_interrupt_agent or dispatch work with herdr_trigger_turn instead of resuming.`,
 			{ name: record.name, paneId: record.paneId },
 		);
 	}
@@ -623,7 +623,7 @@ const INTERRUPT_DESCRIPTION =
 	"Sends Escape to the child pane (pi children only) and stamps the registry so herdr_list_agents / " +
 	"herdr_get_agent_result report `interrupted` immediately — even while herdr still shows the pane " +
 	"working; a lagging pre-interrupt activity snapshot cannot overwrite it. The pane stays open, the " +
-	"session file and supervision intact; new work via herdr_message_agent returns it to active — " +
+	"session file and supervision intact; new work via herdr_trigger_turn returns it to active — " +
 	"stop-and-redirect in one flow. The target resolves as: spawn-registry handle → pane id → herdr name " +
 	"(agents THIS SESSION spawned only; anything else is refused — use herdr_send_keys for a raw Escape). " +
 	"Honest refusals: non-pi kinds (Escape turn-cancel is the pi TUI's), queued/never-started agents, " +
@@ -637,7 +637,7 @@ export function registerLifecycle(pi: ExtensionAPI): void {
 		description: INTERRUPT_DESCRIPTION,
 		promptSnippet: "Interrupt a spawned herdr agent's current turn (Escape)",
 		promptGuidelines: [
-			"Use herdr_interrupt_agent to stop an agent's current turn without killing the pane; follow with herdr_message_agent to redirect it (stop-and-redirect).",
+			"Use herdr_interrupt_agent to stop an agent's current turn without killing the pane; follow with herdr_trigger_turn to redirect it (stop-and-redirect), or herdr_send_agent for context-only correspondence.",
 			"A gone agent cannot be interrupted — recover it with herdr_resume_agent instead.",
 		],
 		parameters: Type.Object({
@@ -653,7 +653,7 @@ export function registerLifecycle(pi: ExtensionAPI): void {
 				content: [
 					{
 						type: "text",
-						text: `Interrupted "${d.name}" (pane ${d.target}, was: ${d.was}) — Escape sent; the projected state is interrupted until new work arrives. Redirect with herdr_message_agent, or recover later with herdr_resume_agent.`,
+						text: `Interrupted "${d.name}" (pane ${d.target}, was: ${d.was}) — Escape sent; the projected state is interrupted until new work arrives. Redirect with herdr_trigger_turn, or recover later with herdr_resume_agent.`,
 					},
 				],
 				details: d,
@@ -665,7 +665,7 @@ export function registerLifecycle(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "herdr_trigger_turn",
 		label: "Trigger herdr agent turn",
-		description: "Accept a new followup run for a spawned pi agent. Busy agents queue it without interrupting their current tools; idle agents start immediately. Gone panes are restored on the same retained session. The receipt distinguishes accepted/queued/starting and carries the new runId; accepted does not mean started. Use herdr_message_agent for context-only messaging; this tool triggers work.",
+		description: "Accept a new followup run for a spawned pi agent. Busy agents queue it without interrupting their current tools; idle agents start immediately. A gone pane whose session is retained is restored automatically on the same session — no separate resume call is needed. The receipt distinguishes accepted/queued/starting and carries the new runId; accepted does not mean started. Use herdr_send_agent for context-only messaging; this tool triggers work.",
 		promptSnippet: "Start a new run for a spawned agent, safely queueing if busy",
 		promptGuidelines: ["Use herdr_trigger_turn when an agent must act on new work; it creates a new run while retaining the same logical agent and session.", "Busy agents are never interrupted; the new run is queued."],
 		parameters: Type.Object({ target: Type.String({ description: "Spawn-registry handle returned by herdr_spawn_agent." }), text: Type.String({ description: "New work for the agent." }) }),

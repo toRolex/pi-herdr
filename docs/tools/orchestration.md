@@ -17,13 +17,16 @@ in the project README.
 
 ### `herdr_get_agent_result`
 
-Pull an agent's result. For **pi children this session spawned**, the source is
-the child's parent-owned session file: the exact last assistant message object
-— no screen scraping, no tail heuristics, no truncation ambiguity. Mid-flight
-calls return an interim snapshot of the message-so-far. A failing child
-surfaces as a **typed error** (`stopReason` / `errorMessage`, mined from the
-child's completion sidecar or its session). Panes this session did not spawn
-(adopted) and non-pi kinds fall back to **pane-tail reading**.
+Consume an agent's result (spec 43: consumption semantics — the old
+inspection-with-wait contract is retired; waiting lives in
+`herdr_wait_agent_event`). For **pi children this session spawned**, the
+source is the child's durable completion event: the exact final assistant
+message object — no screen scraping, no tail heuristics, no truncation
+ambiguity. Mid-flight calls return **status only** — no drafts, no
+consumption, no ACK. A failing child surfaces as a **typed error**
+(`stopReason` / `errorMessage`, from the child's completion sidecar or its
+session). Panes this session did not spawn (adopted) and non-pi kinds fall
+back to **pane-tail reading**.
 
 The completion sidecar (`<session>.exit`, written by the injected child
 extension) is checked BEFORE pane status: an auto-exited autonomous child is
@@ -37,8 +40,9 @@ readable and resumable.
 
 | Param | Type | Required | Notes |
 |-------|------|----------|-------|
-| `target` | string | yes | Spawn handle (the name `herdr_spawn_agent` returned) or pane id. |
-| `wait` | bool \| int | no | `true` = block until done/failed/blocked/gone (through the queue); a number = bounded wait, current state on expiry. |
+| `target` | string | yes | Spawn handle (the name `herdr_spawn_agent` returned), pane id, or completion eventId. |
+| `reread` | bool | no | Explicitly reread the immutable final body (including after ACK); not a new delivery. |
+| `ack` | object | no | `{eventId, agentId, runId, sequence, hostFile}` — declare the event handled; no body returned, no claim of reading. |
 | `lines` | int | no | Pane-tail line budget for the unspawned fallback (default 80). |
 
 **Statuses (coarse until the 07 projection):** `queued` · `working` · `idle` ·
