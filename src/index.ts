@@ -58,7 +58,7 @@ export default function (pi: ExtensionAPI): void {
 
 	// Push delivery (v0.6 issue 06): the shared poll loop watches the spawn
 	// registry and steers terminal events into THIS session — full final
-	// messages, takeover notes, blocked wakes — with wake governed by the
+	// messages, blocked wakes — with wake governed by the
 	// `notifications` setting (blocked always wakes).
 	registerDelivery(pi);
 	// Transcript fold (issue #30) and the one-notice merge (issue #38).

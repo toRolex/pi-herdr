@@ -19,7 +19,7 @@ const doneCall = message("assistant", [{ type: "toolCall", id: "done-1", name: "
 const persist = entries => writeFileSync(session, entries.map(e => JSON.stringify(e)).join("\n") + "\n");
 function boot() {
  const handlers = {}, tools = [];
- registerChildExtension({ on: (n, h) => (handlers[n] ??= []).push(h), registerTool: t => tools.push(t), registerShortcut() {} });
+ registerChildExtension({ on: (n, h) => (handlers[n] ??= []).push(h), registerTool: t => tools.push(t), registerShortcut() {}, sendUserMessage() {} });
  let shutdowns = 0;
  const ctx = { shutdown: () => shutdowns++ };
  return { tools, ctx, shutdowns: () => shutdowns, emit: async (n, e = {}) => { for (const h of handlers[n] ?? []) await h(e, ctx); } };
@@ -69,7 +69,7 @@ try {
   await new Promise(r => setTimeout(r, 30));
   assert.equal(sidecar().text, letter, `${mode} preserves completion body`);
   assert.equal(sidecar().type, mode === "error" ? "error" : "done");
-  if (mode === "rearm") assert.equal(sidecar().rearm, true);
+  if (mode === "rearm") { assert.equal(sidecar().rearm, undefined); assert.equal(existsSync(`${session}.takeover`), false, "ordinary input never writes a takeover marker"); }
   assert.equal(child.shutdowns(), 1);
   const settledPushes = [];
   const settledRecord = { ...record, name: mode, delivery: undefined };
@@ -80,7 +80,7 @@ try {
   assert.equal(terminal[0].content, letter, `${mode} push is the exact full body`);
   await child.emit("session_shutdown");
  }
- console.log("✓ auto-settle / error / idle-rearm preserve the same body");
+ console.log("✓ auto-settle / error / direct input preserve the same body");
  clean(); persist([user]);
  const schema = join(dir, "schema.json"); writeFileSync(schema, JSON.stringify({ type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] }));
  process.env.PI_HERDR_SCHEMA = schema;

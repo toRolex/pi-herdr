@@ -404,17 +404,10 @@ export function sidecarPathFor(sessionPath: string): string {
 	return `${sessionPath}.exit`;
 }
 
-/** A valid completion sidecar payload. `rearm` marks an idle-re-arm exit
- * (issue 06): the run completed AFTER a human takeover — the parent labels
- * the delivery "auto-delivered after user steer". `structured` (issue 14)
- * carries the validated StructuredOutput payload of a schema'd workflow
- * child — canonical JSON, captured child-side, verbatim here. `text`
- * (issue 33) is the final assistant body committed with a declared done;
- * old sidecars omit it and delivery falls back to the session JSONL. */
-export type ExitSidecar =
+/** A durable completion sidecar payload. Unknown legacy fields are ignored. */
+export type ExitSidecar = { agentId?: string; runId?: string; sequence?: number } & (
 	| {
 			type: "done";
-			rearm?: true;
 			structured?: string;
 			text?: string;
 			rootSession?: string;
@@ -425,11 +418,16 @@ export type ExitSidecar =
 			type: "error";
 			errorMessage: string;
 			stopReason: string;
-			rearm?: true;
 			text?: string;
 			rootSession?: string;
 			eventId?: string;
-	  };
+	  }
+	| {
+			type: "persistence-error";
+			errorMessage: string;
+			rootSession?: string;
+			eventId?: string;
+		});
 
 /**
  * Bare `agent_done` is refused when the session holds no assistant text.
@@ -456,9 +454,12 @@ export function parseExitSidecar(
 	}
 	if (!parsed || typeof parsed !== "object") return { ok: false };
 	const o = parsed as Record<string, unknown>;
-	// rearm is optional and tolerated on either type; anything else unknown
-	// is ignored (forward compatibility).
-	const rearm = o.rearm === true ? { rearm: true as const } : {};
+	// Unknown fields are ignored for legacy compatibility.
+	const identity = {
+		...(typeof o.agentId === "string" ? { agentId: o.agentId } : {}),
+		...(typeof o.runId === "string" ? { runId: o.runId } : {}),
+		...(Number.isInteger(o.sequence) ? { sequence: o.sequence as number } : {}),
+	};
 	// The one unknown field we DO consume (issue 14) — only in the shape the
 	// child extension writes it: a JSON string of the validated payload.
 	const structured =
@@ -487,13 +488,28 @@ export function parseExitSidecar(
 			ok: true,
 			sidecar: {
 				type: "done",
-				...rearm,
+				...identity,
 				...structured,
 				...text,
 				...rootSession,
 				...eventId,
 			},
 		};
+	if (o.type === "persistence-error") {
+		const message = typeof o.errorMessage === "string" && o.errorMessage.trim()
+			? o.errorMessage
+			: "child completion persistence failed without details";
+		return {
+			ok: true,
+			sidecar: {
+				type: "persistence-error",
+				...identity,
+				errorMessage: message,
+				...rootSession,
+				...eventId,
+			},
+		};
+	}
 	if (o.type === "error") {
 		const message =
 			typeof o.errorMessage === "string" && o.errorMessage.trim()
@@ -504,93 +520,16 @@ export function parseExitSidecar(
 			ok: true,
 			sidecar: {
 				type: "error",
+				...identity,
 				errorMessage: message,
 				stopReason,
 				...text,
-				...rearm,
 				...rootSession,
 				...eventId,
 			},
 		};
 	}
 	return { ok: false };
-}
-
-// ---- takeover + steer markers (issue 06) -----------------------------------
-// `<session>.takeover` — written ONCE by the injected child extension when a
-// HUMAN types into the pane (input that is not the parent's own steering —
-// see the steer watermark below). The parent's delivery loop reads it to
-// send the quiet `user took over <agent>` note and to hold back
-// mid-conversation pushes for that record.
-// `<session>.steer` — stamped by the PARENT right before it drives the child
-// (spawn's initial submit, message_agent): the exact text about to be typed.
-// The child matches incoming input against it so the orchestrator's own
-// steering is never mistaken for a human takeover (both ride the same TTY).
-
-/** The takeover marker path for a session file. */
-export function takeoverPathFor(sessionPath: string): string {
-	return `${sessionPath}.takeover`;
-}
-
-/** The steer-watermark path for a session file. */
-export function steerPathFor(sessionPath: string): string {
-	return `${sessionPath}.steer`;
-}
-
-export type ReadTakeoverResult = { taken: false } | { taken: true; at?: number };
-
-/** True when the child has reported a human takeover (marker present). */
-export function readTakeoverMarker(sessionPath: string): ReadTakeoverResult {
-	const path = takeoverPathFor(sessionPath);
-	if (!existsSync(path)) return { taken: false };
-	try {
-		return { taken: true, at: statSync(path).mtimeMs };
-	} catch {
-		return { taken: true };
-	}
-}
-
-/** Parent-side: stamp the exact text about to be typed into the child.
- * Best-effort — worst case the child reads a stale watermark. */
-export function writeSteerWatermark(sessionPath: string, text: string): void {
-	try {
-		writeFileSync(steerPathFor(sessionPath), text);
-	} catch {
-		/* best-effort */
-	}
-}
-
-/** Child-side: read (peek, no delete) the current steer watermark. */
-export function readSteerWatermark(sessionPath: string): string | null {
-	try {
-		return readFileSync(steerPathFor(sessionPath), "utf8");
-	} catch {
-		return null;
-	}
-}
-
-/** Child-side: consume the watermark after a match. Best-effort. */
-export function clearSteerWatermark(sessionPath: string): void {
-	try {
-		unlinkSync(steerPathFor(sessionPath));
-	} catch {
-		/* already gone or raced — harmless */
-	}
-}
-
-/**
- * Whether an input event's text is the parent's steering echo: the typed
- * text is (whitespace-insensitively) part of the stamped watermark. Chunked
- * delivery and short option-list answers match; a human's own words don't.
- */
-export function inputMatchesSteer(
-	inputText: string | undefined,
-	watermark: string | null,
-): boolean {
-	if (!inputText || !watermark) return false;
-	const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
-	const i = norm(inputText);
-	return i.length > 0 && norm(watermark).includes(i);
 }
 
 export type ReadSidecarResult =
@@ -602,8 +541,7 @@ export type ReadSidecarResult =
  * Drop the previous run's sidecars before a resume relaunch (issue 10).
  * The completion sidecar MUST go: a stale done/error would be re-delivered
  * instantly as the resumed run's result (the delivery loop reads it before
- * anything else). The takeover marker would suppress blocked wakes for the
- * new run; a stale activity snapshot would mis-age the first projected
+ * anything else). A stale activity snapshot would mis-age the first projected
  * state. The `<session>.activity.json` suffix mirrors spawn's construction
  * (`${seeded.path}.activity.json`). Best-effort throughout — an already-
  * gone file is fine.
@@ -611,7 +549,8 @@ export type ReadSidecarResult =
 export function clearSidecars(sessionPath: string): void {
 	for (const path of [
 		sidecarPathFor(sessionPath),
-		takeoverPathFor(sessionPath),
+		`${sessionPath}.takeover`,
+		`${sessionPath}.steer`,
 		`${sessionPath}.activity.json`,
 	]) {
 		try {
