@@ -19,6 +19,8 @@ import { registerResultTool } from "./tools/result.js";
 import { registerWaitTool } from "./tools/wait.js";
 import { registerMessageTool } from "./tools/message.js";
 import { registerWakeTools } from "./tools/wake.js";
+import { registerSendTool } from "./tools/send.js";
+import { registerQueueOnlyReceiver } from "./queue-only-inbox.js";
 import { parseAgentMessage, handleAgentMessageInput } from "./agent-message.js";
 import { registerReceiverInbox } from "./inbox.js";
 import { registerLifecycle } from "./tools/lifecycle.js";
@@ -49,6 +51,8 @@ export default function (pi: ExtensionAPI): void {
 	registerWaitTool(pi);
 	registerMessageTool(pi);
 	registerWakeTools(pi);
+	registerSendTool(pi);
+	registerQueueOnlyReceiver(pi);
 	registerReceiverInbox(pi, { parse: parseAgentMessage, deliver: handleAgentMessageInput });
 	// Lifecycle actions and explicit T5 followup trigger.
 	registerLifecycle(pi);
