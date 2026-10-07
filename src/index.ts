@@ -16,6 +16,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerOrchestration } from "./tools/orchestration.js";
 import { registerResultTool } from "./tools/result.js";
+import { registerWaitTool } from "./tools/wait.js";
 import { registerMessageTool } from "./tools/message.js";
 import { parseAgentMessage, handleAgentMessageInput } from "./agent-message.js";
 import { registerReceiverInbox } from "./inbox.js";
@@ -44,6 +45,7 @@ export default function (pi: ExtensionAPI): void {
 
 	registerOrchestration(pi);
 	registerResultTool(pi);
+	registerWaitTool(pi);
 	registerMessageTool(pi);
 	registerReceiverInbox(pi, { parse: parseAgentMessage, deliver: handleAgentMessageInput });
 	// Lifecycle actions (v0.6 issue 10): herdr_interrupt_agent (turn cancel)

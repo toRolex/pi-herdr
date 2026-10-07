@@ -76,6 +76,7 @@ const expected = [
 	// the pull/inspection tool (issue 04) — retired wait_agent + read_agent of
 	// the legacy result trio
 	"herdr_get_agent_result",
+	"herdr_wait_agent_event",
 	// the open message channel (issue 05) — absorbed send_prompt, the last of
 	// the legacy trio
 	"herdr_message_agent",
