@@ -27,7 +27,8 @@ queued) — workflow agents get no separate pool.
 Returns immediately: run id, the script's scratch path, and the instruction
 not to poll. The run reports **once**, aggregated, when it settles — the
 completion push carries the agent counts, the return value, and the last
-`log()` lines (wake per the `notifications` setting; failures always wake).
+`log()` lines (delivery respects the `notifications` setting and the finished-parent
+boundary — like every notice, a failure never surprise-wakes a finished parent).
 
 ## The script
 

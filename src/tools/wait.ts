@@ -105,7 +105,7 @@ export function registerWaitTool(pi: ExtensionAPI): void {
     async execute(_id, params, signal) {
       const result = await waitForAgentEvent(params, { signal });
       const data = result.data;
-      return { content: [{ type: 'text', text: data.status === 'available' ? data.kind === 'blocked' ? `Agent ${data.target} is blocked; answer explicitly with herdr_message_agent or herdr_send_keys. No terminal result or ACK is available.` : `Event available: ${data.eventId}` : data.status === 'timeout' ? 'Wait timed out; no event consumed.' : 'Wait cancelled; child continues and no event was consumed.' }], details: data };
+      return { content: [{ type: 'text', text: data.status === 'available' ? data.kind === 'blocked' ? `Agent ${data.target} is blocked; answer via the legacy herdr_message_agent (raw text becomes its answer) or herdr_send_keys (option lists). No terminal result or ACK is available.` : `Event available: ${data.eventId}` : data.status === 'timeout' ? 'Wait timed out; no event consumed.' : 'Wait cancelled; child continues and no event was consumed.' }], details: data };
     },
   });
 }
