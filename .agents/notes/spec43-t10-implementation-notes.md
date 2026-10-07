@@ -16,6 +16,7 @@
 - 真实 Herdr CLI/pi TUI host1.0.4：18ca8244-bb2d-48bb-a73d-d7a39b5f320a，blocked 权限选择 overlay→pane send-keys Enter 明确 Allow→恢复 done；retry overloaded→2次请求→done；unrecoverable→稳定 error。wait.json 证明真实 blocked wait，blocked-terminal.json 保存真实 overlay，child JSONL/trace/result/ledger 保存结果。
 - live harness 初次遇 name>32、read 输出不是 JSON、send-keys 空 stdout，逐项修正并重跑成功。失败尝试 evidence/cleanup 保留；只关闭该次新建 workspace。证据镜像 /tmp/spec43-notes/evidence/spec43-t10/。
 - merge spec43-integration 两次均 already up to date，基线 c44d7b7。suite 改写其他票据证据后 git restore，仅交本票。
+- 收尾 merge（T4 进入 integration 后 tip f24716d）：唯一冲突 package.json test script——保留本票 spec43-t10/spec43-t10-sdk 并叠加 T4 的 send.mjs/queue-only-sdk.mjs，merge commit cc73d30。merge 后 typecheck exit0、npm test 全 green（末行 99 passed, 0 failed）、T4 新测试 send/queue-only-sdk 亦绿。spec43-integration 无 T10 侧需让步的语义变更（T4 只加 QueueOnly receiver 与 send 工具，未触碰 blocked/failure/wake 路径）。
 
 ## 限制与风险
 - deterministic provider 仅替代模型输出；无真实远程认证或自然语言判断质量承诺。TUI live 证明 child 生命周期、明确权限选择和 SDK retry；parent finished/busy 的接收证明使用真实 SDK fixture，不称 full parent-child live 编排。
