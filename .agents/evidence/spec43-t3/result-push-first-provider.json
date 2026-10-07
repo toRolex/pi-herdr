@@ -1,0 +1,138 @@
+[
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "toolsAdded": [
+          {
+            "name": "herdr_get_agent_result",
+            "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "target"
+              ],
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "description": "Spawn handle (the name herdr_spawn_agent returned) or pane id."
+                },
+                "lines": {
+                  "type": "integer",
+                  "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                }
+              }
+            }
+          }
+        ],
+        "timestamp": 0
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "execute real registered consumption and push gate"
+          }
+        ],
+        "timestamp": 1791333252100
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "toolsAdded": [
+          {
+            "name": "herdr_get_agent_result",
+            "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+            "parameters": {
+              "type": "object",
+              "required": [
+                "target"
+              ],
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "description": "Spawn handle (the name herdr_spawn_agent returned) or pane id."
+                },
+                "lines": {
+                  "type": "integer",
+                  "description": "Pane-tail line budget for the non-spawned fallback (default 80)."
+                }
+              }
+            }
+          }
+        ],
+        "timestamp": 0
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "execute real registered consumption and push gate"
+          }
+        ],
+        "timestamp": 1791333252100
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "provider finished"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791333252100,
+        "api": "offline",
+        "provider": "offline",
+        "model": "offline",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "custom",
+        "customType": "herdr-delivery",
+        "content": "COMPLETE DURABLE BODY\nfinal line",
+        "display": true,
+        "details": {
+          "name": "child",
+          "kind": "done",
+          "eventId": "event-30",
+          "agentId": "agent-30",
+          "runId": "event-30",
+          "sequence": 1,
+          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-aGBG1y/case-30/child.jsonl",
+          "deliveryToken": "af36b704-005c-423e-953d-36458071480c",
+          "delivery": {
+            "eventId": "event-30",
+            "token": "af36b704-005c-423e-953d-36458071480c",
+            "channel": "push",
+            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-aGBG1y/case-30/2026-10-07T00-34-12-089Z_01a113c8-3bf9-7418-a1ba-fb6aaec703f6.jsonl",
+            "bodyCommitted": true
+          },
+          "deliveryHostBodyCommitted": true
+        },
+        "timestamp": 1791333252100
+      }
+    ]
+  }
+]

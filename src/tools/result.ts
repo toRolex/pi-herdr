@@ -24,6 +24,8 @@
 
 import { readFileSync } from "node:fs";
 import { validEventId } from "../completion-event.js";
+import { DeliveryLedger, type DeliveryProof, type DeliveryRecord } from "../delivery-ledger.js";
+import { inspectToolResultReceipt } from "../delivery-host.js";
 import { parseExitSidecar } from "../sessionfile.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -48,6 +50,7 @@ import {
 	readExitSidecar,
 	type ExtractedResult,
 	type ReadSidecarResult,
+	type ExitSidecar,
 } from "../sessionfile.js";
 import { spawnRecords, type SpawnRecord } from "../spawn.js";
 import {
@@ -104,6 +107,8 @@ export interface ResultView {
 	adopted?: boolean;
 	note?: string;
 	interruptedByInput?: true;
+	/** A claim proof accompanies the body only; receipts never carry bodyCommitted. */
+	delivery?: DeliveryProof | { eventId: string; hostFile: string; status: DeliveryRecord["status"]; channel?: "push" | "pull"; token?: string };
 }
 
 export interface GetResultParams {
@@ -135,6 +140,10 @@ export interface GetResultDeps {
 	/** Undefined uses the registered foreground scope; null is a background wait. */
 	inputWake?: InputWake | null;
 	signal?: AbortSignal;
+	/** Both are required for consumption; absent host keeps the offline inspection API. */
+	hostFile?: string;
+	toolCallId?: string;
+	onConfirmationError?: (error: Error, eventId: string) => void;
 }
 
 const TERMINAL: ReadonlySet<ResultStatus> = new Set([
@@ -448,6 +457,73 @@ async function inspectRecord(
 	return view;
 }
 
+/** Consumption never reads session assistant drafts, even when the pane is settled or gone. */
+async function consumeResult(params: GetResultParams, deps: GetResultDeps): Promise<Result<ResultView>> {
+	if (!deps.toolCallId) return err("VALIDATION_ERROR", "completion consumption requires a tool call id");
+	if (deps.signal?.aborted) return err("TIMEOUT", "aborted");
+	try { readFileSync(deps.hostFile!, "utf8"); }
+	catch { return err("VALIDATION_ERROR", "completion consumption requires a readable host session file; no body was claimed"); }
+	const registry = (deps.registry ?? spawnRecords)();
+	const record = registry.get(params.target) ?? [...registry.values()].find(r => r.paneId === params.target);
+	if (!record && validEventId(params.target)) {
+		for (const candidate of registry.values()) {
+			if (candidate.kind.toLowerCase() !== "pi" || !candidate.sessionPath) continue;
+			let saved;
+			try { saved = parseExitSidecar(readFileSync(`${candidate.sessionPath}.completion-${params.target}.json`, "utf8")); }
+			catch { continue; }
+			if (saved.ok && saved.sidecar.eventId === params.target &&
+				(!candidate.agentId || saved.sidecar.agentId === candidate.agentId)) {
+				return consumeSidecar(params.target, candidate, saved.sidecar, deps);
+			}
+		}
+	}
+	if (!record || record.kind.toLowerCase() !== "pi") {
+		return { ok: true, data: await inspectAdopted(params.target, deps, params.lines ?? 80, record ? viewBase(params.target, record) : undefined) };
+	}
+	const base = { ...viewBase(params.target, record), agentId: record.agentId, runId: record.runId, sequence: record.sequence };
+	if (!record.sessionPath) return { ok: true, data: { ...base, status: "error", note: "governance failure: spawned pi child has no session substrate" } };
+	const read = (): ExitSidecar | undefined => {
+		const result = (deps.readSidecar ?? readExitSidecar)(record.sessionPath!);
+		if (result.state !== "ok") return undefined;
+		const sidecar = result.sidecar;
+		if ((record.runId && sidecar.runId !== record.runId) ||
+			(record.agentId && sidecar.agentId !== record.agentId) ||
+			(record.sequence !== undefined && sidecar.sequence !== record.sequence)) return undefined;
+		return sidecar;
+	};
+	const first = read();
+	if (first) return consumeSidecar(params.target, record, first, deps);
+	if (record.startError) return { ok: true, data: { ...base, status: "gone", lastKnown: lastKnownOf(record), note: `the pane never started: ${record.startError}` } };
+	if (!record.paneId) return { ok: true, data: { ...base, status: "queued", interim: true } };
+	const live = await (deps.status ?? getAgentStatus)(record.paneId);
+	if (deps.signal?.aborted) return err("TIMEOUT", "aborted");
+	const raced = read();
+	if (raced) return consumeSidecar(params.target, record, raced, deps);
+	if (!live.ok && (live.error.code === "NOT_FOUND" || (live.error.details as { code?: string } | undefined)?.code === "agent_not_found")) {
+		return { ok: true, data: { ...base, status: "gone", lastKnown: lastKnownOf(record), note: "no durable terminal declaration; no draft was read" } };
+	}
+	if (live.ok) record.lastStatus = live.data;
+	const projected = interimProjection(record, deps, live.ok ? live.data : undefined);
+	return { ok: true, data: { ...base, ...projected, interim: true, note: "no durable terminal declaration; status only, no draft was read" } };
+}
+
+function consumeSidecar(target: string, record: SpawnRecord, sidecar: ExitSidecar, deps: GetResultDeps): Result<ResultView> {
+	const base = { ...viewBase(target, record), agentId: sidecar.agentId, runId: sidecar.runId, sequence: sidecar.sequence, eventId: sidecar.eventId };
+	if (sidecar.type === "persistence-error") {
+		return { ok: true, data: { ...base, status: "error", note: "governance failure: completion was not durably saved" } };
+	}
+	const body = sidecar.text?.trim() ? sidecar.text : sidecar.type === "done" && sidecar.structured?.trim() ? sidecar.structured : undefined;
+	if (!validEventId(sidecar.eventId) || !body) {
+		return { ok: true, data: { ...base, status: "error", note: "governance failure: completion declaration has no durable event id or final body" } };
+	}
+	const ledger = new DeliveryLedger(deps.hostFile!);
+	const claimed = ledger.claimPull({ eventId: sidecar.eventId, agentId: sidecar.agentId, runId: sidecar.runId, sequence: sidecar.sequence, sessionPath: record.sessionPath }, deps.toolCallId!);
+	if (!claimed.bodyAllowed) {
+		return { ok: true, data: { ...base, status: sidecar.type, delivery: { eventId: sidecar.eventId, hostFile: ledger.hostFile, status: claimed.record.status, channel: claimed.record.channel, token: claimed.record.token }, note: "completion body already claimed; status reference only" } };
+	}
+	return { ok: true, data: { ...base, status: sidecar.type, source: "session-jsonl", result: body, delivery: ledger.proof(claimed.record), ...(sidecar.type === "error" ? { error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage } } : {}) } };
+}
+
 /**
  * get_agent_result, end to end. Single-shot unless `wait` is set: true =
  * until terminal (done/error/blocked/gone — waiting through the queue), a
@@ -457,6 +533,7 @@ export async function getAgentResult(
 	params: GetResultParams,
 	deps: GetResultDeps = {},
 ): Promise<Result<ResultView>> {
+	if (deps.hostFile) return consumeResult(params, deps);
 	const now = deps.now ?? (() => Date.now());
 	const pollMs = deps.pollMs ?? 1_500;
 	const wait = params.wait;
@@ -590,6 +667,12 @@ function fail(r: Err): ToolReturn {
 
 /** Render a ResultView as the tool's text + error flag. */
 function render(view: ResultView): ToolReturn {
+	if (view.delivery && !("bodyCommitted" in view.delivery)) {
+		return {
+			content: [{ type: "text", text: `Completion ${view.eventId} is ${view.delivery.status} via ${view.delivery.channel ?? "unclaimed"}; this call is a status reference, not another body delivery.` }],
+			details: view,
+		};
+	}
 	const result = renderStatus(view);
 	if (view.promptSubmission === "uncertain") {
 		result.content.push({ type: "text", text: "Prompt submission uncertain: the task was pasted once; it was not pasted again. Inspect the pane before retrying." });
@@ -614,12 +697,12 @@ function renderStatus(view: ResultView): ToolReturn {
 				details: view,
 			};
 		case "error": {
-			const msg = view.error?.errorMessage ?? "child failed";
+			const msg = view.error?.errorMessage ?? view.note ?? "child failed";
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Agent "${label}" FAILED: ${msg}${where}`,
+						text: `Agent "${label}" FAILED: ${msg}${where}${view.result ? `\n\n${view.result}` : ""}`,
 					},
 				],
 				details: view,
@@ -726,15 +809,40 @@ function renderStatus(view: ResultView): ToolReturn {
 	}
 }
 
-export function registerResultTool(pi: ExtensionAPI): void {
+export function registerResultTool(pi: ExtensionAPI, deps: GetResultDeps = {}): void {
 	registerResultInputWake(pi);
+	const pending = new Map<string, { hostFile: string; toolCallId: string; proof: DeliveryProof }>();
+	const confirmPending = (): void => {
+		for (const [key, candidate] of pending) {
+			const { hostFile, toolCallId, proof } = candidate;
+			const receipt = inspectToolResultReceipt(() => hostFile, toolCallId, message => {
+				const delivery = (message.details as ResultView | undefined)?.delivery;
+				return delivery !== undefined && "bodyCommitted" in delivery && delivery.bodyCommitted === true &&
+					delivery.eventId === proof.eventId && delivery.token === proof.token &&
+					delivery.hostFile === hostFile && delivery.channel === "pull";
+			});
+			if (receipt.status !== "persisted") continue;
+			try {
+				const record = new DeliveryLedger(hostFile).reconcile(proof.eventId);
+				if (record?.status === "delivered" || record?.status === "acked") pending.delete(key);
+			} catch (error) {
+				const failure = error instanceof Error ? error : new Error(String(error));
+				if (deps.onConfirmationError) deps.onConfirmationError(failure, proof.eventId);
+				else console.error(`pi-herdr completion ${proof.eventId}: disk receipt exists but ledger confirmation failed; claim retained`, failure.message);
+			}
+
+		}
+	};
+	// These boundaries follow tool-result append; tool_result itself is only a candidate.
+	pi.on("turn_end", confirmPending);
+	pi.on("agent_settled", confirmPending);
 	pi.registerTool({
 		name: "herdr_get_agent_result",
 		label: "Get herdr agent result",
 		description:
 			"Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. " +
-			"For pi children it reads the exact final assistant message from the agent's session file " +
-			"(byte-identical, complete — no screen scraping); mid-flight calls return an interim snapshot. " +
+			"For pi children, only a durable completion event can deliver the full final body once. " +
+			"Mid-flight calls report status without reading drafts; already claimed events return status references. " +
 			"For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. " +
 			"A gone pane still answers with its last-known metadata; its session file stays readable and resumable. " +
 			"Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
@@ -755,13 +863,24 @@ export function registerResultTool(pi: ExtensionAPI): void {
 				}),
 			),
 		}),
-		async execute(_id, p, signal) {
-			const r = await getAgentResult(
-				{ target: p.target, lines: p.lines },
-				{ signal },
-			);
-			if (!r.ok) return fail(r);
-			return render(r.data);
+		async execute(id, p, signal, _update, ctx) {
+			const hostFile = ctx?.sessionManager?.getSessionFile();
+			if (!hostFile) return fail(err("VALIDATION_ERROR", "completion consumption requires a host session file"));
+			try {
+				confirmPending();
+				const r = await getAgentResult(
+					{ target: p.target, lines: p.lines },
+					{ ...deps, hostFile, toolCallId: id, signal },
+				);
+				if (!r.ok) return fail(r);
+				const delivery = r.data.delivery;
+				if (delivery && "bodyCommitted" in delivery) {
+					pending.set(JSON.stringify([hostFile, delivery.eventId]), { hostFile, toolCallId: id, proof: delivery });
+				}
+				return render(r.data);
+			} catch (error) {
+				return fail(err("VALIDATION_ERROR", `completion governance failure: ${error instanceof Error ? error.message : String(error)}`));
+			}
 		},
 	});
 }

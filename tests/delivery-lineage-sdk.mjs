@@ -58,7 +58,7 @@ try {
  // Real SDK dispatch wrapped by a transport that throws before enqueue.
  includeLeaf=true;seed({}, {eventId:'sync-throw-terminal'});
  let broken=true,attempts=0;
- push=makeDeliverySink({...actions,on(){},sendMessage(...args){attempts++;if(broken)throw Error('injected before SDK enqueue');return actions.sendMessage(...args);}}, {getBranch:()=>manager.getBranch(),getSessionFile:()=>root});
+ push=makeDeliverySink({...actions,on(){},sendMessage(...args){attempts++;if(broken)throw Object.assign(Error('injected before SDK enqueue'),{deliveryOutcome:'not-submitted'});return actions.sendMessage(...args);}}, {getBranch:()=>manager.getBranch(),getSessionFile:()=>root});
  await dl.deliverOnce(deps);assert.equal(queue.length,1);assert.equal(closes,2);
  assert.match(sp.readPersistedRegistry(mid)[0].pushError,/injected/);
  broken=false;await dl.deliverOnce(deps);await new Promise(r=>setImmediate(r));
