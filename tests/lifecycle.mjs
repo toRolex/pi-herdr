@@ -534,8 +534,6 @@ console.log("\n[6] Resume — happy path: relaunch on the retained session");
 		goneAt: 1,
 		watch: { stalled: true },
 		startError: undefined,
-		takenOver: true,
-		tookNotified: true,
 		interruptedAt: 1,
 	});
 	spawnMod.putSpawnRecordForTests(rec);
@@ -612,8 +610,6 @@ console.log("\n[6] Resume — happy path: relaunch on the retained session");
 		rec.delivery === undefined &&
 			rec.goneAt === undefined &&
 			rec.watch === undefined &&
-			rec.takenOver === false &&
-			rec.tookNotified === false &&
 			rec.interruptedAt === undefined &&
 			rec.startError === undefined,
 		"transient state reset — the resumed run is a fresh watchable run",

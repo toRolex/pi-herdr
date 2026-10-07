@@ -1,5 +1,5 @@
 {
-  "sdkVersion": "1.0.4",
+  "sdkVersion": "1.0.2",
   "realSDK": true,
   "realSessionManager": true,
   "network": false,

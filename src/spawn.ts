@@ -39,7 +39,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { seedSessionFile, writeSteerWatermark } from "./sessionfile.js";
+import { seedSessionFile } from "./sessionfile.js";
 import { completionEventPath } from "./completion-event.js";
 import { clearSidecars } from "./sessionfile.js";
 import { currentOrchestratorSession } from "./push.js";
@@ -715,14 +715,14 @@ export interface SpawnRecord {
 	delivery?: { kind: DeliveryKind; at: number };
 	/** Pane close pending; retries remain bound to the settled run and pane. */
 	paneClosePending?: boolean;
-	paneCloseAuthorization?: { agentId?: string; runId?: string; paneId: string; rearm?: boolean };
+	paneCloseAuthorization?: { agentId?: string; runId?: string; paneId: string };
 	/** Why the last pane close was rejected (issue 41). Cleared when a later
 	 * close succeeds. The session file is never deleted because of it. */
 	paneCloseError?: string;
 	/** Why the last orphan push was rejected (issue 41). The pane stays up
 	 * and the result is not marked delivered. */
 	pushError?: string;
-	/** A human took the pane over (child-reported <session>.takeover). */
+	/** Legacy registry compatibility only; inert. */
 	takenOver?: boolean;
 	/** Turn cancelled (issue 10): when the parent sent Escape to the pane.
 	 * Drives the projected `interrupted` state; cleared by new work (a
@@ -757,8 +757,6 @@ export interface SpawnRecord {
 	 * original prompt must NOT be resubmitted. Rides the record so the
 	 * queue drain's startRecordNow stays silent too. */
 	resumeSilent?: boolean;
-	/** The quiet `user took over <agent>` note was sent. */
-	tookNotified?: boolean;
 	/** A blocked wake was pushed for the current blocked episode. */
 	blockedNotified?: boolean;
 	/** Monotonic within one logical agent; retained across receiver reloads. */
@@ -1251,7 +1249,7 @@ export async function startRecordNow(
 	});
 
 	// 3. pane (herdr's native kind axis; version-branched launcher)
-	const childEnv = buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes);
+	const childEnv = buildChildEnv(record);
 	const start = deps.start ?? startHerdrAgent;
 	// Layout is decided at START, never at accept: a queued spawn that drains
 	// later sees whatever is live then, and a setting change only affects the
@@ -1473,7 +1471,7 @@ async function planGridSeat(
 			const made = await run<{
 				tab?: { tab_id?: string; root_pane?: string; pane_id?: string };
 			}>(
-				createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes), record.worktreePath ?? record.cwd),
+				createGridTabArgs(here.workspace_id, group, buildChildEnv(record), record.worktreePath ?? record.cwd),
 				{ signal: deps.signal },
 			);
 			if (!made.ok || !made.data?.tab?.tab_id) return undefined;
@@ -1552,7 +1550,7 @@ async function planGridSeat(
 	const split = splitFor(plan, record.name, known);
 	if (!split) return undefined;
 	if (plan.openedTab) {
-		split.commands = [{ args: createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes), record.worktreePath ?? record.cwd) }];
+		split.commands = [{ args: createGridTabArgs(here.workspace_id, group, buildChildEnv(record), record.worktreePath ?? record.cwd) }];
 	}
 	if (!split.paneId && tabId !== here.tab_id) {
 		const anchor = live[0]?.pane_id;
@@ -1564,7 +1562,7 @@ async function planGridSeat(
 
 /** Child env stamped onto a tab the grid creates, because `agent start`
  * has no `--env` of its own — the shell inherits the tab's. */
-function buildChildEnv(record: SpawnRecord, idleRearmMinutes: number): Record<string, string> {
+function buildChildEnv(record: SpawnRecord): Record<string, string> {
 	const env: Record<string, string> = {};
 	const stamp = (k: string, v: string | undefined) => {
 		if (v !== undefined) env[k] = v;
@@ -1585,7 +1583,7 @@ function buildChildEnv(record: SpawnRecord, idleRearmMinutes: number): Record<st
 		);
 		stamp("PI_HERDR_DENIED_TOOLS", (record.deniedTools ?? []).join(","));
 		stamp("PI_HERDR_ACTIVITY_FILE", record.activityPath);
-		stamp("PI_HERDR_IDLE_REARM_MS", String(Math.max(0, idleRearmMinutes) * 60_000));
+
 		stamp("PI_HERDR_ROOT_SESSION", record.lineage?.rootSession);
 		stamp("PI_HERDR_PARENT_SESSION", record.lineage?.ownerSession);
 	}
@@ -1623,11 +1621,7 @@ async function submitRecordPrompt(
 	if (!record.paneId) return;
 	const submit = deps.submit ?? defaultSubmit;
 	const deadline = Date.now() + SUBMIT_CHUNK_MS;
-	// Steer watermark (issue 06): the exact text about to be typed. The child
-	// matches its input event against it so the parent's own steering is never
-	// mistaken for a human takeover. The task is pasted once; a missing Enter
-	// is a key, not a second paste.
-	if (record.sessionPath) writeSteerWatermark(record.sessionPath, record.prompt);
+	// The task is pasted once; a missing Enter is retried as a key.
 	const r = await submit(record.paneId, record.prompt, deadline, deps.signal);
 	if (deps.signal?.aborted) {
 		record.submitted = false;
@@ -1767,7 +1761,6 @@ export async function drainQueueOnce(deps: SpawnDeps = {}): Promise<number> {
 				record.sawWorking = false;
 				record.startedAt = undefined;
 				record.goneAt = undefined;
-				if (record.sessionPath) writeSteerWatermark(record.sessionPath, record.prompt);
 			}
 			const r = await startRecordNow(record, deps);
 			if (!r.ok) {

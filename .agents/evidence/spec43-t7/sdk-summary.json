@@ -6,7 +6,14 @@
   "realSessionManager": true,
   "realExtensionRunner": true,
   "network": false,
-  "strippedEnvironment": [],
+  "strippedEnvironment": [
+    "HERDR_ENV",
+    "HERDR_TAB_ID",
+    "HERDR_SOCKET_PATH",
+    "HERDR_BIN_PATH",
+    "HERDR_WORKSPACE_ID",
+    "HERDR_PANE_ID"
+  ],
   "cases": [
     {
       "name": "closing-followup-counterexample",

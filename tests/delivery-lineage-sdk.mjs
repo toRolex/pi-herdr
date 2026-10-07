@@ -52,21 +52,21 @@ try {
  seed({lineage:{ownerSession:mid,rootSession:join(dir,'other-root.jsonl')}});await dl.deliverOnce(deps);assert.equal(sp.readPersistedRegistry(mid)[0].delivery,undefined,'different root not adopted');
  seed({}, {rootSession:join(dir,'other-root.jsonl')});await dl.deliverOnce(deps);assert.equal(sp.readPersistedRegistry(mid)[0].delivery,undefined,'sidecar root conflict not adopted');
  seed();writeFileSync(leaf+'.exit','{"type":"progress"}');await dl.deliverOnce(deps);assert.equal(sp.readPersistedRegistry(mid)[0].delivery,undefined,'untyped terminal is not exit evidence');
- seed();writeFileSync(leaf+'.takeover','{}');await dl.deliverOnce(deps);assert.equal(sp.readPersistedRegistry(mid)[0].delivery.kind,'done');assert.equal(closes,1,'current takeover prevents close of adopted unknown shell');
- rmSync(leaf+'.takeover');seed();includeLeaf=false;await dl.deliverOnce(deps);assert.equal(sp.readPersistedRegistry(mid)[0].delivery.kind,'done','absent leaf with typed terminal is recoverable too');assert.equal(closes,2);
+ seed();writeFileSync(leaf+'.takeover','{}');await dl.deliverOnce(deps);assert.equal(sp.readPersistedRegistry(mid)[0].delivery.kind,'done');assert.equal(closes,2,'old takeover marker does not prevent adopted close');
+ rmSync(leaf+'.takeover');seed();includeLeaf=false;await dl.deliverOnce(deps);assert.equal(sp.readPersistedRegistry(mid)[0].delivery.kind,'done','absent leaf with typed terminal is recoverable too');assert.equal(closes,3);
  assert.equal(queue.length,1,'all recovery retries keep one business event');
  // Real SDK dispatch wrapped by a transport that throws before enqueue.
  includeLeaf=true;seed({}, {eventId:'sync-throw-terminal'});
  let broken=true,attempts=0;
  push=makeDeliverySink({...actions,on(){},sendMessage(...args){attempts++;if(broken)throw Object.assign(Error('injected before SDK enqueue'),{deliveryOutcome:'not-submitted'});return actions.sendMessage(...args);}}, {getBranch:()=>manager.getBranch(),getSessionFile:()=>root});
- await dl.deliverOnce(deps);assert.equal(queue.length,1);assert.equal(closes,2);
+ await dl.deliverOnce(deps);assert.equal(queue.length,1);assert.equal(closes,3);
  assert.match(sp.readPersistedRegistry(mid)[0].pushError,/injected/);
  broken=false;await dl.deliverOnce(deps);await new Promise(r=>setImmediate(r));
  assert.equal(attempts,2,'known synchronous non-enqueue failure retries in the same sink');
- assert.equal(queue.length,2);assert.equal(closes,2,'repaired SDK enqueue still waits for disk ack');
+ assert.equal(queue.length,2);assert.equal(closes,3,'repaired SDK enqueue still waits for disk ack');
  await dl.deliverOnce(deps);assert.equal(attempts,2,'unknown pending SDK outcome is never enqueued twice');
  const repaired=queue[1];manager.appendCustomMessageEntry(repaired.customType,repaired.content,repaired.display,repaired.details);
- await dl.deliverOnce(deps);assert.equal(closes,3);assert.equal(sp.readPersistedRegistry(mid)[0].delivery.kind,'done');
- await dl.deliverOnce(deps);assert.equal(attempts,2);assert.equal(closes,3);
+ await dl.deliverOnce(deps);assert.equal(closes,4);assert.equal(sp.readPersistedRegistry(mid)[0].delivery.kind,'done');
+ await dl.deliverOnce(deps);assert.equal(attempts,2);assert.equal(closes,4);
  console.log('delivery-lineage-sdk: passed');
 }finally{dl.stopDeliveryLoop();sp.clearSpawnRegistry();rmSync(dir,{recursive:true,force:true});}

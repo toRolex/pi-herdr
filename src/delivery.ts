@@ -5,7 +5,7 @@
 // hang off the same loop.
 //
 // Completion detection is triply redundant (research §3):
-//   1. exit sidecar (`<session>.exit`, typed done/error, optional rearm) —
+//   1. exit sidecar (`<session>.exit`, typed done/error) —
 //      the child's own terminal declaration (auto-settle or `agent_done`);
 //   2. terminal sentinel — the agent vanished with no sidecar: after a
 //      bounded grace, the session JSONL's last assistant message is the
@@ -21,15 +21,8 @@
 // the orchestrator is busy queues as followUp + wake instead of steer — the
 // running tool is not cancelled. blocked and stalled stay steer. error keeps
 // the notifications matrix (quiet → nextTurn, none → no push, normal → steer).
-// A BLOCKED child always wakes regardless of the setting — unless a human took
-// the pane over (no mid-conversation pushes from a taken-over pane; the human
-// is right there).
+// A BLOCKED child always wakes regardless of the setting.
 //
-// User takeover arrives as the `<session>.takeover` marker written by the
-// child extension (human typing that is not the parent's own steer echo):
-// the loop sends the quiet `user took over <agent>` note once and holds back
-// mid-conversation pushes for that record. A final result still lands —
-// declared (`agent_done`) or re-armed (idle re-arm, labeled).
 
 import { readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { spawn } from "node:child_process";
@@ -48,11 +41,9 @@ import {
 	extractSessionResult,
 	minedAssistantError,
 	readExitSidecar,
-	readTakeoverMarker,
 	sidecarPathFor,
 	type ExtractedResult,
 	type ReadSidecarResult,
-	type ReadTakeoverResult,
 } from "./sessionfile.js";
 import {
 	isSubstrateChild,
@@ -75,12 +66,9 @@ import {
 	type SteeredMessage,
 	makeDeliverySink,
 	rememberOrchestratorSession,
-	rememberParentDeliverySink,
 	trackOrchestratorBusy,
 	terminalWake,
 } from "./push.js";
-
-import { registerParentDelivery } from "./parent-delivery.js";
 
 export { makeDeliverySink };
 
@@ -96,8 +84,6 @@ export interface DeliveryDeps {
 	list?: () => Promise<Result<NormalizedAgent[]>>;
 	/** Completion-sidecar read — default: readExitSidecar. */
 	readSidecar?: (sessionPath: string) => ReadSidecarResult;
-	/** Takeover-marker read — default: readTakeoverMarker. */
-	readTakeover?: (sessionPath: string) => ReadTakeoverResult;
 	/** Session-JSONL extraction — default: extractSessionResult. */
 	extract?: (sessionPath: string) => ExtractedResult | null;
 	/** The steer sink — default: pi.sendMessage into THIS session. */
@@ -171,9 +157,9 @@ async function readPaneTail(deps: DeliveryDeps, paneId: string | undefined): Pro
 	return read(paneId);
 }
 
-/** Autonomous, not taken over, not a workflow child. Those panes stay open. */
+/** Autonomous, not a workflow child. Those panes stay open. */
 function ownsPane(record: SpawnRecord): boolean {
-	return record.stance === "autonomous" && !record.takenOver && !record.workflow;
+	return record.stance === "autonomous" && !record.workflow;
 }
 
 /**
@@ -232,7 +218,7 @@ function deliverPromptSubmission(record: SpawnRecord, deps: DeliveryDeps): void 
 
 
 /**
- * One pass over the registry: takeover notes, terminal pushes, blocked wakes.
+ * One pass over the registry: terminal pushes, blocked wakes.
  * Non-blocking — the loop calls it on an interval; tests call it directly and
  * advance their own clock between calls.
  */
@@ -318,21 +304,6 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 			}
 			if (record.paneId || record.startError) continue;
 			if (!priorDurable && !record.delivery && record.sessionPath) continue;
-		}
-		// --- takeover marker → quiet note, once. Sent regardless of the
-		// notifications setting (no-wake either way; the orchestrator must
-		// learn auto-exit is off).
-		if (record.sessionPath && !record.tookNotified) {
-			const t = (deps.readTakeover ?? readTakeoverMarker)(record.sessionPath);
-			if (t.taken) {
-				record.takenOver = true;
-				record.tookNotified = true;
-				push({
-					content: `user took over ${record.name}`,
-					details: { name: record.name, kind: "takeover" },
-					wake: false,
-				});
-			}
 		}
 
 		if (record.delivery) {
@@ -467,7 +438,9 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 
 		// Recoverable notices share parent admission, never terminal arbitration.
 		if (live === "blocked") {
-			if (!record.blockedNotified && !record.takenOver) {
+			if (!record.blockedNotified) {
+				record.blockedNotified = true;
+				// always wakes — the notifications setting does not apply
 				const episode = (record.blockedEpisode ?? 0) + 1;
 				push({
 					content:
@@ -497,7 +470,7 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 		// but only after a working turn was seen, or the fleet says `done`.
 		// `submitted` is stamped even when the prompt never landed, and a
 		// pre-submit pane is already idle. Then close the pane. Interactive,
-		// takeover, and workflow children stay open.
+		// and workflow children stay open.
 		if (shouldCloseSettled(record, live)) {
 			if (isPi && record.sessionPath) {
 				const extracted = (deps.extract ?? extractSessionResult)(record.sessionPath);
@@ -583,12 +556,12 @@ async function adoptOrphans(
 			}
 			if (child.delivery) {
 				// The letter was already confirmed. A rejected close stays pending
-				// and is retried here — working/blocked and takeover still hold the
+				// and is retried here — working/blocked still hold the
 				// pane (the same guards as the first close).
 				if (child.paneClosePending && child.paneId) {
 					const again = statusByPane.get(child.paneId);
 					if (again !== "working" && again !== "blocked") {
-						await closeDeliveredPane(deps, child, child.paneCloseAuthorization?.rearm === true, false);
+						await closeDeliveredPane(deps, child, false);
 						dirty = true;
 					}
 				}
@@ -640,13 +613,12 @@ async function reportCompletionGovernanceError(
 async function deliverSidecar(
 	record: SpawnRecord,
 	sidecar:
-		| { type: "done"; rearm?: true; structured?: string; text?: string; rootSession?: string; eventId?: string }
+		| { type: "done"; structured?: string; text?: string; rootSession?: string; eventId?: string }
 		| {
 				type: "error";
 				errorMessage: string;
 				stopReason: string;
 				text?: string;
-				rearm?: true;
 				rootSession?: string;
 				eventId?: string;
 		  }
@@ -660,7 +632,6 @@ async function deliverSidecar(
 	const extracted = record.sessionPath
 		? (deps.extract ?? extractSessionResult)(record.sessionPath)
 		: null;
-	const rearm = "rearm" in sidecar && sidecar.rearm === true;
 	const adoptedFlag = adopted ? { adopted: true as const } : {};
 	// Copy only. A sidecar that never named an event does not get one here.
 	// Session paths and raw host messages are metadata, never completion prose.
@@ -681,7 +652,6 @@ async function deliverSidecar(
 					name: record.name,
 					kind: "done",
 					...adoptedFlag,
-					...(rearm ? { rearm: true } : {}),
 					...eventField,
 					result: committed ?? extracted?.text,
 					...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
@@ -706,7 +676,6 @@ async function deliverSidecar(
 				name: record.name,
 				kind: "error",
 				...adoptedFlag,
-				...(rearm ? { rearm: true } : {}),
 				...eventField,
 				error: { stopReason: sidecar.stopReason, errorMessage: sidecar.errorMessage },
 				...(sidecar.text?.trim() ? { result: sidecar.text } : {}),
@@ -742,7 +711,7 @@ const defaultClosePane = (paneId: string): Promise<unknown> =>
 /** Retry the persisted close intent without repeating its completion push. */
 async function attemptPaneClose(deps: DeliveryDeps, record: SpawnRecord): Promise<void> {
 	if (!record.paneId) return;
-	await closeDeliveredPane(deps, record, Boolean(record.paneCloseAuthorization?.rearm && record.paneCloseAuthorization.runId === record.runId), false);
+	await closeDeliveredPane(deps, record, false);
 }
 
 /**
@@ -754,23 +723,18 @@ async function attemptPaneClose(deps: DeliveryDeps, record: SpawnRecord): Promis
  * (queued/never-started), a pane the fleet still reports actively live
  * (working/blocked — defensive; held as pending and retried on later ticks,
  * because a dying auto-exit can still be listed when its sidecar lands), and
- * a taken-over pane that has not re-arm-delivered (the human is driving; only
- * the re-arm delivery closes it).
  */
 async function closeRecordPane(
 	deps: DeliveryDeps,
 	record: SpawnRecord,
-	rearm: boolean,
 	paneLive: boolean,
 ): Promise<void> {
 	if (!record.paneId) return;
-	if (rearm) record.paneCloseAuthorization = { agentId: record.agentId, runId: record.runId, paneId: record.paneId, rearm: true };
-	if (record.takenOver && !rearm) return;
 	if (paneLive) {
 		record.paneClosePending = true;
 		return;
 	}
-	await closeDeliveredPane(deps, record, rearm, false);
+	await closeDeliveredPane(deps, record, false);
 }
 
 /**
@@ -780,7 +744,7 @@ async function closeRecordPane(
  * one event per record) still happens. The pane-close promise is fleet-wide
  * (manual e2e F2/F10): a settled child's pane closes at its terminal mark,
  * workflow children included — the run's abort close remains as the in-flight
- * backstop, and a best-effort double close is harmless. Takeover notes and
+ * backstop, and a best-effort double close is harmless.
  * blocked wakes are NOT routed through here — a blocked workflow child still
  * wakes the orchestrator, whose answer via herdr_message_agent resumes it.
  */
@@ -834,7 +798,7 @@ async function deliverTerminal(
 	const previousDelivery = record.delivery;
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
 	record.paneClosePending = Boolean(record.paneId);
-	if (record.paneId) record.paneCloseAuthorization = { agentId: record.agentId, runId: record.runId, paneId: record.paneId, rearm: msg.details.rearm === true };
+	if (record.paneId) record.paneCloseAuthorization = { agentId: record.agentId, runId: record.runId, paneId: record.paneId };
 	const owner = deps.sessionPath ?? currentOrchestratorSession();
 	if (owner && !deps.registry) {
 		try { (deps.writeRegistry ?? writePersistedRegistry)(owner, [...spawnRecords().values()]); }
@@ -845,7 +809,7 @@ async function deliverTerminal(
 			throw new Error(record.pushError);
 		}
 	}
-	await closeRecordPane(deps, record, msg.details.rearm === true, paneLive);
+	await closeRecordPane(deps, record, paneLive);
 	persistPendingClose(deps, record);
 }
 
@@ -877,14 +841,14 @@ async function deliverAdopted(
 	const previousDelivery = record.delivery;
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
 	record.paneClosePending = !!record.paneId;
-	if (record.paneId) record.paneCloseAuthorization = { agentId: record.agentId, runId: record.runId, paneId: record.paneId, rearm: msg.details.rearm === true };
+	if (record.paneId) record.paneCloseAuthorization = { agentId: record.agentId, runId: record.runId, paneId: record.paneId };
 	try { deps.persistAdopted?.(); }
 	catch (error) {
 		record.delivery = previousDelivery;
 		record.pushError = `adopted registry persistence failed: ${String(error)}`;
 		throw new Error(record.pushError);
 	}
-	await closeDeliveredPane(deps, record, msg.details.rearm === true, paneLive);
+	await closeDeliveredPane(deps, record, paneLive);
 	deps.persistAdopted?.();
 }
 
@@ -892,22 +856,14 @@ async function deliverAdopted(
 async function closeDeliveredPane(
 	deps: DeliveryDeps,
 	record: SpawnRecord,
-	rearm: boolean,
 	paneLive: boolean,
 ): Promise<void> {
 	if (!record.paneId) return;
-	if (rearm && !record.paneCloseAuthorization) record.paneCloseAuthorization = { agentId: record.agentId, runId: record.runId, paneId: record.paneId, rearm: true };
 	if (record.paneCloseAuthorization && (
 		record.paneCloseAuthorization.runId !== record.runId ||
 		record.paneCloseAuthorization.agentId !== record.agentId ||
 		record.paneCloseAuthorization.paneId !== record.paneId
 	)) return;
-	// Adoption restores the owner's registry, which may predate a human's
-	// takeover. Refresh the marker on both the first close and each retry.
-	if (record.sessionPath && (deps.readTakeover ?? readTakeoverMarker)(record.sessionPath).taken) {
-		record.takenOver = true;
-	}
-	if (record.takenOver && !rearm) return;
 	if (paneLive) {
 		record.paneClosePending = true;
 		return;
@@ -1267,11 +1223,7 @@ export function registerDelivery(pi: ExtensionAPI): void {
 			}
 		}
 	});
-	let parent: ReturnType<typeof registerParentDelivery>;
-	const sink = makeDeliverySink(pi, undefined, { allowCommit: details => parent.allowCommit(details) });
-	parent = registerParentDelivery(pi, sink, () => defaultLoad().notifications);
-	const push = parent.accept;
-	rememberParentDeliverySink(pi, push);
+	const push = makeDeliverySink(pi);
 	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {
 		try {

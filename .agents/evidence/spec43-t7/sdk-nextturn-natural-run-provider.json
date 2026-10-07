@@ -6,9 +6,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-Di2sfH/nextturn-natural-run\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/nextturn-natural-run\n</cwd>"
         },
-        "timestamp": 1791337466352
+        "timestamp": 1791362536774
       },
       {
         "role": "user",
@@ -18,7 +18,7 @@
             "text": "finish before late notifications"
           }
         ],
-        "timestamp": 1791337466352
+        "timestamp": 1791362536774
       }
     ]
   },
@@ -29,9 +29,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-Di2sfH/nextturn-natural-run\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/nextturn-natural-run\n</cwd>"
         },
-        "timestamp": 1791337466352
+        "timestamp": 1791362536774
       },
       {
         "role": "user",
@@ -41,7 +41,7 @@
             "text": "finish before late notifications"
           }
         ],
-        "timestamp": 1791337466352
+        "timestamp": 1791362536774
       },
       {
         "role": "assistant",
@@ -52,7 +52,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791337466352,
+        "timestamp": 1791362536774,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -80,7 +80,7 @@
             "text": "next natural user run"
           }
         ],
-        "timestamp": 1791337466352
+        "timestamp": 1791362536775
       },
       {
         "role": "user",
@@ -90,7 +90,7 @@
             "text": "CLOSING PARKED BODY"
           }
         ],
-        "timestamp": 1791337466352
+        "timestamp": 1791362536775
       },
       {
         "role": "user",
@@ -100,7 +100,7 @@
             "text": "FINISHED PARKED BODY"
           }
         ],
-        "timestamp": 1791337466352
+        "timestamp": 1791362536775
       }
     ]
   },
@@ -111,9 +111,9 @@
         "content": "",
         "sections": {
           "preamble": "T7 deterministic SDK proof",
-          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-Di2sfH/nextturn-natural-run\n</cwd>"
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/nextturn-natural-run\n</cwd>"
         },
-        "timestamp": 1791337466352
+        "timestamp": 1791362536774
       },
       {
         "role": "user",
@@ -123,7 +123,7 @@
             "text": "finish before late notifications"
           }
         ],
-        "timestamp": 1791337466352
+        "timestamp": 1791362536774
       },
       {
         "role": "assistant",
@@ -134,7 +134,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791337466352,
+        "timestamp": 1791362536774,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -162,7 +162,7 @@
             "text": "next natural user run"
           }
         ],
-        "timestamp": 1791337466352
+        "timestamp": 1791362536775
       },
       {
         "role": "user",
@@ -172,7 +172,7 @@
             "text": "CLOSING PARKED BODY"
           }
         ],
-        "timestamp": 1791337466352
+        "timestamp": 1791362536775
       },
       {
         "role": "user",
@@ -182,7 +182,7 @@
             "text": "FINISHED PARKED BODY"
           }
         ],
-        "timestamp": 1791337466352
+        "timestamp": 1791362536775
       },
       {
         "role": "assistant",
@@ -193,7 +193,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791337466352,
+        "timestamp": 1791362536775,
         "api": "t7-offline",
         "provider": "t7-offline",
         "model": "deterministic",
@@ -221,7 +221,7 @@
             "text": "EXPLICIT WAKE AUTHORIZED"
           }
         ],
-        "timestamp": 1791337466354
+        "timestamp": 1791362536775
       }
     ]
   }

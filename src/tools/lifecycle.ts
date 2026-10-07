@@ -60,7 +60,7 @@ import {
 	type AgentDefinition,
 } from "../agentdefs.js";
 import { resolveRouting, validateRouting } from "../launchplan.js";
-import { clearSidecars, writeSteerWatermark } from "../sessionfile.js";
+import { clearSidecars } from "../sessionfile.js";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { completionEventPath } from "../completion-event.js";
@@ -308,7 +308,6 @@ export async function triggerTurn(
 			clearSidecars(record.sessionPath);
 			persistCompletionRun(record.sessionPath, runId);
 			const envelope = `<herdr-followup runId="${runId}">\n${params.text}\n</herdr-followup>`;
-			if (record.sessionPath) writeSteerWatermark(record.sessionPath, envelope);
 			const result = await (deps.submit ? deps.submit(live.paneId, envelope, 30_000, deps.signal) : defaultFollowupSubmit(live.paneId, envelope, deps.signal));
 			if (result && !result.ok) {
 				record.pendingFollowups = [{ runId, text: params.text }];
@@ -344,7 +343,6 @@ export async function triggerTurn(
 			persistSpawnRegistry(deps);
 			record.stance = "interactive";
 			const envelope = `<herdr-followup runId="${runId}">\n${params.text}\n</herdr-followup>`;
-			if (record.sessionPath) writeSteerWatermark(record.sessionPath, envelope);
 			const result = await resumeAgentSerial({ target: record.name, message: envelope }, { ...deps, forceStart: true, followupRunId: runId });
 			record.stance = record.definition?.interactive === true || record.definition?.auto_exit === false ? "interactive" : "autonomous";
 			if (!result.ok) {
@@ -379,7 +377,7 @@ export interface ResumeParams {
 	 * session file). */
 	target: string;
 	/** Optional opening prompt, submitted after the boot gate (with the
-	 * steer watermark + task-artifact machinery). Omitted → the child
+	 * task-artifact machinery). Omitted → the child
 	 * replays the session and sits open (nothing is resubmitted). */
 	message?: string;
 }
@@ -551,8 +549,6 @@ async function resumeAgentSerial(
 	record.watch = undefined;
 	record.delivery = undefined;
 	record.blockedNotified = false;
-	record.takenOver = false;
-	record.tookNotified = false;
 	record.interruptedAt = undefined;
 	record.lastStatus = undefined;
 	record.taskArtifactPath = undefined;

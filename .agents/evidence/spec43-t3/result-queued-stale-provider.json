@@ -7,7 +7,7 @@
         "toolsAdded": [
           {
             "name": "herdr_get_agent_result",
-            "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+            "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
             "parameters": {
               "type": "object",
               "required": [
@@ -16,7 +16,41 @@
               "properties": {
                 "target": {
                   "type": "string",
-                  "description": "Spawn handle (the name herdr_spawn_agent returned) or pane id."
+                  "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                },
+                "reread": {
+                  "type": "boolean",
+                  "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                },
+                "ack": {
+                  "type": "object",
+                  "required": [
+                    "eventId",
+                    "agentId",
+                    "runId",
+                    "sequence",
+                    "hostFile"
+                  ],
+                  "properties": {
+                    "eventId": {
+                      "type": "string"
+                    },
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "runId": {
+                      "type": "string"
+                    },
+                    "sequence": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "hostFile": {
+                      "type": "string",
+                      "description": "Exact receiving session file from the result reference."
+                    }
+                  },
+                  "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
                 },
                 "lines": {
                   "type": "integer",
@@ -36,7 +70,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791333252138
+        "timestamp": 1791362535648
       }
     ]
   },
@@ -48,7 +82,7 @@
         "toolsAdded": [
           {
             "name": "herdr_get_agent_result",
-            "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+            "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
             "parameters": {
               "type": "object",
               "required": [
@@ -57,7 +91,41 @@
               "properties": {
                 "target": {
                   "type": "string",
-                  "description": "Spawn handle (the name herdr_spawn_agent returned) or pane id."
+                  "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                },
+                "reread": {
+                  "type": "boolean",
+                  "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                },
+                "ack": {
+                  "type": "object",
+                  "required": [
+                    "eventId",
+                    "agentId",
+                    "runId",
+                    "sequence",
+                    "hostFile"
+                  ],
+                  "properties": {
+                    "eventId": {
+                      "type": "string"
+                    },
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "runId": {
+                      "type": "string"
+                    },
+                    "sequence": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "hostFile": {
+                      "type": "string",
+                      "description": "Exact receiving session file from the result reference."
+                    }
+                  },
+                  "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
                 },
                 "lines": {
                   "type": "integer",
@@ -77,7 +145,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791333252138
+        "timestamp": 1791362535648
       },
       {
         "role": "assistant",
@@ -92,7 +160,7 @@
           }
         ],
         "stopReason": "toolUse",
-        "timestamp": 1791333252138,
+        "timestamp": 1791362535648,
         "api": "offline",
         "provider": "offline",
         "model": "offline",
@@ -128,8 +196,8 @@
           "kind": "pi",
           "stance": "autonomous",
           "source": "session-jsonl",
-          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-aGBG1y/case-32/child.jsonl",
-          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-aGBG1y/case-32/child.jsonl.exit",
+          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/child.jsonl",
+          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/child.jsonl.exit",
           "agentId": "agent-32",
           "runId": "event-32",
           "sequence": 1,
@@ -138,14 +206,14 @@
           "result": "COMPLETE DURABLE BODY\nfinal line",
           "delivery": {
             "eventId": "event-32",
-            "token": "e240c6c1-5923-4939-aa6a-78b9faec4c30",
+            "token": "3555e026-7c28-44f4-93da-d50a77c63479",
             "channel": "pull",
-            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-aGBG1y/case-32/2026-10-07T00-34-12-127Z_01a113c8-3c1f-7418-a1ba-fb6eb3e35cf8.jsonl",
+            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/2026-10-07T08-42-15-638Z_01a11587-10d6-72f5-b1ab-7178913434d3.jsonl",
             "bodyCommitted": true
           }
         },
         "isError": false,
-        "timestamp": 1791333252142
+        "timestamp": 1791362535653
       }
     ]
   },
@@ -157,7 +225,7 @@
         "toolsAdded": [
           {
             "name": "herdr_get_agent_result",
-            "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
+            "description": "Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. For pi children, only a durable completion event can deliver the full final body once. Mid-flight calls report status without reading drafts; already claimed events return status references. Use reread:true to explicitly review the original full body without changing its identity or delivery state. Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. A gone pane still answers with its last-known metadata; its session file stays readable and resumable. Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
             "parameters": {
               "type": "object",
               "required": [
@@ -166,7 +234,41 @@
               "properties": {
                 "target": {
                   "type": "string",
-                  "description": "Spawn handle (the name herdr_spawn_agent returned) or pane id."
+                  "description": "Spawn handle, pane id, or immutable completion eventId (including a retained older run)."
+                },
+                "reread": {
+                  "type": "boolean",
+                  "description": "Explicitly reread the immutable final body, including after ACK; not a new delivery."
+                },
+                "ack": {
+                  "type": "object",
+                  "required": [
+                    "eventId",
+                    "agentId",
+                    "runId",
+                    "sequence",
+                    "hostFile"
+                  ],
+                  "properties": {
+                    "eventId": {
+                      "type": "string"
+                    },
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "runId": {
+                      "type": "string"
+                    },
+                    "sequence": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "hostFile": {
+                      "type": "string",
+                      "description": "Exact receiving session file from the result reference."
+                    }
+                  },
+                  "description": "Caller declares this completion handled. No body returned; not evidence of reading or understanding."
                 },
                 "lines": {
                   "type": "integer",
@@ -186,7 +288,7 @@
             "text": "execute real registered consumption and push gate"
           }
         ],
-        "timestamp": 1791333252138
+        "timestamp": 1791362535648
       },
       {
         "role": "assistant",
@@ -201,7 +303,7 @@
           }
         ],
         "stopReason": "toolUse",
-        "timestamp": 1791333252138,
+        "timestamp": 1791362535648,
         "api": "offline",
         "provider": "offline",
         "model": "offline",
@@ -237,8 +339,8 @@
           "kind": "pi",
           "stance": "autonomous",
           "source": "session-jsonl",
-          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-aGBG1y/case-32/child.jsonl",
-          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-aGBG1y/case-32/child.jsonl.exit",
+          "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/child.jsonl",
+          "exitPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/child.jsonl.exit",
           "agentId": "agent-32",
           "runId": "event-32",
           "sequence": 1,
@@ -247,14 +349,14 @@
           "result": "COMPLETE DURABLE BODY\nfinal line",
           "delivery": {
             "eventId": "event-32",
-            "token": "e240c6c1-5923-4939-aa6a-78b9faec4c30",
+            "token": "3555e026-7c28-44f4-93da-d50a77c63479",
             "channel": "pull",
-            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-aGBG1y/case-32/2026-10-07T00-34-12-127Z_01a113c8-3c1f-7418-a1ba-fb6eb3e35cf8.jsonl",
+            "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t3-result-Wd8nSS/case-32/2026-10-07T08-42-15-638Z_01a11587-10d6-72f5-b1ab-7178913434d3.jsonl",
             "bodyCommitted": true
           }
         },
         "isError": false,
-        "timestamp": 1791333252142
+        "timestamp": 1791362535653
       },
       {
         "role": "assistant",
@@ -265,7 +367,7 @@
           }
         ],
         "stopReason": "stop",
-        "timestamp": 1791333252147,
+        "timestamp": 1791362535658,
         "api": "offline",
         "provider": "offline",
         "model": "offline",
@@ -293,9 +395,9 @@
         "details": {
           "deliveryHostWithdrawn": true,
           "eventId": "event-32",
-          "deliveryToken": "6a768a90-575a-448f-b4ad-0da521da4dff"
+          "deliveryToken": "003ef8ed-f34f-4555-99e3-b157cc399dd6"
         },
-        "timestamp": 1791333252138
+        "timestamp": 1791362535648
       }
     ]
   }

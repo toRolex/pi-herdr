@@ -40,7 +40,6 @@ import {
 	type SpawnRecord,
 } from "../spawn.js";
 import { currentOrchestratorSession } from "../push.js";
-import { writeSteerWatermark } from "../sessionfile.js";
 import {
 	normalizeAgent,
 	type HerdrErrorCode,
@@ -527,15 +526,10 @@ export async function messageAgent(
 	const payload = blocked
 		? params.text
 		: envelope(from, resolved.to, params.text, params.eventId);
-	// Steer watermark (issue 06): the exact text about to be typed into a
-	// registry child. The child matches its input event against it so the
-	// orchestrator's own follow-up is never mistaken for a human takeover.
 	// A delivery to a registry record is also NEW WORK (issue 10): it ends
 	// the interrupted state — stop-and-redirect in one live flow.
 	if (resolved.kind === "live" && resolved.record) {
 		resolved.record.interruptedAt = undefined;
-		if (resolved.record.sessionPath)
-			writeSteerWatermark(resolved.record.sessionPath, payload);
 	}
 
 	// Always type: the receiving session owns admission and automatic draining.
