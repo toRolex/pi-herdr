@@ -39,6 +39,11 @@ const pendingHost = globalThis as typeof globalThis & {
 };
 const pendingSessions = pendingHost[pendingSessionsKey] ??= new Map();
 const gatedHosts = new WeakSet<object>();
+const hostBoundaries = new WeakMap<object, { allowCommit(details: Record<string, unknown>): boolean }>();
+const parentSinks = new WeakMap<object, (msg: SteeredMessage) => void>();
+export function rememberParentDeliverySink(pi: ExtensionAPI, sink: (msg: SteeredMessage) => void): void {
+	parentSinks.set(pi, sink);
+}
 
 /**
  * Build the steer sink for a session: pi.sendMessage with delivery's exact
@@ -49,7 +54,13 @@ const gatedHosts = new WeakSet<object>();
 export function makeDeliverySink(
 	pi: ExtensionAPI,
 	confirmation?: { getBranch(): readonly unknown[]; getSessionFile?: () => string | undefined; now?: () => number; timeoutMs?: number },
+	boundary?: { allowCommit(details: Record<string, unknown>): boolean },
 ): (msg: SteeredMessage) => void {
+	if (boundary) hostBoundaries.set(pi, boundary);
+	if (!confirmation && !boundary) {
+		const governed = parentSinks.get(pi);
+		if (governed) return governed;
+	}
 	let getBranch = confirmation?.getBranch;
 	let getSessionFile = confirmation?.getSessionFile;
 	let lastKnownHostFile: string | undefined;
@@ -113,6 +124,11 @@ export function makeDeliverySink(
 					return false;
 				}
 				if (proof.hostFile !== file || !proof.eventId || !proof.token || proof.channel !== "push") return false;
+				const currentBoundary = hostBoundaries.get(pi);
+				if (currentBoundary && !currentBoundary.allowCommit(details)) {
+					ledger.deferPush(proof.eventId, proof.token);
+					return false;
+				}
 				return ledger.claimPush(proof.eventId, proof.token);
 			},
 		});

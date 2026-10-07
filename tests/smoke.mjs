@@ -80,6 +80,7 @@ const expected = [
 	// the open message channel (issue 05) — absorbed send_prompt, the last of
 	// the legacy trio
 	"herdr_message_agent",
+	"herdr_wake_subscription",
 	// the lifecycle pair (issue 10): turn cancel + the gone-agent recovery move
 	"herdr_interrupt_agent",
 	"herdr_resume_agent",
@@ -154,15 +155,15 @@ const selfReportActive =
 // is self-report's (when in-pane), the delivery busy tracker, and receiver
 // inbox busy tracking, never the footer's.
 assert(
-	(events.agent_start?.length ?? 0) === (selfReportActive ? 3 : 2),
+	(events.agent_start?.length ?? 0) === (selfReportActive ? 4 : 3),
 	"agent_start: self-report, delivery busy tracker, and receiver inbox — no footer hook",
 );
 assert(
-	(events.turn_end?.length ?? 0) === 1,
+	(events.turn_end?.length ?? 0) === 2,
 	"one turn_end durable result confirmation hook (footer remains probe-diagnostics)",
 );
 assert(
-	events.session_start?.length === (selfReportActive ? 9 : 8),
+	events.session_start?.length === (selfReportActive ? 10 : 9),
 	"session_start: probe, widget, input wake, delivery renderer, orchestrator session, receiver inbox, registry restore, durable sink, and in-pane self-report",
 );
 assert(

@@ -75,9 +75,12 @@ import {
 	type SteeredMessage,
 	makeDeliverySink,
 	rememberOrchestratorSession,
+	rememberParentDeliverySink,
 	trackOrchestratorBusy,
 	terminalWake,
 } from "./push.js";
+
+import { registerParentDelivery } from "./parent-delivery.js";
 
 export { makeDeliverySink };
 
@@ -99,6 +102,8 @@ export interface DeliveryDeps {
 	extract?: (sessionPath: string) => ExtractedResult | null;
 	/** The steer sink — default: pi.sendMessage into THIS session. */
 	push?: (msg: SteeredMessage) => void;
+	/** Production receiver persists pull-only events without dispatching them. */
+	storePullOnly?: boolean;
 	now?: () => number;
 	/** Bounded grace between first absence and the gone resolution (10s). */
 	goneGraceMs?: number;
@@ -777,6 +782,7 @@ async function deliverTerminal(
 	paneLive = false,
 	adopted = false,
 ): Promise<void> {
+	msg = { ...msg, details: { ...msg.details, name: record.name, agentId: record.agentId, runId: record.runId, sequence: record.sequence } };
 	if (adopted) {
 		await deliverAdopted(deps, record, kind, msg, paneLive);
 		return;
@@ -924,7 +930,7 @@ function pushTerminal(
 	msg: SteeredMessage,
 	notes: HerdrSettings["notifications"],
 ): void {
-	if (notes === "none") return;
+	if (notes === "none" && !deps.storePullOnly) return;
 	logDetectLatency(deps, msg);
 	(deps.push ?? (() => {}))(msg);
 }
@@ -1226,7 +1232,11 @@ export function registerDelivery(pi: ExtensionAPI): void {
 			}
 		}
 	});
-	const push = makeDeliverySink(pi);
+	let parent: ReturnType<typeof registerParentDelivery>;
+	const sink = makeDeliverySink(pi, undefined, { allowCommit: details => parent.allowCommit(details) });
+	parent = registerParentDelivery(pi, sink, () => defaultLoad().notifications);
+	const push = parent.accept;
+	rememberParentDeliverySink(pi, push);
 	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {
 		try {
@@ -1242,6 +1252,7 @@ export function registerDelivery(pi: ExtensionAPI): void {
 			const fleet = await fleetList();
 			await deliverOnce({
 				push,
+				storePullOnly: true,
 				fleet,
 				busy,
 				sessionPath: currentOrchestratorSession(),
@@ -1252,7 +1263,7 @@ export function registerDelivery(pi: ExtensionAPI): void {
 			/* best-effort */
 		}
 	};
-	exitWatch = observeExitSidecars({ push, busy }, tick);
+	exitWatch = observeExitSidecars({ push, busy, storePullOnly: true }, tick);
 	deliveryTimer = setInterval(() => {
 		exitWatch?.sync();
 		void tick();

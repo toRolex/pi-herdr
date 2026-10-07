@@ -1,0 +1,2182 @@
+
+> @torolex/pi-herdr@1.0.0 test
+> node tests/circular-exchange.mjs && node tests/smoke.mjs && node tests/substrate.mjs && node tests/completion-body.mjs && node tests/spec43-t2.mjs && node tests/spec43-t3-host.mjs && node tests/spec43-t3-ledger.mjs && node tests/spec43-t3-result.mjs && node tests/spec43-t7-parent.mjs && node tests/spec43-t7-wake.mjs && node tests/spec43-t7-sdk.mjs && node tests/settings.mjs && node tests/launchplan.mjs && node tests/modes.mjs && node tests/spawn.mjs && node tests/grid.mjs && node tests/agentfiles.mjs && node tests/message.mjs && node tests/message-transport.mjs && node tests/inbox.mjs && node tests/inbox-sdk.mjs && node tests/delivery-entry.mjs && node tests/delivery-sdk.mjs && node tests/delivery-lineage-sdk.mjs && node tests/delivery-durable-sdk.mjs && node tests/delivery-reload-sdk.mjs && node tests/delivery-quiet-reload-sdk.mjs && node tests/delivery-pending-session.mjs && node tests/delivery-registry-failure-sdk.mjs && node tests/lifecycle.mjs && node tests/delivery.mjs && node tests/delivery-render.mjs && node tests/render-reload-sdk.mjs && node tests/completion-channel.mjs && node tests/status.mjs && node tests/input-wake.mjs && node tests/widget.mjs && node tests/workflow.mjs && node tests/workflow-journal-saved.mjs && node tests/workflow-card.mjs
+
+GREEN circular exchange snapshot tolerates system deltas without replaying stale spawn results
+  ✓ package rejects hosts older than the verified sections-API floor 1.0.2
+  ✓ package pi-ai peer follows the supported host's compatible 1.x range
+  ✓ package Node floor matches its required host and pi-ai
+
+[1] Extension load + tool registration (AC1, AC7)
+  ✓ registered herdr_spawn_agent
+  ✓ registered herdr_save_agent
+  ✓ registered herdr_get_agent_result
+  ✓ registered herdr_message_agent
+  ✓ registered herdr_wake_subscription
+  ✓ registered herdr_interrupt_agent
+  ✓ registered herdr_resume_agent
+  ✓ registered herdr_list_agents
+  ✓ registered herdr_run_workflow
+  ✓ registered herdr_run_command
+  ✓ registered herdr_read_pane
+  ✓ registered herdr_wait_output
+  ✓ registered herdr_send_keys
+  ✓ exactly 13 tools (got 13)
+  ✓ herdr_send_prompt absent (cut from the surface)
+  ✓ herdr_start_agent absent (cut from the surface)
+  ✓ herdr_delegate absent (cut from the surface)
+  ✓ herdr_get_agent absent (cut from the surface)
+  ✓ herdr_stop_agent absent (cut from the surface)
+  ✓ herdr_rename_agent absent (cut from the surface)
+  ✓ herdr_focus_agent absent (cut from the surface)
+  ✓ herdr_explain_agent absent (cut from the surface)
+  ✓ herdr_split_pane absent (cut from the surface)
+  ✓ herdr_close_pane absent (cut from the surface)
+  ✓ herdr_list_panes absent (cut from the surface)
+  ✓ herdr_get_pane absent (cut from the surface)
+  ✓ herdr_resize_pane absent (cut from the surface)
+  ✓ herdr_zoom_pane absent (cut from the surface)
+  ✓ herdr_move_pane absent (cut from the surface)
+  ✓ herdr_swap_panes absent (cut from the surface)
+  ✓ herdr_list_tabs absent (cut from the surface)
+  ✓ herdr_create_tab absent (cut from the surface)
+  ✓ herdr_get_tab absent (cut from the surface)
+  ✓ herdr_focus_tab absent (cut from the surface)
+  ✓ herdr_rename_tab absent (cut from the surface)
+  ✓ herdr_close_tab absent (cut from the surface)
+  ✓ herdr_list_workspaces absent (cut from the surface)
+  ✓ herdr_create_workspace absent (cut from the surface)
+  ✓ herdr_get_workspace absent (cut from the surface)
+  ✓ herdr_focus_workspace absent (cut from the surface)
+  ✓ herdr_rename_workspace absent (cut from the surface)
+  ✓ herdr_close_workspace absent (cut from the surface)
+  ✓ herdr_worktree_create absent (cut from the surface)
+  ✓ herdr_worktree_open absent (cut from the surface)
+  ✓ herdr_worktree_list absent (cut from the surface)
+  ✓ herdr_worktree_remove absent (cut from the surface)
+  ✓ herdr_api_snapshot absent (cut from the surface)
+  ✓ herdr_session_list absent (cut from the surface)
+  ✓ herdr_session_stop absent (cut from the surface)
+  ✓ herdr_session_delete absent (cut from the surface)
+  ✓ agent_start: self-report, delivery busy tracker, and receiver inbox — no footer hook
+  ✓ one turn_end durable result confirmation hook (footer remains probe-diagnostics)
+  ✓ session_start: probe, widget, input wake, delivery renderer, orchestrator session, receiver inbox, registry restore, durable sink, and in-pane self-report
+  ✓ registered the /subagents config command
+  ✓ the /herdr command is gone (renamed /subagents)
+  ✓ ask-user blocked active:true → blocked
+  ✓ ask-user blocked active:false → working (turn resumes)
+  ✓ ask-user blocked ignores malformed payload
+  ✓ herdr:blocked channel matches current pi-ask-user contract
+  ✓ ask-user blocked channel matches legacy rpiv contract
+  ✓ cursor ask-question blocked channel matches pi-cursor-sdk contract
+  ✓ herdr_send_keys description carries ⚠️ (AC7: ctrl+c interrupts a process)
+  ✓ herdr_list_agents has parameters schema
+  ✓ herdr_list_agents has execute()
+  ✓ herdr_get_agent_result has parameters schema
+  ✓ herdr_get_agent_result has execute()
+  ✓ herdr_message_agent has parameters schema
+  ✓ herdr_message_agent has execute()
+  ✓ herdr_wake_subscription has parameters schema
+  ✓ herdr_wake_subscription has execute()
+  ✓ herdr_interrupt_agent has parameters schema
+  ✓ herdr_interrupt_agent has execute()
+  ✓ herdr_resume_agent has parameters schema
+  ✓ herdr_resume_agent has execute()
+  ✓ herdr_spawn_agent has parameters schema
+  ✓ herdr_spawn_agent has execute()
+  ✓ herdr_save_agent has parameters schema
+  ✓ herdr_save_agent has execute()
+  ✓ herdr_run_command has parameters schema
+  ✓ herdr_run_command has execute()
+  ✓ herdr_read_pane has parameters schema
+  ✓ herdr_read_pane has execute()
+  ✓ herdr_wait_output has parameters schema
+  ✓ herdr_wait_output has execute()
+  ✓ herdr_send_keys has parameters schema
+  ✓ herdr_send_keys has execute()
+  ✓ herdr_run_workflow has parameters schema
+  ✓ herdr_run_workflow has execute()
+
+[2] Version floor: pure classification (v0.6 issue 01)
+  ✓ parseVersion('herdr 0.9.0') -> {0,9,0}
+  ✓ parseVersion tolerates pre-release suffix (0.7.3-preview)
+  ✓ parseVersion -> null on garbage
+  ✓ parseVersion -> null on empty
+  ✓ MIN_HERDR_VERSION is 0.9.0
+  ✓ 0.9.0 -> at least 0.9
+  ✓ 0.9.5 -> at least 0.9 (patch ignored)
+  ✓ 1.0.0 -> at least 0.9
+  ✓ 0.8.9 -> below 0.9
+  ✓ null version -> below (safe refusal)
+  ✓ floorError: 0.9.0 (at the floor) -> null
+  ✓ floorError: 0.10.1 -> null
+  ✓ floorError: 0.7.3 -> HERDR_TOO_OLD naming version + upgrade pointer
+  ✓ floorError: 0.7.5 -> HERDR_TOO_OLD naming version + upgrade pointer
+  ✓ floorError: 0.8.9 -> HERDR_TOO_OLD naming version + upgrade pointer
+  ✓ floorError: unknown version -> HERDR_TOO_OLD (refuses rather than guess)
+  ✓ floorError: missing binary -> null (natural HERDR_UNAVAILABLE, one error)
+
+[3] herdr() unavailable path (AC5)
+  ✓ missing binary -> HERDR_UNAVAILABLE, no throw/hang (AC5)
+
+[4] herdr() envelope parse + error mapping + raw text
+  ✓ parses success envelope -> result
+  ✓ maps agent_start_failed -> AGENT_START_FAILED (got AGENT_START_FAILED)
+  ✓ parses stderr error envelope -> mapped code + details.code (0.7.5 emits errors on stderr)
+  ✓ textOk returns raw stdout as data
+
+[5] herdr() timeout (AC6)
+  ✓ hanging process -> TIMEOUT after ~1203ms (AC6)
+  ✓ timeout fires promptly (no hang)
+
+[6] Real herdr binary: parse real JSON output
+  ✓ real herdr.exe 'api schema --json' parsed as JSON (validates native spawn + parse)
+
+[7] Version probe + floor gate (e2e, node fake — v0.6 issue 01)
+  ✓ probe -> ok when herdr runs (spawns + parses --version, e2e)
+  ✓ formatVersion returns a string
+  ✓ probe -> missing when herdr binary absent
+  ✓ below floor -> HERDR_TOO_OLD naming the version + upgrade pointer
+  ✓ every call refused below the floor (no tool half-works)
+  ✓ unparseable version -> HERDR_TOO_OLD
+  ✓ missing binary -> HERDR_UNAVAILABLE (single clean error, no double-up)
+  ✓ at floor (0.9.0) -> call proceeds through the single exec path
+
+[8] herdr_spawn_agent exposes agent_args (the local-ext loader)
+  ✓ herdr_spawn_agent registered
+  ✓ herdr_spawn_agent's inline agent exposes agent_args
+  ✓ herdr_spawn_agent exposes no raw argv (dropped custom-argv surface)
+
+[9] herdr_wait_agent argv — 'agent wait --until' (the one wait path)
+  ✓ transitionWaitArgs exported from orchestration
+  ✓ single status -> 'agent wait --until'
+  ✓ multi-status -> one call with repeatable --until (idle+done raced together)
+  ✓ working/blocked/unknown -> the same 'agent wait --until' path (no version branch)
+
+[10] herdr_delegate submit+wait argv ('agent prompt --wait')
+  ✓ promptWaitArgs exported from orchestration
+  ✓ one 'agent prompt <target> <text> --wait --timeout <ms>' call
+  ✓ prompt text with spaces stays a single positional argv element
+  ✓ --timeout is stringified (spawn argv must be strings)
+
+[11] T3: drop custom/argv; validate agent kind against live list
+  ✓ parseAgentKinds parses the trailing `kinds: a|b|c` line (lowercased)
+  ✓ parseAgentKinds -> null when no kinds line
+  ✓ AGENT_KINDS_FALLBACK is a non-trivial hardcoded list
+  ✓ getAgentKinds falls back to AGENT_KINDS_FALLBACK when herdr unavailable
+  ✓ getAgentKinds caches per session (same array reference on 2nd call)
+  ✓ kindError: known kind -> null (valid)
+  ✓ kindError: case-insensitive (PI == pi)
+  ✓ kindError: unknown kind -> VALIDATION_ERROR listing valid kinds
+  ✓ herdr_spawn_agent's inline agent.kind is a free string (live-validated)
+
+[12] pane-sync quartet (run/read/wait_output/send_keys)
+  ✓ waitOutputArgs exported from sync (pure argv builder, offline-testable)
+  ✓ registered herdr_run_command
+  ✓ registered herdr_read_pane
+  ✓ registered herdr_wait_output
+  ✓ registered herdr_send_keys
+  ✓ herdr_run_command has promptSnippet
+  ✓ herdr_run_command has promptGuidelines
+  ✓ herdr_run_command promptGuidelines name the tool
+  ✓ herdr_read_pane has promptSnippet
+  ✓ herdr_read_pane has promptGuidelines
+  ✓ herdr_read_pane promptGuidelines name the tool
+  ✓ herdr_wait_output has promptSnippet
+  ✓ herdr_wait_output has promptGuidelines
+  ✓ herdr_wait_output promptGuidelines name the tool
+  ✓ herdr_send_keys has promptSnippet
+  ✓ herdr_send_keys has promptGuidelines
+  ✓ herdr_send_keys promptGuidelines name the tool
+  ✓ waitOutputArgs: --match path with default 30s timeout
+  ✓ waitOutputArgs: --regex path with source/lines/timeout/raw
+  ✓ waitOutputArgs: --timeout is stringified (spawn argv must be strings)
+  ✓ herdr_run_command exposes a 'command' string param
+  ✓ herdr_send_keys description carries ⚠️ (AC7: ctrl+c interrupts a process)
+  ✓ herdr_send_keys exposes agentScope (pane send-keys vs agent send-keys)
+
+[13] Worktree machinery survives the cut (powers `isolated`)
+  ✓ worktrees registers no tools (registerWorktrees deleted with the surface cut)
+  ✓ createWorktreeArgs exported from worktrees (pure argv builder)
+  ✓ createWorktreeArgs: full option set serializes in documented flag order with --json
+  ✓ createWorktreeArgs: focus:false -> --no-focus; undefined options omitted; --json always present
+  ✓ removeWorktreeArgs: bare 'worktree remove --json'
+  ✓ removeWorktreeArgs: --workspace + --force
+  ✓ normalizeWorktree maps snake_case -> camelCase (open_workspace_id)
+  ✓ extractWorktree: unwraps the first element of a worktrees array
+  ✓ extractWorktree: unwraps a `worktree` wrapper
+  ✓ extractWorktree: returns a bare worktree object as-is
+  ✓ src/tools/layout.ts deleted (no internal consumer)
+  ✓ src/tools/introspection.ts deleted (no internal consumer)
+
+✅ ALL PASS (179 passed, 0 failed)
+
+[1] Session-dir shape — pi's default encoding
+  ✓ Windows cwd encodes exactly like observed pi dirs (--C--Users-Andrew--)
+  ✓ POSIX cwd strips the leading slash and flattens separators
+  ✓ separators/colons collapse to dashes, spaces kept (pi's exact encoding)
+  ✓ sessionsDirFor = <agentDir>/sessions/<encoded>
+
+[2] Seeding — parent-owned file before launch
+  ✓ filename is <timestamp>_<uuid>.jsonl (2026-09-19T12-34-56-789Z_test-uuid-1234.jsonl)
+  ✓ timestamp uses pi's :/. → - form
+  ✓ file exists and is EMPTY (pi initializes a --session empty file itself)
+  ✓ created under the pi-default dir for the child cwd
+  ✓ sidecar sits beside the session (<session>.exit)
+
+[3] JSONL extraction — the exact last assistant message
+  ✓ all lines parse
+  ✓ extracts the last assistant message
+  ✓ message object is VERBATIM (round-trips byte-identically)
+  ✓ text = text blocks joined, thinking/toolCall blocks excluded
+  ✓ no assistant message → null
+  ✓ torn final line counted malformed
+  ✓ extraction tolerates a torn tail (user message is not a result)
+
+[4] Sidecar typing — {type:done|error} with mined payload
+  ✓ done parses
+  ✓ error sidecar keeps stopReason + errorMessage
+  ✓ error without a message gets an honest fallback message
+  ✓ malformed JSON → invalid
+  ✓ unknown payload type → invalid
+  ✓ minedAssistantError trims and requires stopReason=error
+  ✓ normal/aborted messages carry no mined error
+  ✓ no sidecar → missing
+  ✓ done sidecar reads from <session>.exit
+  ✓ garbage sidecar → invalid
+
+[5] Stance — autonomous default, interactive override
+  ✓ unset fields → autonomous
+  ✓ auto_exit: true → autonomous
+  ✓ auto_exit: false → interactive
+  ✓ interactive: true → interactive (override)
+  ✓ interactive wins over auto_exit
+
+[6] Child extension — pure fns
+  ✓ normal stop → auto-exit
+  ✓ error stop → still exits (typed error sidecar tells the parent)
+  ✓ aborted → stays open for inspection
+  ✓ no messages → default exit
+  ✓ mines the latest assistant error
+  ✓ sidecar typing: settled normal → done
+  ✓ sidecar typing: retry exhaustion → typed error
+  ✓ denied list parses
+  ✓ collapsed strip: [scout] — 12 tools · 4 denied (Ctrl+H)
+  ✓ expanded strip lists tools + denied
+  ✓ anonymous child still labels itself
+
+[7] Child extension — registration against a mock pi
+  ✓ without PI_HERDR_SESSION the extension is a no-op
+  ✓ session named herdr/<spawn-name>
+  ✓ identity strip rendered aboveEditor content
+  ✓ Ctrl+H toggles the strip
+  ✓ agent_done tool registered
+  ✓ agent_settled wired (the definitive idle signal)
+  ✓ agent_done wrote the typed done sidecar with the final text
+  ✓ agent_done exits the session
+  ✓ bare agent_done is refused without shutdown or a new sidecar
+  ✓ autonomous settle → done sidecar + exit
+  ✓ error settle does NOT exit immediately nor overwrite the sidecar (retry grace window)
+  ✓ agent_start within the grace window cancels the error exit (retry survives)
+  ✓ quiet grace window → provider failure reaches the parent as a typed error sidecar
+  ✓ aborted run does NOT auto-exit
+  ✓ interactive children never auto-close nor write a settle sidecar
+
+[8] Launch plan — --session + -e injection and registry growth
+  ✓ spawn accepted ()
+  ✓ stance recorded on the registry
+  ✓ sessionPath recorded
+  ✓ activityPath recorded (reserved for 07)
+  ✓ launch plan = --session + -e child extension, then identity/mode-hint blocks (multiline → temp file), then the spec's own flags
+  ✓ agent start receives the composed launch plan
+  ✓ child env carries the substrate contract (PI_HERDR_*) and the root session pointer
+  ✓ the spawn record stores lineage: root pointer and this session as owner
+  ✓ spawn response reports stance + sessionPath
+  ✓ interactive stance derived from the definition
+  ✓ interactive child gets AUTO_EXIT=0 (never auto-closes)
+  ✓ non-pi kinds: no session substrate, plain argv launch plan
+  ✓ isolated spawn seeds a session
+  ✓ isolated spawn seeds under the worktree path, not the parent cwd
+
+[9] get_agent_result — engine paths
+  ✓ settled idle → done
+  ✓ result text extracted EXACTLY from the JSONL
+  ✓ full message object carried verbatim in details
+  ✓ session + sidecar paths in the view
+  ✓ auto-exited pane: sidecar wins over fleet-gone, result intact
+  ✓ failing child surfaces as a typed error
+  ✓ no sidecar + gone pane → gone
+  ✓ gone carries last-known registry metadata (incl. session path)
+  ✓ queued record reports queued
+  ✓ mid-flight snapshot carries the message-so-far, marked interim
+  ✓ live pane + failed last attempt: non-terminal waiting with the typed payload (grace semantics)
+  ✓ dead pane + mined failure → typed error carrying last-known metadata
+  ✓ interactive child + settled error → terminal error (never keeps polling)
+  ✓ adopted pane: pane-tail fallback reads the tail
+  ✓ tail read used exactly once for the adopted pane
+  ✓ spawned pi child: JSONL, never pane-tail
+  ✓ spawned non-pi child: settled result read via the pane-tail fallback with the lines budget
+  ✓ bounded wait polls until the terminal state, then returns the result
+
+[10] Registration — surface convergence
+  ✓ herdr_get_agent_result registered
+  ✓ schema: target, and no wait (single-shot; the engine's wait stays internal)
+
+✅ ALL PASS (91/91)
+pi-herdr delivery detect segment=sidecar→push name=body-child 4ms
+✓ persisted toolCall-only declaration delivers full sidecar + push body
+✓ sidecar persistence failure is visible and never closes the pane
+✓ old-user-turn body and bare declaration are refused
+✓ new run cannot reuse previous run body without a new user entry
+pi-herdr delivery detect segment=sidecar→push name=settle 36ms
+pi-herdr delivery detect segment=sidecar→push name=error 20ms
+pi-herdr delivery detect segment=sidecar→push name=rearm 22ms
+✓ auto-settle / error / idle-rearm preserve the same body
+✓ validated structured-only completion remains allowed
+pi-herdr delivery detect segment=sidecar→push name=child 5ms
+spec43-t2: stable durable event, recovery, close reload/retry and stale guards passed
+spec43-t3-host: real SDK queue cancellation, drain re-arbitration and disk receipt boundaries passed
+spec43-t3-ledger: passed
+spec43-t3-result: registered consumption and real ExtensionRunner/provider push-first, pull-first, queued-stale, parallel-pulls, concurrent-push-pull passed
+T7_PARENT_BUSY_CLOSING_FINISHED_NATURAL_PASS
+spec43-t7: persistence, explicit subscriptions, model tool and visible I/O failures passed
+spec43-t7-sdk: real SDK lifecycle, nextTurn, tool noninterrupt, production closing/finished/natural/explicit wake, busy hold with ordinary/terminate tools and gate rejection/recovery passed
+
+[1] Defaults when no files exist
+  ✓ all keys at defaults (incl. the models structure)
+  ✓ models.default unset, models.agents empty, idle_rearm 15, workflows on, layout grid
+  ✓ surface and allow_save_agent are gone from the key table
+  ✓ every source is default
+  ✓ no issues
+
+[2] Precedence: project wins per key, per-key sources
+  ✓ project overrides global per key (default_kind)
+  ✓ global models.default inherited when project silent (nested key)
+  ✓ project-only key applies (max_parallel_agents)
+  ✓ untouched key keeps its default
+  ✓ default_kind source: project
+  ✓ models.default source: global (nested path)
+  ✓ max_parallel_agents source: project
+  ✓ notifications source: default
+
+[3] models.agents: per-name merge across both files
+  ✓ entries merge across files, project winning per name
+  ✓ record source: highest-precedence contributor (project)
+  ✓ global-only record applies
+  ✓ record source: global when only global contributed
+
+[4] deepMerge: objects merge per key, scalars replace
+  ✓ nested objects merge key-by-key, project wins
+  ✓ scalar replaced by project
+  ✓ arrays replaced, not concatenated
+
+[5] Malformed JSON reported honestly
+  ✓ malformed project file reported with its path
+  ✓ global values still apply
+  ✓ source falls through to global
+  ✓ remaining keys at defaults
+  ✓ both malformed files reported
+  ✓ non-object top level reported
+  ✓ defaults still resolve
+
+[6] Invalid values skipped (with issue), other file wins
+  ✓ both files' values invalid -> default
+  ✓ both invalid -> default
+  ✓ invalid enum falls through to global
+  ✓ out-of-floor number rejected -> default
+  ✓ empty models.default rejected -> default (unset)
+  ✓ record with a non-string value rejected wholesale -> default
+  ✓ invalid layout_mode falls through to the default (grid)
+  ✓ each invalid value reported as ignored (7: depth×2, notifications, idle_rearm, layout_mode, models.default, models.agents)
+
+[6b] layout_mode: missing is grid, explicit spiral wins
+  ✓ missing layout_mode → grid from the default
+  ✓ explicit spiral → spiral from the project file
+
+[7] writeSetting: nested persist, preserve, unset-by-delete, refuse malformed
+  ✓ nested write ok
+  ✓ nested key written, sibling branch preserved
+  ✓ unknown keys preserved
+  ✓ unset write ok
+  ✓ null deletes the nested key
+  ✓ sibling entries survive the delete
+  ✓ record-key null write ok
+  ✓ record null write removes models.agents (whole-key delete)
+  ✓ top-level write
+  ✓ write creates global file + dirs
+  ✓ global write persisted
+  ✓ malformed file refused with honest error
+  ✓ malformed file not clobbered
+
+[8] writeRecordEntry: one models.agents pin at a time
+  ✓ entry write ok
+  ✓ entry overwritten in place
+  ✓ new entry added alongside
+  ✓ empty models.agents pruned (no {} husk)
+  ✓ next read sees the empty record
+
+[9] Menu: flat rows, ordering, sources, no restart markers
+  ✓ menu title
+  ✓ safety gate -> behavior order
+  ✓ Kill-all then Done last
+  ✓ bool row shows key = value (source: …)
+  ✓ unset string renders as (unset)
+  ✓ empty record renders as {}
+  ✓ no restart-required markers left (surface died)
+  ✓ Done exits the loop
+
+[10] Menu: bool toggle persists to owning file; kill-switch kills nothing
+  ✓ default-sourced key writes the project file
+  ✓ no herdr call made, no global file touched (kill-switch is a gate only)
+  ✓ no save-target prompt — write goes to the owning file
+  ✓ save notify names the file
+  ✓ menu re-renders with new value + source
+
+[11] Menu: enum pick (default_kind) + global-owned key writes global
+  ✓ kind picker uses the live kind list
+  ✓ no save-target dialog — the global owner file is written directly
+  ✓ global file updated
+  ✓ project file never created (project checkout untouched)
+
+[12] Menu: number input validates before writing
+  ✓ out-of-range input rejected with error notify
+  ✓ nothing written on invalid input
+  ✓ valid input persisted
+
+[13] Menu: models.default free input, set and unset
+  ✓ free model id persisted nested
+  ✓ row re-renders with the pin
+  ✓ empty input unsets the pin and prunes the empty models object
+  ✓ row re-renders as unset
+
+[14] Menu: models.agents pin add/edit/remove via two inputs
+  ✓ pin written nested under models.agents
+  ✓ record row renders entries compactly
+  ✓ empty name cancels the edit
+  ✓ empty model removes just that pin
+  ✓ row re-renders without the pin
+  ✓ removal reaches into the global file (pruned empty)
+  ✓ project entries untouched
+  ✓ row re-renders without the cross-file pin
+  ✓ unpinned name refused honestly
+  ✓ no file created just to delete from it
+
+[15] Menu: Kill all agents (declined / confirmed / failure)
+  ✓ declined confirm terminates nothing
+  ✓ confirmation dialog shown
+  ✓ lists agents first
+  ✓ closes pane 1
+  ✓ closes pane 2
+  ✓ success notify
+  ✓ partial failure reported honestly
+  ✓ empty fleet reported
+
+[16] Menu: malformed file notified once; cancel path
+  ✓ malformed file surfaced once (menu re-render does not re-notify)
+  ✓ number editor prompts once, cancelled input aborts the edit
+
+[17] /subagents command: bare + config open the menu; unknown word refused
+  ✓ /subagents command registered
+  ✓ bare /subagents opens the settings menu
+  ✓ /subagents config opens the settings menu
+  ✓ unknown sibling word refused with a pointer (room to grow)
+
+[18] Schema consistency
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for agents_kill_switch
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for default_kind
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for models.default
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for models.agents.<name>
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for max_parallel_agents
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for max_spawn_depth
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for notifications
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for idle_rearm_minutes
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for workflows_enabled
+  ✓ DEFAULT_SETTINGS matches SETTING_KEYS for layout_mode
+  ✓ exactly one safety gate first
+  ✓ surface / allow_save_agent absent from the key table
+
+[16] Menu: stop workflow run (issue 14) + kill-all stops runs
+  ✓ Stop-workflow row shows when runs are live (before Kill-all)
+  ✓ a picker lists the live runs
+  ✓ picker rows carry name + N/M agents
+  ✓ stopping confirms against the named run
+  ✓ the picked run id is stopped
+  ✓ the stop is acknowledged
+  ✓ no live runs → no Stop row
+  ✓ kill-all stops live workflow runs (after confirm)
+
+123 passed, 0 failed (123 total)
+
+[1] resolveRouting — 5-level precedence
+  ✓ nothing set → model unset
+  ✓ nothing set → thinking unset
+  ✓ level 1 model wins
+  ✓ level 1 thinking wins
+  ✓ level 2 model wins
+  ✓ level 2 thinking wins
+  ✓ level 3 model wins
+  ✓ level 3 thinking unset → falls to unset (no explicit pin)
+  ✓ level 4 model wins
+  ✓ level 5 model = parent's provider/id
+  ✓ level 5 thinking is a no-op (child keeps its own default)
+  ✓ no parent model → unset
+  ✓ empty pin + empty default fall through to parent
+  ✓ anonymous definition skips the agents-pin level
+  ✓ blank strings are unset at every level
+  ✓ mixed: model from spawn
+  ✓ mixed: thinking from frontmatter
+
+[2] validateRouting — enforce-or-error, errors name the level
+  ✓ valid model + no thinking → no error
+  ✓ bare id names the level (model "gpt-5.2" from routing level 2 (frontmatter of "scout"): not an exact provider/model-id — pass "provider/model-id" (no fuzzy resolution).)
+  ✓ bare id → VALIDATION_ERROR
+  ✓ unknown id names the level (model "anthropic/claude-haiku-9" from routing level 1 (spawn param): no such model in pi's model registry — exact provider/model-id required.)
+  ✓ unauthenticated provider names the level (model "openai/gpt-5.2" from routing level 4 (models.default): provider "openai" has no configured authentication.)
+  ✓ bad thinking names the level (thinking "ultra" from routing level 3 (models.agents pin for "scout"): must be one of off|minimal|low|medium|high|xhigh|max.)
+  ✓ thinking "off" is valid
+  ✓ thinking "minimal" is valid
+  ✓ thinking "low" is valid
+  ✓ thinking "medium" is valid
+  ✓ thinking "high" is valid
+  ✓ thinking "xhigh" is valid
+  ✓ thinking "max" is valid
+  ✓ thinking on incapable kind names level + kind (thinking "high" from routing level 2 (frontmatter of "scout"): kind "claude" cannot enforce thinking — use a kind with a thinking flag (pi) or drop the pin.)
+  ✓ no registry refused naming level (model "prov/m-ok" from routing level 2 (frontmatter of "scout"): no model registry available to validate against (exact authenticated provider/model-id required).)
+  ✓ level 5 names itself (model "nope/nope" from routing level 5 (parent session): no such model in pi's model registry — exact provider/model-id required.)
+
+[3] task artifact — long tasks ride a file beside the session
+  ✓ short prompt stays inline
+  ✓ no write for a short prompt
+  ✓ exactly-threshold prompt stays inline
+  ✓ over-threshold prompt → <session>.task.md
+  ✓ artifact file carries the verbatim task
+  ✓ one-line reference (Read your task from /sessions/--C--Me-proj--/2026-09-20T00-00-00-000Z_uuid.jsonl.task.md and execute it; the file is the complete task.)
+  ✓ no session → inline even when long
+  ✓ write failure → AGENT_START_FAILED naming the cause
+
+[4] identity + mode-hint blocks — lean, golden strings
+  ✓ identity block golden (named type)
+  ✓ identity block golden (anonymous inline)
+  ✓ autonomous mode-hint golden
+  ✓ interactive + standalone → no mode hint
+  ✓ fork mode-hint golden
+  ✓ lineage-only gets the seeded-context note too
+  ✓ nothing to say → no flags
+  ✓ replace: def prompt on --system-prompt, blocks on --append-system-prompt
+  ✓ append: one combined --append-system-prompt value
+  ✓ blocks alone still ride --append-system-prompt
+
+[5] buildLaunchPlan — full argv goldens
+  ✓ pi default argv: --session → -e
+  ✓ pi argv order: substrate → spec flags (routing + raw args last)
+  ✓ later duplicate flags win (last-wins override)
+  ✓ non-pi passthrough: spec flags only
+
+[6] routing end to end through spawnAgent (fakes)
+  ✓ bad settings pin refused naming level 3 (model "prov/not-a-model" from routing level 3 (models.agents pin for "Explore"): no such model in pi's model registry — exact provider/model-id required.)
+  ✓ no pane on routing refusal
+  ✓ spawn ok ()
+  ✓ settings pin lands on the argv
+  ✓ result surfaces the resolved model
+  ✓ identity/mode-hint blocks appended for pi children
+  ✓ result surfaces resolved thinking
+  ✓ argv carries the spawn-level thinking flag
+  ✓ one --model flag total (routing resolves BEFORE the flag is emitted)
+  ✓ inline def spawn ok ()
+  ✓ def args (frontmatter args:) precede spawn-level agent_args
+  ✓ long-task spawn ok ()
+  ✓ submitted prompt is the one-line reference (Read your task from /var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pi-herdr-lp-cSvLxq/se…)
+  ✓ artifact file carries the verbatim multi-KB task
+  ✓ record stamps the artifact path
+  ✓ unknown-kind spawn ok ()
+  ✓ level-5 model skipped for a kind without model support (no-op, not refusal)
+  ✓ parent model inherited ()
+  ✓ no registry + model to pin → honest error naming level 5 (model "prov/m-ok" from routing level 5 (parent session): no model registry available to validate against (exact authenticated provider/model-id required).)
+  ✓ result surfaces session_mode
+  ✓ registry record carries session_mode
+  ✓ registry record carries the routing resolution
+
+✅ ALL PASS (77/77)
+
+[1] Child header — pi's v3 shape with the parentSession link
+  ✓ header is {type: session, version: 3} (pi's CURRENT_SESSION_VERSION)
+  ✓ fresh session id (uuid seam)
+  ✓ ISO timestamp (now seam)
+  ✓ cwd is the CHILD's cwd
+  ✓ parentSession carries the parent session FILE path (what /resume reads)
+  ✓ no parentSession key when there is no parent (standalone never uses this, but the builder is honest)
+
+[2] Fork copy — truncation boundary (just before the LAST user message)
+  ✓ copies m1,m2 — everything before the last user message (["m1","m2"])
+  ✓ the copied exchange is user→assistant
+  ✓ no user message → nothing truncated
+  ✓ in-flight parent turn after the last user message does not leak into the child
+
+[3] Fork copy — noise filter + fresh linear re-chain
+  ✓ only type:message entries copy (model_change/compaction/custom are session-entry noise)
+  ✓ parentId re-chained linearly (first entry roots the tree; pi's context walk follows parentIds from the leaf)
+  ✓ original ids/timestamps/message objects verbatim (traceable to the parent)
+  ✓ id-less message entries get a deterministic id instead of being dropped
+
+[4] Seed lines — lineage-only vs fork
+  ✓ lineage-only = the header line ONLY (zero copied turns)
+  ✓ fork = header + the copied conversation
+
+[5] Selection — spawn fork:true forces, frontmatter selects, default standalone
+  ✓ standalone spawn ok ()
+  ✓ standalone file stays EMPTY (pi initializes its own header on boot)
+  ✓ lineage-only spawn ok ()
+  ✓ frontmatter session-mode lineage-only seeds header-only with the link
+  ✓ registry records the mode
+  ✓ fork:true spawn ok ()
+  ✓ fork:true overrides the definition's lineage-only — conversation copies
+  ✓ registry + spawn result report fork
+  ✓ child header carries a FRESH id + the parent link
+  ✓ degraded spawn ok ()
+  ✓ fork with no parent conversation seeds an EMPTY file (≡ standalone on disk)
+  ✓ mode reports the SELECTION (fork) even when nothing could be copied
+  ✓ unreadable parent file → no content written (empty file)
+  ✓ fork:true on claude refuses naming the field (kind "claude" cannot enforce "session_mode" — pass raw flags via agent_args, or use a kind with native support (pi).)
+
+[6] Tool surface — fork param exists
+  ✓ herdr_spawn_agent schema carries the fork override
+
+PASS: 31/31 assertions passed
+
+[0] registry persistence restores identity and preserves legacy unknowns
+  ✓ registry reload round-trips stable identities and sequence
+  ✓ legacy identity remains unknown and flagged for review
+
+[1] `type` xor `agent` — exactly one
+  ✓ both type+agent errors mentioning 'exactly one'
+  ✓ bare resolveSpecifier (no opt-in) still errors asking for one — save_agent keeps the demand
+  ✓ prompt-only specifier (neither type nor agent) resolves the general-purpose registry type
+  ✓ inline field type error names the field
+  ✓ unknown inline keys ignored (cross-dialect no-ops)
+  ✓ agent string coerces to the registry type, honestly noted
+  ✓ type object coerces to the inline definition, honestly noted
+  ✓ both-present refuses BEFORE coercion even when both shapes are wrong
+  ✓ agent-string spawn ok ()
+  ✓ engine: agent string treated as type, coercedNote surfaced
+  ✓ type-object spawn ok ()
+  ✓ engine: type object treated as inline definition, coercedNote surfaced
+
+[2] Built-in trio — tintinweb content verbatim, no model pins
+  ✓ exactly the trio, in order
+  ✓ general-purpose present
+  ✓ general-purpose name verbatim
+  ✓ general-purpose description verbatim
+  ✓ general-purpose system prompt verbatim
+  ✓ general-purpose tools = all tools (omitted)
+  ✓ general-purpose prompt_mode append verbatim
+  ✓ general-purpose carries NO model pin (inherit)
+  ✓ general-purpose kind pi
+  ✓ Explore present
+  ✓ Explore name verbatim
+  ✓ Explore description verbatim
+  ✓ Explore system prompt verbatim
+  ✓ Explore tools allowlist verbatim
+  ✓ Explore prompt_mode replace verbatim
+  ✓ Explore carries NO model pin (inherit)
+  ✓ Explore kind pi
+  ✓ Plan present
+  ✓ Plan name verbatim
+  ✓ Plan description verbatim
+  ✓ Plan system prompt verbatim
+  ✓ Plan tools allowlist verbatim
+  ✓ Plan prompt_mode replace verbatim
+  ✓ Plan carries NO model pin (inherit)
+  ✓ Plan kind pi
+  ✓ fixture records tintinweb's Explore pin (deliberately dropped)
+
+[3] Unknown `type` errors listing available types
+  ✓ unknown type errors
+  ✓ error lists the built-in trio
+  ✓ error lists session inline definitions too
+  ✓ listAgentTypes: session first, then built-ins
+  ✓ session layer shadows a same-name built-in
+
+[4] `name` fallback chain → unique pane handle
+  ✓ taken name falls back to -2
+  ✓ chain continues -3
+  ✓ free name untouched
+
+[5] kind/model merge + enforce-or-error per kind
+  ✓ spawn params win
+  ✓ definition fills when param absent
+  ✓ settings default_kind fills the chain
+  ✓ pi spec with all fields is fine
+  ✓ claude + skills errors naming the field, pointing at agent_args
+  ✓ codex + system_prompt errors
+  ✓ codex + model is allowed (verified -m flag)
+  ✓ unknown kind + model errors (passthrough knows no flags)
+  ✓ gemini + model allowed (verified --model)
+  ✓ Explore + kind claude merges cleanly (claude enforces its fields)
+  ✓ Plan + kind codex errors on the MERGED spec (system_prompt)
+
+[6] buildAgentArgs — definition → CLI flags per kind
+  ✓ Explore pins its read-only system prompt (replace mode)
+  ✓ Explore allowlist joins comma-separated
+  ✓ general-purpose passes no flags (empty prompt, all tools, no model)
+  ✓ prompt_mode append maps to --append-system-prompt
+  ✓ skills repeat --skill; model pins
+  ✓ claude denylist maps to --disallowedTools
+  ✓ agent_args passthrough (raw flags last)
+
+[6b] multiline args — temp-file carrier (pi) or honest refusal
+  ✓ pi multiline prompt → temp-file path substituted in place
+  ✓ prompt file written verbatim
+  ✓ repeatable append values get distinct files
+  ✓ claude multiline prompt refuses (no file flag)
+  ✓ non-prompt multiline value refuses naming the flag
+  ✓ single-line values pass through untouched
+
+[7] Spawn depth — env counter, boundary correct
+  ✓ unset = 1
+  ✓ empty = 1
+  ✓ valid int parses
+  ✓ malformed = 1
+  ✓ non-positive = 1
+  ✓ root (unset=1) → child 2 ≤ max 2: allowed
+  ✓ depth 2 → child 3 > max 2: refused
+  ✓ max 1 → root cannot spawn at all
+  ✓ max 3, depth 2 → child 3: allowed
+
+[8] Gate order — kill-switch before depth before cap
+  ✓ kill-switch wins when all three gates trip
+  ✓ depth wins over cap
+  ✓ cap alone queues (accepted, not refused)
+  ✓ all clear spawns
+
+[9] Engine — background spawn end to end, child env stamped
+  ✓ spawn ok ()
+  ✓ right after submit: working
+  ✓ paneId returned
+  ✓ explicit name is the handle
+  ✓ definition type reported
+  ✓ child depth = root(1) + 1
+  ✓ child env: incremented depth
+  ✓ child env: orchestrator pane from HERDR_PANE_ID
+  ✓ launch plan leads with the parent-owned --session + injected child extension; Explore's prompt follows
+  ✓ prompt submitted to the pane
+  ✓ prompt-only spawn accepted ()
+  ✓ {prompt} alone resolves type general-purpose
+  ✓ prompt-only default rides the built-in's pi kind
+  ✓ no HERDR_PANE_ID → orchestrator var omitted
+  ✓ kill-switch refuses with zero pane side effects
+  ✓ depth-2 session refused at max_spawn_depth 2
+  ✓ unknown kind errors against the kind list
+
+[10] Inline definitions spawn and register session-ephemerally
+  ✓ inline spawn ok, type = its name
+  ✓ inline system_prompt reached the child CLI
+  ✓ inline definition registered session-ephemerally
+  ✓ later spawn resolves the inline definition via `type`
+  ✓ anonymous inline gets agent-<timestamp>
+  ✓ anonymous inline is NOT registered (no name to address)
+
+[11] Name chain through the engine (param → def → auto, uniquified)
+  ✓ no param, no inline name → definition name
+  ✓ taken definition name falls back -2
+  ✓ explicit param wins
+  ✓ taken explicit name falls back -2
+
+[12] Over-cap spawn queues; pane appears when a slot frees
+  ✓ cap 1: first spawn starts
+  ✓ over-cap spawn accepted with stable agent/run identity and no pane
+  ✓ queued record created no pane
+  ✓ wait: ms on a queued spawn returns queued on expiry
+  ✓ drain starts one queued record
+  ✓ queued record now has a pane
+  ✓ drained run retains its accepted identity
+  ✓ the third stays queued (cap still held)
+  ✓ a hand-spawned pane in the fleet does not queue the session's spawn
+
+[13] `wait` vocabulary (deterministic — fakes settle instantly)
+  ✓ wait: true returns done on settle
+  ✓ wait: true returns on blocked
+  ✓ wait: ms returns working on expiry
+  ✓ default returns immediately (background)
+
+[14] isolated: true — herdr-side worktree
+  ✓ worktree path returned
+  ✓ worktree create called once
+  ✓ child cwd = worktree path
+  ✓ isolated + cwd errors (no silent surprise)
+
+[15] Failure honesty — start/boot/submit errors carry the handle
+  ✓ start failure names the handle
+  ✓ boot failure reports the pane id (pane exists)
+  ✓ NOT_STARTED pastes once and presses Enter once
+
+[16] Tool registration surface
+  ✓ herdr_spawn_agent registered
+  ✓ static description no longer carries the built-in menu block
+  ✓ prepareLoadout path is fully removed
+  ✓ description points at the <agent-roster> system-prompt section
+  ✓ roster is written on before_agent_start
+  ✓ roster renders names as JSON strings in the agent-roster section
+  ✓ roster includes menu safety note
+  ✓ handler is idempotent — rewrite replaces, never appends
+  ✓ spawn tool inactive — stale key cleared, other extensions' sections untouched
+  ✓ section header declares the tool linkage and the type parameter
+  ✓ execute with BOTH type and agent errors cleanly
+  ✓ the old neither-given refusal is gone from the spawn surface
+  ✓ spawn tool schema has no wait parameter
+  ✓ spawn tool description does not claim the call blocks
+  ✓ description states accepted/queued/starting and does not promise the child has started
+  ✓ tool spawn returns starting before the child pane exists, even if the caller passed wait:true
+  ✓ returning starting does not mean the child has booted
+  ✓ under cap: accepted as starting
+  ✓ over cap: queued immediately, wait:true does not block through the queue
+
+[17] Golden-spiral pane layout (nextSplit + start-time wiring)
+  ✓ spawn #1: spawner's pane, right, ratio 0.6
+  ✓ spawn #2: previous child's pane, down
+  ✓ spawn #3: previous child's pane, right (alternates)
+  ✓ no live sibling → the spawner's pane (fallback)
+  ✓ spawner not in a pane → undefined target (--current)
+  ✓ spawn ga ok ()
+  ✓ spawn gb ok ()
+  ✓ spawn gc ok ()
+  ✓ #1 splits the spawner's pane right at 0.6
+  ✓ #2 splits child #1's pane (p1) down
+  ✓ #3 splits child #2's pane (p2) right
+  ✓ fallback spawn ok ()
+  ✓ all children exited → the spawner's pane again (direction by ordinal parity)
+  ✓ booting-sibling spawn ok ()
+  ✓ booting sibling's pane (p4) is the split target — pane list, not agent list
+  ✓ gf fallback spawn ok ()
+  ✓ closed sibling panes are skipped → the spawner's pane, direction by ordinal parity
+  ✓ parallel: mid-start predecessor is awaited and targeted (down) ({"name":"hb","agent":"pi","agentArgs":["--session","D:/tmp/sessions/2.jsonl","-e","D:/ext/child.ts","--system-prompt","/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pi-herdr-spawn-hb-sysprompt-1.md","--append-system-prompt","/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pi-herdr-spawn-hb-sysprompt-2.md","--tools","read,bash,grep,find,ls"],"env":{"PI_HERDR_SPAWN_DEPTH":"2","PI_HERDR_ORCHESTRATOR_PANE":"w9:p1","PI_HERDR_SESSION":"D:/tmp/sessions/2.jsonl","PI_HERDR_AGENT_ID":"c373fefa-63f9-420f-9a68-62da6713c86d","PI_HERDR_RUN_ID":"179e0807-3807-42e3-931f-db3beaa0a621","PI_HERDR_SEQUENCE":"1","PI_HERDR_NAME":"hb","PI_HERDR_AGENT":"Explore","PI_HERDR_AUTO_EXIT":"1","PI_HERDR_DENIED_TOOLS":"","PI_HERDR_ACTIVITY_FILE":"D:/tmp/sessions/2.jsonl.activity.json","PI_HERDR_IDLE_REARM_MS":"900000"},"split":"down","splitFrom":"p1","ratio":0.6})
+  ✓ hb spawn ok ()
+
+[18] layout_mode is read at START: grid by default, spiral when set
+  ✓ grid spawn ok ()
+  ✓ default layout is grid: first agent is the right half of the main pane ({"split":"right","from":"w9:p1","ratio":0.5})
+  ✓ spiral sa ok
+  ✓ spiral sb ok
+  ✓ explicit spiral: spawn #1 still splits right at 0.6
+  ✓ explicit spiral: spawn #2 still splits the previous child down
+
+[18b] grid tab creation carries the spawn cwd
+  ✓ group spawn with cwd ok ()
+  ✓ the group's new tab is created with the spawn cwd (["tab","create","--workspace","ws","--label","roster","--no-focus","--cwd","/tmp/spawn-cwd-target","--env","PI_HERDR_SPAWN_DEPTH=2","--env","PI_HERDR_ORCHESTRATOR_PANE=w9:p1","--env","PI_HERDR_SESSION=D:/tmp/sessions/1.jsonl","--env","PI_HERDR_AGENT_ID=51263a8e-5b25-409c-826c-acaf1a9a0e40","--env","PI_HERDR_RUN_ID=5ac2f752-e530-4aae-bc1f-35c3dff55fd6","--env","PI_HERDR_SEQUENCE=1","--env","PI_HERDR_NAME=cw","--env","PI_HERDR_AGENT=Explore","--env","PI_HERDR_AUTO_EXIT=1","--env","PI_HERDR_DENIED_TOOLS=","--env","PI_HERDR_ACTIVITY_FILE=D:/tmp/sessions/1.jsonl.activity.json","--env","PI_HERDR_IDLE_REARM_MS=900000"])
+
+[19] grid group: same group shares a tab; the 7th live occupant opens another
+  ✓ group spawn g1 ok ()
+  ✓ group spawn g2 ok ()
+  ✓ group spawn g3 ok ()
+  ✓ group spawn g4 ok ()
+  ✓ group spawn g5 ok ()
+  ✓ group spawn g6 ok ()
+  ✓ group spawn g7 ok ()
+  ✓ the first six of a group share one tab that is not the main tab (["t-1","t-1","t-1","t-1","t-1","t-1","t-2"])
+  ✓ the 7th live occupant of the group opens another tab (t-2)
+  ✓ a brand-new group tab reuses the tab's shell pane instead of splitting
+  ✓ the new group tab is created with the child's env, since agent start cannot stamp it
+  ✓ 8th group member ok
+  ✓ the 8th joins the group's second tab (t-2 vs t-2)
+  ✓ ungrouped spawn ok
+  ✓ no group → the orchestrator's tab
+  ✓ post-switch spawn ok
+  ✓ the spawn after the switch uses spiral ({"ratio":0.6,"split":"down"})
+  ✓ panes placed before the switch stay where they were
+
+[19b] the 7th live occupant of the main tab opens a tab, and does not become a 7th pane
+  ✓ main-tab spawn m1 ok
+  ✓ main-tab spawn m2 ok
+  ✓ main-tab spawn m3 ok
+  ✓ main-tab spawn m4 ok
+  ✓ main-tab spawn m5 ok
+  ✓ 7th main-tab occupant ok
+  ✓ exactly one unlabeled tab is created for the 7th occupant (commands [["tab","create","--workspace","ws","--no-focus","--env","PI_HERDR_SPAWN_DEPTH=2","--env","PI_HERDR_ORCHESTRATOR_PANE=w9:p1","--env","PI_HERDR_SESSION=D:/tmp/sessions/6.jsonl","--env","PI_HERDR_AGENT_ID=bcb3d6dd-eb3f-44cf-9f33-7ec9dc4ddb54","--env","PI_HERDR_RUN_ID=4c2ea8c6-2e94-482e-ae16-8553dd397e67","--env","PI_HERDR_SEQUENCE=1","--env","PI_HERDR_NAME=m7","--env","PI_HERDR_AGENT=Explore","--env","PI_HERDR_AUTO_EXIT=1","--env","PI_HERDR_DENIED_TOOLS=","--env","PI_HERDR_ACTIVITY_FILE=D:/tmp/sessions/6.jsonl.activity.json","--env","PI_HERDR_IDLE_REARM_MS=900000"]])
+  ✓ the 7th occupant is recorded on the new tab (t-1)
+  ✓ the main tab still holds 6 panes, not 7
+  ✓ the 7th attaches to the new tab's shell instead of splitting the main tab
+
+[19c] a hole above a live pane is reused by swapping, not by growing downward
+  ✓ h1 placed
+  ✓ h2 placed
+  ✓ h3 placed
+  ✓ h3 is recorded on the closed cell r1c2
+  ✓ the newcomer swaps with the pane that was under the hole (pane swap --panes p2,p3; got [["pane","swap","--panes","p2,p3"]])
+
+[20] concurrent grid starts do not take the same hole
+  ✓ three concurrent grid spawns all start
+  ✓ each concurrent start lands on its own cell (1:2, 2:2, 2:1)
+  ✓ concurrent second START splits the completed predecessor pane
+
+[21] a closed pane's cell is reused inside its own tab
+  ✓ k1 placed
+  ✓ k2 placed
+  ✓ k3 placed
+  ✓ the newcomer takes the closed cell on the same tab (1:2)
+
+[22] grid lock timeout / abort preserve serialization
+  ✓ queued grid START expires with TIMEOUT
+  ✓ aborted grid waiter resolves TIMEOUT
+  ✓ expired waiters cannot release the live owner's lock
+  ✓ next waiter observes owner pane after release
+  ✓ tab and agent launch carry identical child env including idle re-arm
+
+[23] roster menu — before_agent_start renders the effective registry
+  ✓ every spawn prompt guideline names herdr_spawn_agent
+  ✓ session inline defs are on the menu
+  ✓ project file wins over global
+  ✓ shadowed global definition does not appear
+  ✓ global-only defs are on the menu
+  ✓ overridden built-in shows only the winning definition
+  ✓ overridden built-in's original description is fully gone from this menu
+  ✓ a fresh registration with no override keeps the trio's full descriptions
+  ✓ names with whitespace/quotes/newlines render losslessly as JSON strings
+  ✓ the rendered name resolves verbatim through resolveAgentType
+  ✓ missing description is stated explicitly
+  ✓ malformed file is absent from the menu
+  ✓ unoverridden built-ins stay on the menu
+  ✓ groups appear session > project > global > built-in
+  ✓ entries within a group are code-point sorted by name
+  ✓ same registry renders byte-identical menus
+  ✓ menu tail carries the hint disclaimer and re-resolution wording
+  ✓ Unicode line separators in names render as one complete JSON-string line
+  ✓ line-safe name round-trips losslessly and resolves as type
+  ✓ session definition shadows both file layers exactly once on the menu seam
+  ✓ a saved .md enters the menu without refresh
+  ✓ a deleted .md leaves the menu without refresh
+  ✓ renamed file appears under the new name
+  ✓ removing the file removes the entry
+
+[24] roster description budget — flatten/escape/512-byte cap (issue 18)
+  ✓ multi-line/tab description flattened to a single line
+  ✓ flattened entry is one complete physical line in the menu
+  ✓ control character rendered as an escape, not a raw byte
+  ✓ Unicode whitespace and line separators flatten to ordinary spaces
+  ✓ non-whitespace C0, DEL and C1 controls render visibly as escapes
+  ✓ over-budget description carries the ellipsis marker
+  ✓ over-budget description is actually cut
+  ✓ rendered description (escaping + marker included) fits 512 UTF-8 bytes
+  ✓ description at exactly the budget is not truncated
+  ✓ astral code points are not split at the UTF-8 budget boundary
+  ✓ 512 bytes after control escaping remain complete without a marker
+  ✓ control escape stays whole at 508-byte prefix
+  ✓ control escape stays whole at 507-byte prefix
+  ✓ control escape stays whole at 506-byte prefix
+  ✓ control escape stays whole at 503-byte prefix
+  ✓ escape expansion and omission marker both count toward the budget
+  ✓ multibyte description truncated on a code-point boundary with marker, ≤512 bytes, no replacement chars
+  ✓ missing-description placeholder still intact
+  ✓ name over 512 UTF-8 bytes with quotes/newline renders losslessly
+  ✓ long name still resolves verbatim through resolveAgentType
+  ✓ true built-in Explore winner keeps its entire over-512-byte description
+  ✓ same registry renders byte-identical menus (budget path)
+  ✓ changed description reflects on the next request
+  ✓ overridden built-in gets the budget + marker, not the original description
+  ✓ all file entries survive with no total menu budget or count cap
+  ✓ session winners use the same description budget as file winners
+  ✓ model-visible menu states the small trusted registry scale contract
+
+[35] prompt readback — editor already clear confirms
+  ✓ spawn ok ()
+  ✓ cleared editor confirms the prompt
+  ✓ task pasted once
+  ✓ pasted text is the task
+  ✓ no extra Enter when the editor already cleared
+
+[35] unconfirmed prompt — one Enter, then the editor clears
+  ✓ spawn ok ()
+  ✓ second readback confirms
+  ✓ task still pasted once
+  ✓ Enter pressed once
+  ✓ read before the Enter and once after
+
+[35] still unconfirmed — report uncertain, paste once
+  ✓ uncertain spawn still returns ()
+  ✓ receipt says uncertain
+  ✓ caller-facing text says uncertain
+  ✓ task pasted once
+  ✓ one Enter was tried
+  ✓ the uncertain note does not repeat the task text
+
+[35] blocked is an already-started prompt, never press Enter
+  ✓ blocked confirms readback without Enter into approval overlay
+
+[35] detached tool acceptance delivers a later readback outcome
+  ✓ tool accepts before background readback
+  ✓ detached background start actually completes uncertain readback
+  ✓ background readback outcome persisted
+  ✓ real detach path reaches sink once with uncertain result
+  ✓ submission event neither terminates child nor pastes twice
+  ✓ submission push dedupe persisted
+  ✓ result snapshot exposes uncertain readback
+  ✓ internal fleet view retains submission diagnostics for UI
+  ✓ list projection publishes stable identity and unread summary
+  ✓ list projection excludes prompt bodies
+  ✓ repeated list read does not mutate registry or delivery state
+  ✓ list view carries #44 fields ({"paneId":"p1","name":"detached-unsure","agentId":"15c79818-6e0c-4625-874f-299a67105cce","runId":"00de623a-28da-4c33-9346-814885bc3e47","sequence":1,"activity":"idle","unread":0,"title":"Plan","kind":"pi","state":"starting","projected":true,"agentStatus":"idle","stance":"autonomous","promptSubmission":"uncertain"})
+
+[35] queued, finishing, and cancelled are not a verdict
+  ✓ slot holder started
+  ✓ queued spawn is not reported as submitted or failed
+  ✓ an already-done empty editor is not a submission and gets no Enter
+  ✓ cancellation is uncertain, not a failed submit, and sends no Enter
+
+✅ ALL PASS (307/307)
+
+[1] column count and the spec fill order
+  ✓ 1 slot is a single full-width column (got {"tabId":"t0","columns":1,"rows":1,"assignments":[{"id":"main","row":1,"col":1}]})
+  ✓ 2 slots: main left, a1 right, columns of 1/2 (got {"tabId":"t0","columns":2,"rows":1,"assignments":[{"id":"main","row":1,"col":1},{"id":"a1","row":1,"col":2}]})
+  ✓ 3 slots: main left half, two agents stacked on the right (got {"tabId":"t0","columns":2,"rows":2,"assignments":[{"id":"main","row":1,"col":1},{"id":"a1","row":1,"col":2},{"id":"a2","row":2,"col":2}]})
+  ✓ 4 slots: a3 is under the main window (got {"tabId":"t0","columns":2,"rows":2,"assignments":[{"id":"main","row":1,"col":1},{"id":"a1","row":1,"col":2},{"id":"a2","row":2,"col":2},{"id":"a3","row":2,"col":1}]})
+  ✓ 5 slots: three columns, a4 at the top of column 3 (got {"tabId":"t0","columns":3,"rows":2,"assignments":[{"id":"main","row":1,"col":1},{"id":"a1","row":1,"col":2},{"id":"a2","row":2,"col":2},{"id":"a3","row":2,"col":1},{"id":"a4","row":1,"col":3}]})
+  ✓ 6 slots: 3 columns by 2 rows, each column 1/3 (got {"tabId":"t0","columns":3,"rows":2,"assignments":[{"id":"main","row":1,"col":1},{"id":"a1","row":1,"col":2},{"id":"a2","row":2,"col":2},{"id":"a3","row":2,"col":1},{"id":"a4","row":1,"col":3},{"id":"a5","row":2,"col":3}]})
+
+[2] a 7th occupant opens a new tab; holes are reused
+  ✓ 7th occupant is alone on a new tab (got {"tabId":"t1","columns":1,"rows":1,"assignments":[{"id":"a6","row":1,"col":1}],"openedTab":true})
+  ✓ an empty slot is filled before the grid grows (got {"tabId":"t0","columns":2,"rows":2,"assignments":[{"id":"main","row":1,"col":1},{"id":"a1","row":1,"col":2},{"id":"a9","row":2,"col":2}]})
+  ✓ a hole in the middle is reused instead of growing (got {"tabId":"t0","columns":2,"rows":2,"assignments":[{"id":"main","row":1,"col":1},{"id":"a2","row":2,"col":2},{"id":"a9","row":1,"col":2}]})
+
+[2b] the 7th occupant carries the command that opens its tab
+  ✓ the 7th occupant's split opens a tab before any pane is made (got [["tab","create"]])
+  ✓ the overflow tab is unfocused and unlabeled (it stays on the orchestrator's group)
+  ✓ the overflow split names no pane on the full tab — the new tab's shell is the pane
+
+[2c] a hole above an occupied cell swaps into place
+  ✓ the newcomer splits the occupant under the hole downward (got {"paneId":"p-a2","direction":"down","at":{"row":1,"col":2}})
+  ✓ then swaps with that occupant, so the newcomer ends up in the hole (got [["pane","swap","--panes","p-a2,{new}"]])
+
+[3] split target keeps columns equal
+  ✓ the second agent splits the first agent downward, half and half (got {"paneId":"p-a1","direction":"down","ratio":0.5,"at":{"row":2,"col":2}})
+  ✓ the remaining half is split in half (got 0.5)
+  ✓ the third column splits right (got "right")
+  ✓ the left column shrinks by 1/6 of the tab first, so three columns end equal (got [["pane","resize","--pane","main","--direction","left","--amount","0.16666666666666666"]])
+
+[4] group tabs isolate capacity and holes
+  ✓ a group tab's 7th occupant opens another tab of that group (got "g2")
+  ✓ with no hole on THIS tab the next agent grows, it does not borrow another tab (got {"id":"a2","row":1,"col":2})
+  ✓ a hole on this group tab is filled before the grid grows (got {"id":"a8","row":1,"col":1})
+  ✓ left hole splits its right neighbor then swaps, without resize (got {"from":"right-pane","direction":"right","commands":[{"args":["pane","swap","--panes","right-pane,{new}"]}]})
+
+22 passed, 0 failed
+
+[1] parse — the full v0.6 field set, hand-written dialect
+  ✓ parses ()
+  ✓ every field lands on the definition contract
+  ✓ body = system_prompt
+  ✓ deny-tools → exclude_tools
+  ✓ args → agent_args (commas inside values survive)
+
+[2] unknown keys ignored — the shared-folder rule
+  ✓ prior-art + foreign keys never break the parse
+  ✓ known keys still land
+  ✓ their `system-prompt` key is theirs — ignored, not aliased
+  ✓ their `skill:` (singular) ignored — our key is `skills`
+  ✓ no phantom fields
+
+[3] honest validation — known-but-wrong names the field
+  ✓ bad bool names agent.auto_exit
+  ✓ bad session-mode names the field
+  ✓ bad prompt_mode names the field
+  ✓ malformed array names the field
+  ✓ non-string array member names the field
+  ✓ malformed quoted scalar reported
+  ✓ frontmatter-less file errors honestly
+  ✓ empty scalar ≡ absent
+  ✓ empty list ≡ absent
+  ✓ no `name` key → filename fallback
+  ✓ indented block-list lines ignored as foreign YAML
+  ✓ UTF-8 BOM stripped before the frontmatter match
+  ✓ CRLF frontmatter parses
+
+[4] format → parse round-trip
+  ✓ formats
+  ✓ re-parses ()
+  ✓ save→reload round-trip is value-exact (name verbatim, spaces included)
+  ✓ tricky scalar round-trips byte-exact
+  ✓ writer emits a JSON array for args
+  ✓ minimal def round-trips (body present, no phantom fields)
+  ✓ no system prompt → no body, no phantom system_prompt
+
+[5] format refuses what the dialect cannot carry
+  ✓ newline in a scalar refuses naming the field
+
+[6] loadFileAgents — precedence, first-hit, malformed files
+  ✓ project shadows global (first-hit-wins)
+  ✓ shadow serves the project content
+  ✓ global-only name still resolves
+  ✓ within a dir, first file claiming a name wins (stable order)
+  ✓ malformed files contribute nothing
+  ✓ both malformed files reported with path + problem
+  ✓ absent dirs are normal, not issues
+
+[7] resolveAgentType — session > project > global > built-in
+  ✓ project file shadows the built-in
+  ✓ global file serves when no project file
+  ✓ built-ins still resolve
+  ✓ session shadows files
+  ✓ unknown type errors
+  ✓ error lists file-layer names
+  ✓ error notes the skipped malformed file (honest reporting)
+  ✓ listAgentTypes: project, global, built-in order; malformed absent
+
+[8] saveAgent — targets, guards, save → reload
+  ✓ inline definition saves to project by default
+  ✓ file named from the agent name
+  ✓ a fresh load resolves the saved file
+  ✓ existing file refuses without overwrite
+  ✓ still refuses (guard is not sticky state)
+  ✓ overwrite: true replaces
+  ✓ replacement is what resolves afterwards
+  ✓ session entry persists by type
+  ✓ name slugified for the file name
+  ✓ registry name (not the slug) addresses it after reload
+  ✓ saving a built-in copy works
+  ✓ the saved copy shadows the built-in from the file layer immediately
+  ✓ anonymous inline definition refuses
+  ✓ type xor agent enforced on save too
+
+[9] spawn integration — file types, frontmatter args, definition cwd
+  ✓ spawn by file-layer type works ()
+  ✓ record carries type + kind
+  ✓ exactly one pane start
+  ✓ frontmatter model + body system prompt reach the argv
+  ✓ frontmatter args reach agentArgs (appended last)
+  ✓ frontmatter cwd reaches the pane start
+  ✓ spawn cwd overrides definition cwd
+  ✓ unknown type error lists file-layer names
+
+[10] tool registration — herdr_save_agent
+  ✓ herdr_save_agent registered
+  ✓ neither type nor agent errors
+  ✓ unknown type errors before writing anything
+
+✅ ALL PASS (71/71)
+
+[1] Resolution chain — pane-id, herdr name, enrichment
+  ✓ pane-id target resolves
+  ✓ receipt carries the resolved pane id
+  ✓ to = herdr name
+  ✓ send hit the resolved pane
+  ✓ byPane match names the handle
+
+[2] Resolution chain — registry handle states
+  ✓ gone handle errors
+  ✓ gone error names the handle and points at list_agents
+  ✓ queued handle errors (no pane exists to type into)
+  ✓ queued error names the handle and the queued state
+  ✓ startError reads as never-started, not queued
+  ✓ transport error passes through (not misreported as gone)
+
+[3] Reserved role — orchestrator
+  ✓ unset env errors
+  ✓ honest wording: no orchestrator above you / answer in-conversation
+  ✓ env pane resolves
+  ✓ to = the role label
+  ✓ sent to the orchestrator pane
+  ✓ dead orchestrator pane errors naming the pane
+  ✓ same-name agent does not steal the alias; it still resolves to the parent pane
+  ✓ text went to the parent, not w1:p7
+  ✓ no registry handle claimed for the role
+  ✓ unset env still says there is no orchestrator above you when a namesake is live
+  ✓ unset env does not deliver to the namesake
+
+[4] No match
+  ✓ unknown target errors
+  ✓ error names the target and points at list_agents
+
+[5] Physics-adaptive delivery
+  ✓ idle → message receipt
+  ✓ idle payload is enveloped (from/to attributes + text inside)
+  ✓ receipt carries the observed state
+  ✓ working queues enveloped
+  ✓ blocked → answer receipt
+  ✓ blocked payload is the raw text — no envelope
+  ✓ submit=false echoed in the receipt
+  ✓ submit=false reaches send
+  ✓ submit defaults true
+  ✓ messageAgent({eventId}) puts event= on the envelope and eventId on the receipt
+  ✓ a message without eventId is not given one
+  ✓ send error propagates
+
+[6] `from` identity chain (spawner-declared, never verified)
+  ✓ envelope shape: <agent-message from to> wrapping the text
+  ✓ envelope with an eventId adds the event attribute
+  ✓ PI_HERDR_AGENT_LABEL wins
+  ✓ PI_HERDR_NAME (what spawn stamps) is next
+  ✓ own pane's herdr name via HERDR_PANE_ID
+  ✓ pane id when the lookup fails
+  ✓ "session" when nothing is set (top-level)
+
+[7] Receipt shape + registration
+  ✓ receipt keys for a foreign target: delivered/target/to/from/state/delivery/submit
+  ✓ receipt names the handle for our spawns
+  ✓ delivered is literally true
+  ✓ herdr_message_agent registered
+  ✓ schema: required target+text, optional submit
+  ✓ description documents the envelope tag (no child-side parsing — the model reads it)
+  ✓ description carries the option-list caveat
+
+[9] Sender transport does not own receiver admission or pending queues
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ legacy pending flag does not hold text in sender process
+  ✓ receiver receives every transport input and applies its own shared budget
+  ✓ blocked answer stays raw and exempt
+
+[9] Known generations — refuse a cross-generation send and name the handles
+  ✓ same generation (same ownerSession) explicit send succeeds
+  ✓ explicit send to the direct parent pane succeeds
+  ✓ explicit send to the sender's own direct child succeeds
+  ✓ orchestrator still resolves only to the direct parent pane
+  ✓ known root pane without its own SpawnRecord is refused from a grandchild
+  ✓ known root refusal neither sends nor redirects
+  ✓ root metadata does not block its direct child
+  ✓ a known grandchild is refused and Keep using lists only the reachable handles
+  ✓ a refused cross-generation send is not redirected
+  ✓ an unowned bare pane (no registry, no lineage) still accepts an explicit pane-id
+  ✓ an unowned bare pane still accepts an explicit herdr name
+  ✓ a failed fleet query is an honest error, not permission to send
+  ✓ a failed registry read is an honest error, not permission to send
+
+[8] Registry contract — spawnRecords stays the shared home
+  ✓ clearSpawnRegistry/spawnRecords exported for engine consumers
+
+✅ ALL PASS (91/91)
+GREEN blocked default transport raw input; submit false; normal prompt unchanged
+GREEN receiver admission, shared pending cap, auto-drain, actual sender receipts, clock, failure retry and no loops
+inbox-sdk: passed
+pi-herdr delivery detect segment=sidecar→push name=leaf 1ms
+pi-herdr delivery detect segment=sidecar→push name=leaf 1ms
+delivery-entry: passed
+pi-herdr delivery detect segment=sidecar→push name=leaf 1ms
+pi-herdr delivery detect segment=sidecar→push name=leaf 11ms
+delivery-sdk: passed
+delivery-lineage-sdk: passed
+REAL_SDK_QUIET_TIMEOUT_DUPLICATE {"queueCount":1,"diskEntries":1,"tokens":["c7f6dba2-fdb4-4e64-a6f9-6647585ef535"]}
+REAL_SDK_BUSY_TIMEOUT_DUPLICATE {"queued":1}
+REAL_SDK_FALSE_DURABLE_ACK {"failure":"EISDIR","branchHasToken":true,"diskBackupHasToken":false,"closes":0,"pushError":"delivery pending durable confirmation; outcome unknown (queued); no timeout retry; original token remains pending"}
+delivery-reload-sdk: passed
+ACTUAL_SDK_RELOAD_QUIET_DEDUPE {"queue":1,"eventIds":["quiet-reload-event"],"tokens":["ef439b1e-18b7-4453-a861-9d926cc346b8"],"actualReload":true}
+delivery-pending-session: passed
+pi-herdr delivery detect segment=sidecar→push name=leaf 1ms
+pi-herdr delivery detect segment=sidecar→push name=leaf 3ms
+delivery-registry-failure-sdk: passed
+
+[1] Interrupt — resolution chain
+  ✓ registry handle resolves
+  ✓ Escape goes to the record's pane via the key-send machinery
+  ✓ pane id resolves through the registry (byPane)
+  ✓ herdr name resolves via agent get → byPane
+  ✓ unknown target errors NOT_FOUND
+  ✓ the unknown-target error points at the raw Escape escape hatch
+
+[2] Interrupt — honest refusals
+  ✓ non-pi kind refused
+  ✓ the non-pi refusal points at herdr_send_keys
+  ✓ queued record refused (no pane to interrupt)
+  ✓ never-started record refused
+  ✓ gone pane refused
+  ✓ the gone refusal names herdr_resume_agent (the recovery move)
+  ✓ settled (idle) pane refused — nothing to cancel
+  ✓ blocked pane is interruptible
+
+[3] Interrupt — happy path: the flag the projection reads
+  ✓ interrupt succeeds on a working child
+  ✓ interruptedAt stamped on the record
+  ✓ receipt carries {interrupted, name, target, was}
+  ✓ send failure surfaces as an error
+  ✓ no stamp when the Escape never landed
+  ✓ a failed live check surfaces honestly (never read as gone)
+
+[4] Composition — message_agent ends the interrupt (stop-and-redirect)
+  ✓ message delivered to the interrupted child
+  ✓ the flag is cleared BEFORE the send — new work is authoritative
+  ✓ interruptedAt cleared by the delivery
+  ✓ message to an adopted pane still works
+
+[5] Resume — refusals (handle-only, substrate, state, gates)
+  ✓ a raw path target is refused
+  ✓ the path refusal names the registry-handle rule
+  ✓ unknown handle refused
+  ✓ non-pi record refused (no pi session to replay)
+  ✓ a live pane is refused — resume is for gone agents
+  ✓ the live-pane refusal points at interrupt/message
+  ✓ a queued record is refused (it is not gone)
+  ✓ kill-switch refuses the resume (same gates as any spawn)
+  ✓ spawn-depth gate refuses the resume
+  ✓ re-derived non-pi kind refused — --session is pi-only
+  ✓ the kind refusal names the pi-session reason
+  ✓ a bad model pin refuses at resume (enforce-or-error, resolved now)
+  ✓ no definition (anonymous inline, no snapshot) refuses honestly
+
+[6] Resume — happy path: relaunch on the retained session
+  ✓ resume succeeds ()
+  ✓ the pane relaunches through the one launch path (same handle)
+  ✓ fresh paneId recorded
+  ✓ SAME retained session file (the registry holds it)
+  ✓ the launch plan replays the retained session (--session) + the injected extension
+  ✓ routing RE-RESOLVED now: the settings change since death took effect
+  ✓ record.routing carries the fresh resolution
+  ✓ the optional message is submitted as the opening prompt
+  ✓ record.prompt = the resume message
+  ✓ stale sidecars cleared — the old done can never re-deliver
+  ✓ transient state reset — the resumed run is a fresh watchable run
+  ✓ receipt marks the resume
+  ✓ re-resume after the first relaunch (its pane is gone too)
+  ✓ a resolvable type re-reads the .md — fresh frontmatter edits apply
+  ✓ the next resume picks up the NEW edit (resolved now, not at spawn)
+
+[7] Resume — queue at cap, silent resume, isolated worktree kept
+  ✓ over-cap resume is accepted queued (same gates as spawn)
+  ✓ the dead paneId is dropped so the drain picks the record up
+  ✓ no pane started while at cap
+  ✓ the drain starts the queued resume when a slot frees
+  ✓ the drain submits the resume message as the opening prompt
+  ✓ silent resume succeeds ()
+  ✓ a message-less resume submits NOTHING (the old task is not re-run)
+  ✓ the receipt reports the replayed, open pane
+  ✓ silent flag rides the record (a queued silent resume stays silent)
+  ✓ isolated resume succeeds
+  ✓ the retained worktree is reused — no second worktree
+  ✓ the child cwd is the retained worktree
+
+[8] The spawn-time definition snapshot precedes routing
+  ✓ spawnAgent runs ()
+  ✓ the snapshot carries NO resolved model (pre-routing capture)
+  ✓ the record's routing still carries the live resolution
+  ✓ live-pane guard fires before the resume
+  ✓ fallback resume runs ()
+  ✓ the fallback resume re-resolves to the CHANGED settings (prov/snapB, not the dead run's prov/snapA)
+  ✓ the new launch plan rides the re-resolved model
+
+[done] 71 passed, 0 failed
+
+[1] Sidecar rearm + takeover/steer markers
+  ✓ plain done sidecar carries no rearm (back-compat)
+  ✓ done + rearm parses
+  ✓ error + rearm parses with the mined message
+  ✓ non-boolean rearm ignored (tolerant)
+  ✓ unknown fields tolerated (forward compat)
+  ✓ done sidecar keeps the committed final text
+  ✓ old done sidecar without text still parses
+  ✓ blank or non-string sidecar text is treated as absent
+  ✓ sidecar text rides alongside rearm and structured
+  ✓ done sidecar keeps the root session pointer with the committed text
+  ✓ a missing, blank, or non-string root pointer is absent
+  ✓ done sidecar keeps a business eventId
+  ✓ error sidecar keeps a business eventId
+  ✓ an old sidecar with no eventId, or a blank/non-string one, still parses without inventing an id
+  ✓ error sidecar keeps the root session pointer
+  ✓ bare agent_done is refused when the session has no assistant text
+  ✓ the refusal is a non-empty message the model can correct from
+  ✓ agent_done is allowed once assistant text exists
+  ✓ no marker = not taken
+  ✓ marker present = taken
+  ✓ marker carries its mtime
+  ✓ no watermark = null
+  ✓ watermark round-trips
+  ✓ exact steer text matches
+  ✓ whitespace-insensitive match (chunked/pasted delivery)
+  ✓ short option-list answer matches its watermark
+  ✓ a human's own words do not match
+  ✓ missing input or watermark never matches
+  ✓ clear consumes the watermark
+  ✓ double clear does not throw
+
+[2] Child extension — takeover + idle re-arm
+  ✓ the parent's own steering echo is not a takeover
+  ✓ a matched watermark is consumed
+  ✓ a human's typing marks the takeover
+  ✓ the marker is written once (not rewritten per keystroke)
+  ✓ rpc input is programmatic, not a human takeover
+  ✓ input with no source field is treated as human (never slam shut)
+  ✓ taken-over settle does NOT auto-exit nor write an early sidecar
+  ✓ a keystroke resets the re-arm timer (cancelled until the next settle)
+  ✓ quiet re-arm window → {type:done, rearm:true} sidecar + pane close
+  ✓ a pane never slams shut on a human: the 30s error-exit grace is suppressed
+  ✓ the re-arm window exits with a typed, rearm-labeled error
+  ✓ taken-over INTERACTIVE pane re-arms too (stance-independent)
+  ✓ aborted run under takeover stays open with no re-arm timer
+  ✓ no takeover: autonomous clean settle still exits immediately (unlabeled)
+  ✓ settle sidecar carries the stamped root session pointer
+  ✓ clean settle sidecar carries a generated business eventId
+  ✓ agent_done sidecar carries the final text and the root session pointer
+  ✓ agent_done sidecar carries a generated business eventId
+
+[3] Delivery loop — detection routes + wake flags
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ sidecar done → the FULL final message is the push (the letter, not a doorbell)
+  ✓ autonomous done sidecar closes the pane after the result is pushed
+  ✓ notifications normal → the push wakes (triggerTurn via sink flags)
+  ✓ terminal event marked delivered in the registry
+  ✓ a declared event reference is preserved on the push
+  ✓ exactly ONE push and ONE close per terminal event (inline waits + pulls never double it)
+  ✓ done-delivery closes the child's leftover pane — exactly once (F2 promise)
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ rearm sidecar → full final body; auto-delivery label stays in details
+  ✓ rearm sidecar delivery closes the pane (the settings promise: auto-delivered, pane closes)
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ rearm:true alone still delivers and closes (upstream F2: only taken-over + non-rearm holds)
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ error sidecar → minimal failure body; typed failure reaches parent in details
+  ✓ autonomous error sidecar closes the pane after the failure is delivered
+  ✓ error details carry the mined failure
+  ✓ an error sidecar with no eventId does not invent one on the push
+  ✓ typed error delivery closes the pane too
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ a failed pane close does not swallow the delivered result
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ notifications quiet → delivers on the next natural turn (no wake)
+  ✓ notifications none → no completion push at all (pull-only), still marked delivered
+  ✓ notifications none still closes the pane (lifecycle promise, not a notification)
+  ✓ first absence starts the bounded grace (no false gone on one lost poll)
+  ✓ still within the grace window — nothing pushed
+  ✓ sentinel: after grace the JSONL's last message IS the delivered letter
+  ✓ the sentinel's mined-done delivery closes the leftover pane as well
+  ✓ sentinel mines stopReason=error → typed failure remains in details
+  ✓ pane vanished with no evidence → honest gone note, session retained
+  ✓ gone-note delivery closes the leftover pane too (best-effort; already gone = harmless)
+  ✓ a failed fleet observation skips the tick — never a false gone
+  ✓ reappearing clears the absence timer
+  ✓ a second absence starts a FRESH grace window
+  ✓ ...and is honored (still in grace)
+  ✓ blocked always wakes (regardless of the notifications setting)
+  ✓ the blocked wake is per episode, not per tick
+  ✓ a NEW blocked episode wakes again
+  ✓ a blocked child's pane is NEVER closed (it needs input, not a funeral)
+  ✓ blocked wakes even under notifications quiet
+  ✓ blocked wakes even under notifications none
+  ✓ a TAKEN-OVER pane never pushes mid-conversation (the human is right there)
+  ✓ takeover marker → quiet (no-wake) `user took over <agent>` note
+  ✓ record flags set
+  ✓ the note is sent once, not per tick
+  ✓ a queued record that failed its deferred start pushes the typed failure
+  ✓ still-queued records are skipped (nothing to watch yet)
+  ✓ a never-started record closes nothing (there was never a pane)
+  ✓ an autonomous non-pi child that settled delivers its pane tail
+  ✓ and its pane is closed
+  ✓ one push and one close
+  ✓ an autonomous non-pi child that is idle before any working turn stays open (prompt may not be in yet)
+  ✓ fleet done is enough evidence for a session-less child, even without a seen working turn
+  ✓ a failed pane-tail read delivers nothing and leaves the record unmarked
+  ✓ the next tick retries the tail read, then delivers and closes once
+  ✓ an empty pane tail is not a done result and does not close the pane
+  ✓ a later tick with a real tail delivers and closes once
+  ✓ an interactive non-pi child that is idle stays open
+  ✓ a workflow non-pi child is not closed by the per-child settle path
+  ✓ live idle WITHOUT a sidecar is not terminal (interactive children sit idle) — pull stays the route
+  ✓ an UNDELIVERED record's pane is never closed
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ interactive done sidecar still delivers
+  ✓ interactive done sidecar closes the pane too (fleet-wide F2)
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ a taken-over pane is not closed when its sidecar lands
+  ✓ an autonomous child that settled without a sidecar still delivers its result
+  ✓ and its pane is closed
+  ✓ a workflow child's terminal sidecar MARKS the record (row prunes) without a per-child push
+  ✓ a workflow child's settled pane STILL closes at its terminal mark (F10 — only the push is suppressed)
+  ✓ a workflow child's error sidecar is silent too (the run's report carries it)
+  ✓ a BLOCKED workflow child still wakes (an answer via message_agent resumes it)
+  ✓ a workflow child that vanishes is marked gone without a per-child push
+pi-herdr delivery detect segment=sidecar→push name=plain 0ms
+  ✓ ordinary children in the same registry keep their completion pushes
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ a taken-over pane that has NOT re-arm-delivered is never closed
+pi-herdr delivery detect segment=sidecar→push name=scout-2 0ms
+  ✓ the rearm delivery keeps its label in details and closes the taken-over pane
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ done push prefers the sidecar text over the session JSONL
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ blank sidecar text with no final produces an empty body under the minimal shell
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ a close never fires under a live agent — held pending (auto-exit race)
+  ✓ the held close retries once the fleet stops listing the pane
+  ✓ sidecar write event triggers exactly one delivery tick
+  ✓ debug log records detect latency from sidecar write to push (40ms)
+  ✓ the 2.5s poll backstop does not deliver the same sidecar event again
+  ✓ a failed sidecar watcher still leaves the poll backstop to deliver
+  ✓ poll delivery still logs detect latency when the watcher never fired
+  ✓ poll backstop is still once per event
+  ✓ the loop ticks no-op on an empty registry
+pi-herdr delivery detect segment=sidecar→push name=idle-done 0ms
+  ✓ idle done → steer + triggerTurn
+pi-herdr delivery detect segment=sidecar→push name=busy-done 0ms
+  ✓ busy done → followUp + triggerTurn (queued, tools not cancelled)
+pi-herdr delivery detect segment=sidecar→push name=default-idle 0ms
+  ✓ busy unset → idle default (steer + triggerTurn)
+  ✓ blocked stays steer + triggerTurn while busy (notifications normal)
+  ✓ blocked stays steer + triggerTurn while busy (notifications quiet)
+  ✓ blocked stays steer + triggerTurn while busy (notifications none)
+  ✓ stalled stays steer + triggerTurn while the orchestrator is busy
+pi-herdr delivery detect segment=sidecar→push name=err-quiet 0ms
+  ✓ error + quiet → nextTurn (no wake), even while busy
+  ✓ error + none → no push, still marked delivered
+pi-herdr delivery detect segment=sidecar→push name=err-normal 0ms
+  ✓ error + normal → steer + triggerTurn, even while busy
+pi-herdr delivery detect segment=sidecar→push name=done-quiet 0ms
+  ✓ done + quiet stays nextTurn even while busy
+  ✓ done + none → no push while busy
+pi-herdr delivery detect segment=sidecar→push name=done-normal-idle 0ms
+  ✓ done + normal + idle → steer
+pi-herdr delivery detect segment=sidecar→push name=done-normal-busy 0ms
+  ✓ done + normal + busy → followUp
+pi-herdr delivery detect segment=sidecar→push name=leaf 0ms
+  ✓ dead middle layer: the root push carries the grandchild's full letter
+  ✓ the adopted push is a done event marked adopted
+  ✓ an adopted sidecar with no eventId does not invent one on the push
+  ✓ adopting the orphan still closes its pane
+  ✓ a later tick, including resume, does not deliver the orphan twice
+  ✓ a living parent keeps the result: the root does not adopt it
+  ✓ a failed registry observation is not treated as an orphan
+  ✓ a session that is not the recorded root does not receive the orphan
+pi-herdr delivery detect segment=sidecar→push name=leaf 0ms
+  ✓ a failed orphan push does not close the pane and keeps the session
+  ✓ a failed orphan push is not marked delivered
+  ✓ a working orphan pane is not delivered and not closed
+  ✓ a blocked orphan pane is not delivered and not closed
+pi-herdr delivery detect segment=sidecar→push name=leaf 0ms
+  ✓ a confirmed orphan delivery pushes the letter once
+  ✓ a failed orphan pane close is observable and does not claim the pane closed
+  ✓ a failed close still retains the session file
+  ✓ delayed failed close is awaited and its pending/error state is persisted
+  ✓ a restored pending orphan close waits while the pane is working
+  ✓ a restored pending orphan close waits while the pane is blocked
+  ✓ after the result is delivered the empty orphan pane is recycled and the session stays
+  ✓ a successful restored retry clears the persisted close failure
+  ✓ a fresh-memory close retry rereads the takeover marker and holds the pane
+pi-herdr delivery detect segment=sidecar→push name=held 0ms
+  ✓ a taken-over orphan pane is not recycled after its result is delivered
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ sidecar JSON → readExitSidecar → deliverOnce push details.eventId equals the sidecar
+pi-herdr delivery detect segment=sidecar→push name=errant 0ms
+  ✓ an error sidecar's eventId is copied onto the error push
+pi-herdr delivery detect segment=sidecar→push name=leaf 0ms
+  ✓ an adopted done push copies sidecar.eventId
+  ✓ a blocked wake does not carry a completion eventId
+  ✓ a gone note does not carry a completion eventId
+
+169 passed, 0 failed
+  ✓ same message differs when expanded flips
+  ✓ folded summary names agent, kind, and char count (got "herdr-delivery · scout · done · 13 chars")
+  ✓ expanded display is the full body (got "done\nline-two")
+  ✓ empty body is one explicit line (got "herdr-delivery · scout · done · empty result")
+  ✓ empty-result display stays a single line
+  ✓ the no-assistant sentence folds as an empty result (got "herdr-delivery · scout · done · empty result")
+  ✓ empty-result sentence is not a char count
+  ✓ legacy empty result (no content field) is one line (got "herdr-delivery · scout · done · empty result")
+  ✓ legacy empty result stays a single line
+  ✓ model-facing content is not truncated by display folding
+  ✓ expanded display returns the same full content the model receives
+  ✓ message then completion: one notice, the completion
+  ✓ message-first merge keeps the completion body
+  ✓ completion then message: still one notice, the completion
+  ✓ reload of an already merged transcript does not present a second copy
+  ✓ different event ids stay two notices
+  ✓ a progress message without eventId is not merged away
+  ✓ a live message whose completion has not arrived is still presented
+pi-herdr delivery detect segment=sidecar→push name=scout 0ms
+  ✓ the presented pair is the real push details and the real message receipt
+  ✓ message then completion: blocked and a different eventId stay, the paired message is gone
+  ✓ completion then message: only the completion remains
+  ✓ reload of the same presented array does not add a row
+
+22 passed, 0 failed
+render-reload-sdk: passed (direct src/index, history/new renderers, both orders, ctrl+o, input)
+pi-herdr delivery detect segment=sidecar→push name=child 0ms
+pi-herdr delivery detect segment=sidecar→push name=child 0ms
+pi-herdr delivery detect segment=sidecar→push name=child 0ms
+pi-herdr delivery detect segment=sidecar→push name=child 0ms
+completion-channel: passed
+
+[1] Activity sidecar reader + age format + ten-state projection
+  ✓ no file = missing
+  ✓ garbage = invalid
+  ✓ wrong version = invalid
+  ✓ unknown phase = invalid
+  ✓ valid snapshot reads back with tool + freshness
+  ✓ seconds under a minute
+  ✓ minutes
+  ✓ hours + minutes
+  ✓ no pane, no startError = queued
+  ✓ startError without pane = gone
+  ✓ completion sidecar, delivery pending = finalizing
+  ✓ sidecar wins over pane absence (the child finished before dying)
+  ✓ delivered + pane closed = gone (consumed terminal)
+  ✓ delivered + pane lingering = waiting
+  ✓ pane vanished without sidecar = stalled (watchdog grace)
+  ✓ herdr blocked = blocked
+  ✓ active · bash 7m — the tool detail is real
+  ✓ streaming without a tool shows streaming age
+  ✓ activity waiting beats herdr working (settled, pane open)
+  ✓ working + no snapshot yet = coarse active (not stalled at once)
+  ✓ snapshot problem held ≥60s = stalled
+  ✓ non-pi panes report coarse running
+  ✓ settled idle pane = waiting (open and intentionally so)
+  ✓ boot window (unknown, pre-submit) = starting
+  ✓ 3h valid active never becomes stalled by aging
+  ✓ 3h valid waiting never becomes stalled by aging
+  ✓ interrupted derives from record.interruptedAt (settled pane, no snapshot)
+  ✓ interrupted beats herdr working immediately (not on next poll)
+  ✓ stale pre-interrupt snapshot discarded — a lagging bash 7m cannot overwrite the interrupt
+  ✓ the abort-settle (fresh waiting) does not clear the interrupted state
+  ✓ new work (fresh phase-active snapshot) returns it to active naturally
+  ✓ absence still wins — interrupted means the pane is still open
+  ✓ herdr blocked still wins while the escape is landing
+  ✓ transient inspection failure = last-known live (active)
+  ✓ vocabulary has queued
+  ✓ vocabulary has starting
+  ✓ vocabulary has active
+  ✓ vocabulary has waiting
+  ✓ vocabulary has blocked
+  ✓ vocabulary has interrupted
+  ✓ vocabulary has stalled
+  ✓ vocabulary has running
+  ✓ vocabulary has finalizing
+  ✓ vocabulary has gone
+
+[2] Child extension — the activity recorder
+  ✓ no activity file env → no recorder handlers registered
+  ✓ boot writes phase=starting
+  ✓ run start writes phase=active + activeSince
+  ✓ tool start records the current tool
+  ✓ tool end clears the tool
+  ✓ message_update marks streaming (within the write window)
+  ✓ a tool run clears streaming
+  ✓ settle writes phase=waiting and clears tool/streaming
+  ✓ rapid streaming updates are throttled to one write per window
+  ✓ the trailing flush lands within ~500ms with the final state
+
+[3] Watchdog — stall pings, stance suppression, aged-valid
+  ✓ absence without sidecar marks the record stalled
+  ✓ stall entry pings the orchestrator (wake)
+  ✓ a finished session is a completion, not a stall, even without a sidecar
+  ✓ a stalled episode pings once, not per tick
+  ✓ recovery pings the orchestrator once
+  ✓ recovery clears the stall flag
+  ✓ interactive stall stays widget-only (no steer ping)
+  ✓ a 3h valid active snapshot never becomes stalled by aging
+  ✓ a broken snapshot is stamped, not instantly stalled
+  ✓ a snapshot problem held ≥60s stalls + pings
+  ✓ snapshot recovery clears the problem and pings
+  ✓ a fleet outage is stamped, not instantly stalled
+  ✓ an outage held ≥60s stalls + pings (unhealthy inspection)
+  ✓ a healthy fleet observation recovers the outage stall
+  ✓ sidecar + absent pane is completion, not a stall
+  ✓ delivered records leave the watchdog's scope
+
+[4] get_agent_result — interim statuses speak the projected vocabulary
+  ✓ mid-flight pi child reports active · bash 7m
+  ✓ active view stays interim
+  ✓ non-pi panes report coarse running
+  ✓ boot-window idle reports starting (not idle)
+  ✓ transient status failure keeps the last-known-live view
+  ✓ unhealthy inspection past the threshold reports stalled honestly
+  ✓ gone answers with last-known registry metadata
+  ✓ failed-attempt interim stays non-terminal with the typed payload
+  ✓ adopted panes report coarse running via the tail fallback
+
+[5] herdr_list_agents — projected rows, queued rows, consumed rows
+  ✓ listAgentsView succeeds
+  ✓ our pi row reports `active · bash 7m`
+  ✓ adopted panes keep their coarse status
+  ✓ failed start remains visible under its original run identity
+  ✓ delivered start failure remains discoverable in the list
+  ✓ over-cap records report queued from the registry
+  ✓ absent pane without sidecar shows stalled
+  ✓ absent pane with sidecar shows finalizing (not stalled)
+  ✓ delivered (consumed) rows leave the fleet table
+  ✓ sidecar present (push in flight) shows finalizing
+
+[5] done: 89 passed, 0 failed
+GREEN input wake races, abort, cleanup, foreground/background, lifecycle and multi-session isolation
+
+[1] Pure formatting: elapsed, counts, rendering
+  ✓ zero elapsed (got "00:00")
+  ✓ seconds under a minute (got "00:23")
+  ✓ rolls into minutes (got "01:15")
+  ✓ minutes exceed 59 without hours (got "75:29")
+  ✓ active counts active + blocked (got 2)
+  ✓ open counts the rest (got 1)
+  ✓ busy fleet is not idle (got false)
+  ✓ nothing active (got 0)
+  ✓ amber flag when active = 0 (got true)
+  ✓ header + 3 rows + footer line
+  ✓ header carries title + counts: ╭─ Subagents ────────── 2 active · 1 open ─╮
+  ✓ row starts with elapsed: │ 00:10  scout-auth   active · bash 7m     │
+  ✓ row carries state · detail: │ 00:10  scout-auth   active · bash 7m     │
+  ✓ blocked row renders in the table: │ 00:10  reviewer-db  blocked          10s │
+  ✓ rows share one box width
+  ✓ right column is state ages: 7m,10s,10s
+  ✓ no state age duplicated beside an age-bearing detail: │ 00:10  scout-auth   active · bash 7m     │
+  ✓ row spans the box when the header dictates width: │ 00:10  scout-auth  waiting 10s  │
+  ✓ box closes with the footer border
+  ✓ busy fleet styles its border via the adapter
+  ✓ narrow render respects width: ╭─ Subagents ────── 2 active · 1 open ─╮ | │ 00:10  scout-…  active · bash 7m     │ | │ 00:10  review…  blocked          10s │ | │ 00:10  lint-s…  waiting          10s │ | ╰──────────────────────────────────────╯ |  ⚠ reviewer-db BLOCKED  10s 
+  ✓ narrow render truncates with an ellipsis
+  ✓ width 26: every line fits (got max 26)
+  ✓ width 13: every line fits (got max 13)
+  ✓ callout carries name + BLOCKED + age:  ⚠ reviewer BLOCKED  8m "Schema A (wide) or B (tall)?"
+  ✓ callout carries the question preview:  ⚠ reviewer BLOCKED  8m "Schema A (wide) or B (tall)?"
+  ✓ inverse styling wraps name + BLOCKED (adapter output preserved)
+
+[2] buildWidgetModel: freeze, pruning, ages
+  ✓ elapsed counts from startedAt (got 20000)
+  ✓ finalizing freezes the elapsed at its sighting (got 25000)
+  ✓ frozen elapsed stays frozen (got 25000)
+  ✓ freeze stamped at finalizing (got 25000)
+  ✓ blip back to active keeps the freeze (got 25000)
+  ✓ resume (fresh startedAt) recomputes elapsed (got 2000)
+  ✓ delivered record leaves the table (got 0)
+  ✓ state age passes through (got 120000)
+  ✓ first blocked sighting ages from zero (got 0)
+  ✓ blocked age grows across ticks (got 8000)
+  ✓ state change restarts the age (got 0)
+  ✓ interrupted ages from interruptedAt (got 4000)
+  ✓ stalled ages from problemSince (got 61000)
+  ✓ queued ages from spawnedAt (got 30000)
+  ✓ queued row keeps its state (got "queued")
+
+[3] fleetWidgetOnce: sink sees the model, empty clears once
+  ✓ live fleet sets the widget (got 1)
+  ✓ widget key is stable (got "herdr-fleet")
+  ✓ content is a render factory
+  ✓ factory renders the table
+  ✓ non-pi pane renders coarse running (got "running")
+  ✓ snapshot detail (`active · bash 7m`) rides the row
+  ✓ blocked callout previews the child's last message
+  ✓ empty fleet clears the widget exactly once (got 1)
+  ✓ clear passes undefined content (got undefined)
+  ✓ failed fleet observation keeps the last-known view
+  ✓ all-delivered fleet clears the widget (got 1)
+  ✓ all-delivered clear passes undefined (no shell) (got undefined)
+  ✓ clear stays cleared (no repeated setWidget) (got 1)
+
+[4] Workflow rows (issue 14): run-stamped children hidden, one row per live run
+  ✓ run-stamped records are not fleet rows (got 0)
+  ✓ one row per live run (got 1)
+  ✓ the row names the workflow (got "review-changes")
+  ✓ the run renders as running (got "running")
+  ✓ detail carries the N/M agent counts (got "1/3 agents")
+  ✓ elapsed from the run's start (got 60000)
+  ✓ the workflow row counts toward ACTIVE (got 1)
+  ✓ a live run is not idle (got false)
+  ✓ workflow-only fleet renders the table (got 1)
+  ✓ the workflow row renders
+  ✓ the workflow child itself does not
+  ✓ no rows + no runs clears the widget (got 1)
+  ✓ clear passes undefined (got undefined)
+
+[4] narrow terminal: no line exceeds the given width
+  ✓ width 32 still renders a box
+  ✓ width 32: line is 32 cols ("╭─ Subagents  2 active · 0 ope…╮")
+  ✓ width 32: line is 32 cols ("│ 00:10  …  blocked · ask… 10s │")
+  ✓ width 32: line is 32 cols ("│ 00:10  …  active · bash…     │")
+  ✓ width 32: line is 32 cols ("╰──────────────────────────────╯")
+  ✓ width 32: line is 27 cols (" ⚠ scout-auth BLOCKED  10s ")
+  ✓ width 20 still renders a box
+  ✓ width 20: line is 20 cols ("╭─ Subagents  2 ac…╮")
+  ✓ width 20: line is 20 cols ("│ 00:10  …  block……│")
+  ✓ width 20: line is 20 cols ("│ 00:10  …  activ……│")
+  ✓ width 20: line is 20 cols ("╰──────────────────╯")
+  ✓ width 20: line is 20 cols (" ⚠ sc… BLOCKED  10s ")
+  ✓ width 80 still renders a box
+  ✓ width 80: line is 46 cols ("╭─ Subagents ──────────── 2 active · 0 open ─╮")
+  ✓ width 80: line is 46 cols ("│ 00:10  scout-auth   blocked · ask_user 10s │")
+  ✓ width 80: line is 46 cols ("│ 00:10  reviewer-db  active · bash 7m       │")
+  ✓ width 80: line is 46 cols ("╰────────────────────────────────────────────╯")
+  ✓ width 80: line is 50 cols (" ⚠ scout-auth BLOCKED  10s \"Which schema, A or B?\"")
+  ✓ width 20 (SGR): the BLOCKED callout still renders
+  ✓ width 20 (SGR): the inverse style is closed (no style bleed)
+
+88 passed, 0 failed
+
+[1] meta pre-parse — pure-literal contract
+  ✓ extractMeta reads name/description/phases (brace inside detail survives the scan)
+  ✓ body strips only `export` (6 spaces keep offsets)
+  ✓ export keyword replaced by spaces, byte length unchanged
+  ✓ impure meta (variable) is rejected with the pure-literal hint
+  ✓ impure meta (call) is rejected with the pure-literal hint
+  ✓ impure meta (spread) is rejected with the pure-literal hint
+  ✓ self-evaluating template interpolation rejected explicitly
+  ✓ missing export declaration is the first rejection
+  ✓ missing name rejected
+  ✓ non-array phases rejected
+  ✓ hasMetaDeclaration tolerates inner whitespace (issue 13's marker)
+  ✓ hasMetaDeclaration: no export, no claim
+
+[2] validateScript — size and character rules
+  ✓ script over 512 KiB rejected with the limit named
+  ✓ control characters rejected (tab/CRLF allowed)
+
+[3] happy path — agent + parallel + log + phases
+  ✓ run completes
+  ✓ parallel results flow into the return value
+  ✓ agentCount counts all three agents
+  ✓ unspecified agentType defaults to general-purpose
+  ✓ phase() defines ordered progress groups
+  ✓ log() lines land in the progress log
+  ✓ per-agent rows appear as start→done
+  ✓ run result carries the meta
+
+[4] determinism jail + code generation
+  ✓ Date.now() throws with the resume ruling
+  ✓ zero-arg new Date() throws
+  ✓ new Date(ms) is allowed (arg'd constructor fine)
+  ✓ Math.random() throws
+  ✓ eval() is blocked in the vm (codeGeneration.strings off)
+
+[5] caps
+  ✓ agent cap is fatal, naming the cap
+  ✓ no agent past the cap is spawned
+  ✓ parallel item cap enforced per call
+  ✓ pipeline item cap enforced per call
+
+[6] un-awaited agent() ruling
+  ✓ un-awaited agent() fails the run with the verbatim ruling
+  ✓ the un-awaited child is aborted on the way out
+
+[7] JSON boundary
+  ✓ non-JSON args rejected before the worker (circular)
+  ✓ Map args rejected before the worker
+  ✓ circular return value fails the run
+  ✓ sparse return array fails the run
+  ✓ Map return value fails the run
+  ✓ args cross into the script realm verbatim
+  ✓ no args → args is undefined
+
+[8] option validation
+  ✓ unknown option key rejected by name
+  ✓ schema shape-checked worker-side (must be an object)
+  ✓ effort validated against pi's thinking levels
+  ✓ effort 'off' accepted (pi level)
+  ✓ isolation must be exactly worktree
+  ✓ resume + model rejected: a resumed child keeps its spawn contract
+  ✓ non-string prompt rejected
+
+[9] parallel / pipeline semantics
+  ✓ a throwing thunk → null, siblings unaffected
+  ✓ pipeline stages see (prev, item, index); a throwing stage drops only its item
+  ✓ fatal (workflow) errors propagate through parallel instead of becoming null
+  ✓ worker-side option errors are ordinary script errors — parallel folds them to null
+  ✓ no-barrier pipeline completes
+  ✓ no barrier: the fast item walks its whole chain while the slow one runs
+
+[10] budget + globals
+  ✓ budget: total null, spent starts 0, remaining honestly Infinity
+  ✓ meta is a realm object the script can read
+
+[11] gate mapping
+  ✓ a passing gate leaves the result intact
+  ✓ a failing gate turns the agent into null (typed failure, not a crash)
+  ✓ the gate output becomes the row's error
+  ✓ the gate command rides the spawn request
+
+[12] resume mapping
+  ✓ resume run completes
+  ✓ resume revives the labelled child's agent id with the new prompt
+  ✓ the resumed text is the call's value
+  ✓ an unknown resume label is fatal with known labels guidance
+
+[13] capabilities the host lacks
+  ✓ workflow() refuses fatally until issue 13 lands resolution
+  ✓ gate without host.runGate is fatal BEFORE spawning (never an un-run gate)
+  ✓ resume without host.resumeAgent is fatal
+
+[14] abort
+  ✓ abort → killed
+  ✓ the in-flight child is aborted host-side
+
+[15] option mapping onto the spawn request
+  ✓ label rides the request
+  ✓ agentType rides the request
+  ✓ model rides the request (exact id, enforced host-side)
+  ✓ effort rides the request (host maps → --thinking)
+  ✓ isolation rides the request (host maps → isolated)
+  ✓ a missing label derives from the prompt's first line
+
+[16] nested workflow() loader seam (host that HAS loadWorkflow)
+  ✓ a host-side loader resolves nested workflows
+  ✓ the child's agents are this run's agents
+  ✓ resolution failures are the script's to catch (non-fatal)
+
+[17] host seam — option mapping, completion, gate, abort, resume
+  ✓ a mapped spawn resolves to the child's final text
+  ✓ option table maps: type/kind-pi/model/thinking/isolated/name/background
+  ✓ the child record is stamped with the run id (delivery skips per-child pushes)
+  ✓ engine deps carry the parent routing + registry
+  ✓ completion awaited through getAgentResult (the 06 detection)
+  ✓ agentType rides through as the type
+  ✓ unset options stay unset (routing falls through the chain)
+  ✓ a bad model is THIS agent's failure and the error names the routing level
+  ✓ a non-pi agentType is a NAMED per-agent refusal (never silently coerced)
+  ✓ the refusal lands before the spawn engine is called
+  ✓ a pi-kind definition spawns normally
+  ✓ a typed child failure carries stopReason + message
+  ✓ gone resolves to a typed failure naming the retained session
+  ✓ blocked keeps waiting; the settled re-poll delivers
+  ✓ a gate runs in the child's worktree (verifies the tree the child wrote)
+  ✓ abort closes the child's pane (session retained)
+  ✓ abort of an unknown agent id is a no-op
+  ✓ abort of a queued child marks it never-started (the drain won't resurrect it)
+  ✓ the spawn consumes its own completion read
+  ✓ resume returns the continued child's final text
+  ✓ resume translates the runtime agent id to the registry handle + new prompt
+  ✓ resuming an unknown id refuses
+  ✓ host-through-runtime: a 2-agent parallel run completes
+  ✓ both children spawned and run-stamped
+
+[18] runs.ts + the tool — background lifecycle, gate, scratch file
+  ✓ run id shape wf_<hex> (wf_d06917228d1c)
+  ✓ an inline script auto-saves to <cwd>/.pi/workflows/<meta.name>.js (the edit-and-re-run loop)
+  ✓ the auto-saved file carries the verbatim source
+  ✓ the run starts as running
+  ✓ the run settles completed
+  ✓ completion pushes ONE aggregated report (counts + return value), wake per notifications
+  ✓ the completion report carries the script path (the edit-and-re-run loop)
+  ✓ notifications quiet: a completed run delivers without waking
+  ✓ identical re-run REUSES the auto-saved file (no suffix churn)
+  ✓ a failed run always wakes, naming the error
+  ✓ differing content under the same name → first free -2 suffix
+  ✓ unwritable cwd falls back to the temp scratch copy
+  ✓ the tool registers as herdr_run_workflow
+  ✓ workflows_enabled: false removes the tool from the surface (no registration)
+  ✓ registered while enabled → the run starts
+  ✓ toggled off mid-session → execute refuses new runs (hot-reload; registration re-evaluates on /reload)
+  ✓ no script/scriptPath → clean refusal
+  ✓ invalid meta refuses with author-facing guidance
+  ✓ non-JSON args refuse before anything runs
+  ✓ scriptPath wins over script; the returned name comes from the file's meta
+  ✓ the tool returns immediately: run id + script path + the no-poll instruction
+  ✓ the run's completion lands as one steered message
+  ✓ delivery-style steer: customType + wake (notifications normal)
+  ✓ the run registry tracks the settled run
+  ✓ an unreadable scriptPath refuses cleanly
+
+[3b] F12 args coercion + F14 failure reasons in the summary
+  ✓ JSON-string args accepted (ok)
+  ✓ the inline run's receipt points at the auto-saved file (/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t7/.pi/workflows/f12-args-shape.js)
+  ✓ args reach the script as the decoded object
+  ✓ non-JSON string args → typed failure naming the double-encode fix
+  ✓ a failed agent() does not fail the run
+  ✓ summary carries "— failures: <label>: <reason>" (Workflow "t" finished — 0/1 agents · 0s — failures: audit-db: boom: the schema refused.)
+  ✓ a reason is capped to its first line
+  ✓ each reason capped at ~120 chars (2 capped)
+
+✅ ALL PASS (134 passed, 0 failed)
+
+[1] journal.ts — keys, append/read round-trip
+  ✓ the same call keys the same
+  ✓ a changed prompt changes the key
+  ✓ a changed label changes the key
+  ✓ a changed model changes the key
+  ✓ a changed agentType changes the key
+  ✓ a changed effort changes the key
+  ✓ a changed isolation changes the key
+  ✓ a changed gate changes the key
+  ✓ a changed resume changes the key
+  ✓ append order does not matter — readJournal returns position order
+  ✓ a journaled failure survives the round-trip
+  ✓ the resume marker survives the round-trip
+  ✓ a partial final line is skipped, not fatal
+  ✓ garbage lines are skipped, not fatal
+  ✓ a missing journal replays nothing
+
+[2] runtime — prefix replay: unchanged prefix comes from disk
+  ✓ an unchanged prefix spawns nothing (0 spawns, 2 replayed)
+  ✓ each call emits a start row, then its settle row
+  ✓ replayed rows read as done, flagged cached, and cost 0ms
+  ✓ the script receives the journal's recorded text
+  ✓ replays are re-recorded so this run's journal stands alone
+  ✓ a changed second call runs live and alone (the delta)
+  ✓ a missing position ends the prefix there (not a lookup table)
+  ✓ the first changed call runs live, and everything after it would too
+
+[3] runtime — failure ends the prefix; resume decline
+  ✓ a journaled failure ends the prefix — resuming retries exactly that agent
+  ✓ a journal carrying a resumed call replays nothing (no conversation to continue)
+  ✓ resume of a replayed label fails naming the journal, not a typo
+  ✓ with the journal declined, a live label stays resumable
+
+[4] runs.ts — the journal lands on disk; resumeFromRunId replays it
+  ✓ the journal sits beside the script under the same run id
+  ✓ the settled agent() call is journaled with its text
+  ✓ no resumeFromRunId → no target
+  ✓ an unknown run id is an error, not a cold start
+  ✓ a settled run resolves to its journal
+  ✓ the run records what it resumed from
+  ✓ resuming an unchanged run re-pays nothing
+  ✓ the completion report counts the replays
+  ✓ a running run refuses resume (its journal is mid-write)
+
+[5] saved.ts — discovery order, the meta marker, precedence
+  ✓ project .pi/workflows shadows .agents (first hit wins)
+  ✓ .agents/workflows is a read location when .pi lacks the name
+  ✓ a meta-less file at the winning path refuses as 'not a workflow' — a validation rule, not a convention
+  ✓ an unknown name suggests the existing ones
+  ✓ a path is refused as a name (whitelist before join)
+  ✓ the agent dir's workflows/ is the third discovery root
+  ✓ the listing offers only meta-carrying files
+  ✓ names de-duplicate across roots
+  ✓ the listing is sorted
+  ✓ a saved name resolves to source and reports the file (the edit-and-re-run loop)
+  ✓ `script` wins over `name`
+  ✓ `scriptPath` wins over everything
+  ✓ no source at all names the precedence
+  ✓ hasMetaDeclaration marks workflow files (the discovery filter)
+  ✓ braces inside meta strings do not fool the marker
+  ✓ a non-literal meta is a validation error (pre-parsed before the run)
+  ✓ a saved file's meta is extracted before anything runs (phases render from frame one)
+
+[6] nested workflow() + the tool surface (name, resumeFromRunId)
+  ✓ nested workflow() resolves through the host seam and runs inline
+  ✓ an unknown nested name throws into the script, which may catch it
+  ✓ the tool schema carries `name` and `resumeFromRunId`
+  ✓ a saved `name` resolves to its file and runs
+  ✓ an unknown run id refuses
+  ✓ a bare resumeFromRunId re-runs that run's own script, reporting the recorded-call count
+  ✓ the resumed run replays the unchanged prefix from the journal
+  ✓ the resumed run completes
+
+✅ ALL PASS (61 passed, 0 failed)
+
+sessionUsage — token + tool-call recovery from a session JSONL
+  ✓ usage is recovered
+  ✓ output summed + toolCalls counted
+  ✓ missing file → undefined (unrecoverable)
+  ✓ no assistant messages yet → zeros, not undefined
+
+exit sidecar — the optional structured payload rides type:done
+  ✓ done + structured parses
+  ✓ structured carried through verbatim
+  ✓ done without structured → undefined
+  ✓ error sidecars parse (structured unused there)
+  ✓ non-string structured dropped (forward-compat tolerance)
+
+budget.spent — the host-owned tally, mirrored on every response
+  ✓ spent accrues per settled call (output only); total stays null
+  ✓ an unrecoverable child poisons spent() to Infinity (known sums stay readable before it)
+  ✓ a failed agent's usage counts
+  ✓ replayed calls contribute 0 and never poison
+  ✓ both calls replayed
+  ✓ the done entry carries toolCalls
+
+host seam — usage recovered from the child's session JSONL
+  ✓ done: output + toolCalls recovered
+  ✓ error: usage still recovered (burned is burned)
+  ✓ no session file → no outputTokens (the run's spent poisons)
+  ✓ a captured payload rides back as the answer text
+  ✓ spawn reached a settle
+  ✓ no payload after the backstop → typed per-agent failure naming the tool
+  ✓ exactly one resume prompt, naming StructuredOutput
+  ✓ spawn call captured
+
+progress model — collapse, display states, phases, stats
+  ✓ collapse: agents keyed by index, last write wins, sorted
+  ✓ collapse: logs accumulate in order
+  ✓ collapse: phase titles indexed
+  ✓ done → done
+  ✓ error+skipped → skipped
+  ✓ plain error → failed
+  ✓ mid-flight when run stops → interrupted
+  ✓ queued, never started → queued
+  ✓ started → running
+  ✓ no phases declared → single 'Agents' group
+  ✓ declared-but-unseen phase renders as a placeholder
+  ✓ observed group matched by title prefix (observed title wins, upstream-verbatim)
+  ✓ group status derived (running / not-started)
+  ✓ phase duration is wall-clock across its agents
+  ✓ undeclared observed phase gets its own group at the end
+  ✓ stats: done/failed/total/running
+  ✓ formatDuration: 340ms / 42s / 1m12s
+  ✓ header carries the workflow name
+  ✓ header stats 'N/M agents · elapsed' (got 1/2 agents · 1m12s)
+
+runs registry — the card reads live state; stop kills the run
+  ✓ live runs include the run mid-flight
+  ✓ progress grows live via onProgress (entries readable before settle)
+  ✓ released run completes
+  ✓ endedAt stamped at settle
+  ✓ settled run leaves the live set
+  ✓ full log retained after settle
+  ✓ stopWorkflowRun returns true for a live run
+  ✓ stopped run settles killed
+  ✓ stop aborts in-flight children host-side
+  ✓ the stop lands as a push (wake)
+  ✓ stopping a settled run is a no-op (false)
+  ✓ stopping an unknown id is false, not a throw
+
+card layout — header, phase tree, rows, logs
+  ✓ header: name + 'N/M agents · elapsed' (got:   review-changes                                                                                      1/2 agents · 1m12s)
+  ✓ header: name left, stats right
+  ✓ description rides under the header
+  ✓ a single phase group closes the box (upstream-verbatim)
+  ✓ done row: glyph, label, type, state, tool calls, duration
+  ✓ live row: running glyph + derived state
+  ✓ first group opens the box
+  ✓ non-last group's rows branch off the │ rail
+  ✓ last group closes the box
+  ✓ last group's rows branch under a blank rail
+  ✓ queued row renders with a glyph
+  ✓ cached row annotated 'from resume journal'
+  ✓ failed row: cross glyph + failed state
+  ✓ queued row shows no duration
+  ✓ log line prefixed ⎿
+  ✓ log continuation indented without a second ⎿
+  ✓ lines clamp to the given width
+  ✓ multiple live runs stack in one card
+  ✓ blocks separated by a blank line
+  ✓ one widget slot carries table + card (F9 — no second, flipping slot)
+  ✓ table section present
+  ✓ card section present (phase title only the card renders)
+  ✓ card renders beneath the table — fixed order, no flip
+
+schema round trip — compile, apply, replay re-check, journal key
+  ✓ a plain JSON Schema compiles
+  ✓ non-object schema refused
+  ✓ non-object ROOT refused (cannot fill a scalar)
+  ✓ exotic schema either compiles or refuses — never throws
+  ✓ valid payload checks true
+  ✓ invalid payload names the field
+  ✓ a schema'd call's payload passes the check and the script parses it
+  ✓ a failed schema check is a per-agent null (the script filters)
+  ✓ the entry names the schema failure, not a generic error
+  ✓ schema is part of the key; absent schema differs from present
+  ✓ the valid journaled answer replays
+  ✓ the invalid one re-ran live
+
+child side — StructuredOutput tool captures the validated payload
+  ✓ the tool is registered when PI_HERDR_SCHEMA is set
+  ✓ the caller's schema IS the tool's parameters
+  ✓ an off-schema payload is an isError tool result naming the field
+  ✓ a valid payload is accepted
+  ✓ agent_done writes the sidecar with the structured payload
+  ✓ the captured payload round-trips verbatim
+  ✓ ordinary children get no StructuredOutput tool
+
+surface — the model-facing tools are EXACTLY the twelve
+  ✓ workflows_enabled: true → exactly the twelve tools
+  ✓ workflows_enabled: false → eleven (the workflow tool is absent)
+  ✓ no unknown tool ever leaks onto the surface
+
+99 passed, 0 failed
