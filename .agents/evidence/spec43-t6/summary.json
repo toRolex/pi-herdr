@@ -1,0 +1,7 @@
+{
+  "ticket": "spec43-t6",
+  "issue": 49,
+  "automated": "tests/spec43-t6.mjs",
+  "scenarios": ["event already durable", "arrival while waiting", "timeout", "AbortSignal cancellation", "parallel independent waiters", "body excluded from wait response"],
+  "liveHost": "tests/spec43-t6-live.mjs is a host registration/cancel/timeout probe; full child lifecycle was unavailable in this subagent runtime"
+}
