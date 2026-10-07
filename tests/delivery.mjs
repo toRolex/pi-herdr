@@ -949,7 +949,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		assert(w.pushes.length === 0, "...and is honored (still in grace)");
 	}
 
-	// --- blocked always wakes ----------------------------------------------
+	// --- blocked notice admission ----------------------------------------------
 	{
 		const r = rec("scout", { sessionPath: join(tmpdir(), "nope3.jsonl") });
 		const w = world([r], { fleet: [{ paneId: r.paneId, status: "blocked" }] });
@@ -958,7 +958,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes.length === 1 &&
 				w.pushes[0].wake === true &&
 				w.pushes[0].details.kind === "blocked",
-			"blocked always wakes (regardless of the notifications setting)",
+			"normal blocked notice requests admission through parent policy",
 		);
 		await w.tick();
 		assert(
@@ -971,7 +971,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		await w.tick();
 		w.setFleet([{ paneId: r.paneId, status: "blocked" }]);
 		await w.tick();
-		assert(w.pushes.length === 2, "a NEW blocked episode wakes again");
+		assert(w.pushes.length === 3 && w.pushes[1].details.kind === "blocked-recovered", "recovery then a NEW blocked episode are distinct notices");
 		assert(
 			w.closes.length === 0,
 			"a blocked child's pane is NEVER closed (it needs input, not a funeral)",
@@ -987,9 +987,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			await w.tick();
 			assert(
 				w.pushes.length === 1 &&
-					w.pushes[0].wake === true &&
-					w.pushes[0].deliverAs === "steer",
-				`blocked wakes even under notifications ${notes}`,
+					w.pushes[0].wake === false &&
+					w.pushes[0].deliverAs === "nextTurn",
+				`blocked respects notifications ${notes}`,
 			);
 		}
 	}
@@ -1595,7 +1595,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				"busy unset → idle default (steer + triggerTurn)",
 			);
 		}
-		// blocked stays steer, even while the orchestrator is busy, and even under none
+		// blocked cannot interrupt busy tools or override quiet/none
 		{
 			for (const notes of ["normal", "quiet", "none"]) {
 				const r = rec(`blocked-${notes}`, {
@@ -1610,14 +1610,14 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				await w.tick();
 				assert(
 					sent.length === 1 &&
-						sent[0].opts.deliverAs === "steer" &&
-						sent[0].opts.triggerTurn === true &&
+						sent[0].opts.deliverAs === "nextTurn" &&
+						sent[0].opts.triggerTurn === false &&
 						w.pushes[0].details.kind === "blocked",
-					`blocked stays steer + triggerTurn while busy (notifications ${notes})`,
+					`blocked remains passive while busy (notifications ${notes})`,
 				);
 			}
 		}
-		// stalled stays steer while busy (watchdog push, not a terminal kind)
+		// watchdog notices remain passive while busy
 		{
 			const r = rec("stalled-one", { sessionPath: join(dir, "stalled.jsonl") });
 			const sent = [];
@@ -1639,10 +1639,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			});
 			assert(
 				sent.length === 1 &&
-					sent[0].opts.deliverAs === "steer" &&
-					sent[0].opts.triggerTurn === true &&
+					sent[0].opts.deliverAs === "nextTurn" &&
+					sent[0].opts.triggerTurn === false &&
 					pushes[0].details.kind === "stalled",
-				"stalled stays steer + triggerTurn while the orchestrator is busy",
+				"stalled remains passive while the orchestrator is busy",
 			);
 		}
 		// error respects notifications: quiet → nextTurn, none → no push, normal → steer
@@ -1673,9 +1673,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			await wo.tick();
 			assert(
 				so.length === 1 &&
-					so[0].opts.deliverAs === "steer" &&
-					so[0].opts.triggerTurn === true,
-				"error + normal → steer + triggerTurn, even while busy",
+					so[0].opts.deliverAs === "nextTurn" &&
+					so[0].opts.triggerTurn === false,
+				"error + normal remains passive while busy",
 			);
 		}
 		// notifications matrix on done: quiet is nextTurn, none is silence, normal follows busy

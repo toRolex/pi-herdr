@@ -761,6 +761,8 @@ export interface SpawnRecord {
 	tookNotified?: boolean;
 	/** A blocked wake was pushed for the current blocked episode. */
 	blockedNotified?: boolean;
+	/** Monotonic within one logical agent; retained across receiver reloads. */
+	blockedEpisode?: number;
 	/** First absence evidence — the bounded-grace measurement (ms epoch). */
 	goneAt?: number;
 	/** Watchdog bookkeeping (07): whether a stall ping was sent for the

@@ -1,0 +1,29 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Agent \"retry\" finished — exact final message:\n\nT10_RETRY_SUCCESS"
+    }
+  ],
+  "details": {
+    "target": "retry",
+    "name": "retry",
+    "kind": "pi",
+    "source": "session-jsonl",
+    "sessionPath": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/retry/child.jsonl",
+    "exitPath": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/retry/child.jsonl.exit",
+    "agentId": "t10-retry-04d0847b-7ead-47e7-a8c1-0028bfe9c5ef",
+    "runId": "t10-retry-04d0847b-7ead-47e7-a8c1-0028bfe9c5ef",
+    "sequence": 1,
+    "eventId": "t10-retry-04d0847b-7ead-47e7-a8c1-0028bfe9c5ef",
+    "status": "done",
+    "result": "T10_RETRY_SUCCESS",
+    "delivery": {
+      "eventId": "t10-retry-04d0847b-7ead-47e7-a8c1-0028bfe9c5ef",
+      "token": "a6b21c01-acd5-4dfc-a30f-7221afe35940",
+      "channel": "pull",
+      "hostFile": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/retry/receiver.jsonl",
+      "bodyCommitted": true
+    }
+  }
+}

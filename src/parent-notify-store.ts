@@ -38,9 +38,16 @@ function canonical(value: unknown): string {
 }
 export function pendingMessageKey(msg: SteeredMessage): string {
  const eventId = msg.details.eventId;
+ const noticeId = msg.details.noticeId;
+ if (typeof noticeId === 'string' && noticeId.trim()) return `notice:${noticeId}`;
  return typeof eventId === "string" && eventId.trim()
   ? `event:${eventId}`
-  : `message:${createHash("sha256").update(canonical(JSON.parse(JSON.stringify(msg)))).digest("hex")}`;
+  : messageContentKey(msg);
+}
+
+function messageContentKey(msg: SteeredMessage): string {
+ try { return `message:${createHash('sha256').update(canonical(JSON.parse(JSON.stringify(msg)))).digest('hex')}`; }
+ catch (error) { throw new Error('parent notification must be JSON serializable', { cause: error }); }
 }
 
 /** Receiver-session outbox; every operation reloads disk so restart never loses ownership. */
