@@ -288,6 +288,35 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 	};
 
 	for (const record of records) {
+		// A queued followup is resumed only after the preceding run has a durable
+		// result, the old pane has disappeared/settled, or delivery completed.
+		if (record.pendingFollowups?.length) {
+			const paneStatus = record.paneId ? statusByPane.get(record.paneId) : undefined;
+			const priorSidecar = record.sessionPath ? readExitSidecar(record.sessionPath) : { state: "missing" as const };
+			const priorDurable = priorSidecar.state === "ok" && (priorSidecar.sidecar.type === "persistence-error" || priorSidecar.sidecar.runId === record.runId);
+			if (priorDurable && record.paneId && !record.delivery && record.sessionPath && priorSidecar.state === "ok") {
+				await deliverSidecar(record, priorSidecar.sidecar, deps, paneLive(record.paneId), false, Boolean(priorSidecar.sidecar.eventId));
+				if (record.delivery) persistPendingClose(deps, record);
+				continue;
+			}
+			const absent = Boolean(record.paneId && paneStatus === undefined);
+			if (absent && !priorDurable && !record.delivery) {
+				await reportCompletionGovernanceError(deps, record, "pane vanished without a durable terminal declaration before queued followup");
+			}
+			if (absent && (record.delivery || !priorDurable)) {
+				if (record.paneId && record.paneCloseAuthorization?.runId === record.runId && record.paneClosePending && !paneLive(record.paneId)) {
+					await attemptPaneClose(deps, record);
+					persistPendingClose(deps, record);
+				}
+				record.paneId = undefined;
+				record.paneClosePending = false;
+				record.paneCloseAuthorization = undefined;
+				record.startError = undefined;
+				persistPendingClose(deps, record);
+			}
+			if (record.paneId || record.startError) continue;
+			if (!priorDurable && !record.delivery && record.sessionPath) continue;
+		}
 		// --- takeover marker → quiet note, once. Sent regardless of the
 		// notifications setting (no-wake either way; the orchestrator must
 		// learn auto-exit is off).
