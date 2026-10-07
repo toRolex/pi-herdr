@@ -134,6 +134,15 @@ export class DeliveryLedger {
 		const record: DeliveryRecord = { ...ref, token, channel: "push", status: "pending", identityReviewRequired: !ref.agentId || !ref.runId, diagnostic: "legacy pending outcome unknown; review host evidence; not retryable", updatedAt: Date.now() };
 		const events = this.load(); events[ref.eventId] = record; this.save(events); return record;
 	}
+	acknowledge(ref: EventReference): DeliveryRecord {
+		const record = this.ensure(ref);
+		if (record.identityReviewRequired || record.agentId !== ref.agentId || record.runId !== ref.runId || record.sequence !== ref.sequence) throw new Error("ACK identity does not match delivery ledger");
+		if (record.status === "pending") throw new Error("ACK refused: submission outcome pending; wait for durable host confirmation");
+		if (record.status === "acked") return record;
+		const acked: DeliveryRecord = { ...record, status: "acked", updatedAt: Date.now(), diagnostic: "caller declared handled; not evidence of model reading or understanding" };
+		const events = this.load(); events[ref.eventId] = acked; this.save(events);
+		return acked;
+	}
 	proof(record: DeliveryRecord): DeliveryProof {
 		if (!record.token || !record.channel) throw new Error("delivery claim has no proof token");
 		return { eventId: record.eventId, token: record.token, channel: record.channel, hostFile: this.hostFile, bodyCommitted: true };
