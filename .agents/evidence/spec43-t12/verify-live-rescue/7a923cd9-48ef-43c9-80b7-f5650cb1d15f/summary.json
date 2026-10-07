@@ -1,0 +1,39 @@
+[
+  {
+    "scenario": "registered-legacy-message",
+    "registeredToolExecuted": true,
+    "queuedBehindBusyTool": true,
+    "noTakeoverOrRearm": true,
+    "receipt": {
+      "delivered": true,
+      "target": "wA3:p2",
+      "to": "t12-legacy",
+      "from": "t12-parent",
+      "state": "working",
+      "delivery": "message",
+      "name": "t12-legacy",
+      "submit": true
+    },
+    "realHerdrCLI": true,
+    "realPiTUI": true
+  },
+  {
+    "scenario": "gone-pane-followup",
+    "sameSession": "/Users/rolex/.pi/agent/sessions/--Users-rolex-Documents-Codes-githubProject-MyProject-pi-herdr.spec43-t12-live-rescue-.agents-evidence-spec43-t12-verify-live-rescue-7a923cd9-48ef-43c9-80b7-f5650cb1d15f-project--/2026-10-07T13-41-07-392Z_464e5d9a-65dc-49bf-9577-f5ed68bfb9a1.jsonl",
+    "firstRunId": "e4e81450-5540-4e20-b940-43c6aeb57dcc",
+    "secondRunId": "7c81fa2a-a663-4f18-aae1-dcd5e6abccb3",
+    "firstEventId": "e4e81450-5540-4e20-b940-43c6aeb57dcc",
+    "secondEventId": "7c81fa2a-a663-4f18-aae1-dcd5e6abccb3",
+    "realHerdrCLI": true,
+    "realPiTUI": true
+  },
+  {
+    "scenario": "workflow-aggregate-no-child-body",
+    "runId": "wf_fa80a78c1970",
+    "childFinalPresent": true,
+    "aggregateContainsChildFinal": false,
+    "aggregateContent": "Workflow \"t12-live-aggregate\" finished — 1/1 agents · 5s.\nReturn value: {\"childCompleted\":true}\nScript: /Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t12-live-rescue/.agents/evidence/spec43-t12/verify-live-rescue/7a923cd9-48ef-43c9-80b7-f5650cb1d15f/project/.pi/workflows/t12-live-aggregate.js",
+    "realHerdrCLI": true,
+    "realPiTUI": true
+  }
+]
