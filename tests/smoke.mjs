@@ -157,8 +157,8 @@ assert(
 	"agent_start: self-report, delivery busy tracker, and receiver inbox — no footer hook",
 );
 assert(
-	!events.turn_end?.length,
-	"no turn_end footer hook (footer is probe-diagnostics)",
+	(events.turn_end?.length ?? 0) === 1,
+	"one turn_end durable result confirmation hook (footer remains probe-diagnostics)",
 );
 assert(
 	events.session_start?.length === (selfReportActive ? 9 : 8),
