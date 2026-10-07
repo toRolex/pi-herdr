@@ -1,0 +1,127 @@
+[
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t10-sdk-a54gqM/notices-quiet\n</cwd>"
+        },
+        "timestamp": 1791344287220
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "finish"
+          }
+        ],
+        "timestamp": 1791344287220
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t10-sdk-a54gqM/notices-quiet\n</cwd>"
+        },
+        "timestamp": 1791344287220
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "finish"
+          }
+        ],
+        "timestamp": 1791344287220
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "finished"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791344287219,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "natural continuation"
+          }
+        ],
+        "timestamp": 1791344287288
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "T10_blocked"
+          }
+        ],
+        "timestamp": 1791344287293
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "T10_blocked-recovered"
+          }
+        ],
+        "timestamp": 1791344287297
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "T10_error"
+          }
+        ],
+        "timestamp": 1791344287302
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "T10_stall-recovered"
+          }
+        ],
+        "timestamp": 1791344287306
+      }
+    ]
+  }
+]

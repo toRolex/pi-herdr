@@ -268,5 +268,5 @@ export function trackOrchestratorBusy(pi: ExtensionAPI): () => boolean {
 export function terminalWake(
 	notes: HerdrSettings["notifications"],
 ): SteeredMessage["wake"] {
-	return notes !== "quiet"; // normal → wake; quiet → next turn; none → never reaches a push
+	return notes === "normal"; // quiet/none never authorize a notification wake
 }

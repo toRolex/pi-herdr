@@ -240,7 +240,7 @@ let deliverySerial: Promise<void> = Promise.resolve();
 
 export function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 	const result = deliverySerial.then(async () => {
-		const before = new Map([...spawnRecords()].map(([name, record]) => [name, { delivery: record.delivery, promptSubmissionNotified: record.promptSubmissionNotified }]));
+		const before = new Map([...spawnRecords()].map(([name, record]) => [name, { delivery: record.delivery, promptSubmissionNotified: record.promptSubmissionNotified, blockedNotified: record.blockedNotified, blockedEpisode: record.blockedEpisode }]));
 		await deliverOnceSerial(deps);
 		const path = deps.sessionPath ?? currentOrchestratorSession();
 		if (path && !deps.registry) {
@@ -251,6 +251,8 @@ export function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 				for (const [name, record] of spawnRecords()) {
 					record.delivery = before.get(name)?.delivery;
 					record.promptSubmissionNotified = before.get(name)?.promptSubmissionNotified;
+					record.blockedNotified = before.get(name)?.blockedNotified;
+					record.blockedEpisode = before.get(name)?.blockedEpisode;
 					record.pushError = message;
 				}
 				throw new Error(message);
@@ -463,24 +465,29 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 		record.lastStatus = live;
 		if (live === "working") record.sawWorking = true;
 
-		// --- blocked always wakes (unless a human has the pane); the wake is
-		// per blocked episode, not per tick.
+		// Recoverable notices share parent admission, never terminal arbitration.
 		if (live === "blocked") {
 			if (!record.blockedNotified && !record.takenOver) {
-				record.blockedNotified = true;
-				// always wakes — the notifications setting does not apply
+				const episode = (record.blockedEpisode ?? 0) + 1;
 				push({
 					content:
 						`Agent "${record.name}" is BLOCKED on a question and needs input — ` +
 						`answer with herdr_message_agent (raw text) or herdr_send_keys (option lists).`,
-					details: { name: record.name, kind: "blocked" },
-					wake: true,
-					deliverAs: "steer",
+					details: { name: record.name, kind: "blocked", agentId: record.agentId, runId: record.runId, sequence: record.sequence, noticeId: `${record.runId ?? record.name}:blocked:${episode}` },
+					wake: terminalWake(notifications(deps)),
+					deliverAs: deliverAsFor(deps, "blocked"),
 				});
+				record.blockedEpisode = episode;
+				record.blockedNotified = true;
 			}
 			continue;
 		}
-		record.blockedNotified = false; // fresh episodes re-wake
+		if (record.blockedNotified) {
+			push({ content: `Agent "${record.name}" recovered from blocked — responsive again.`,
+				details: { name: record.name, kind: "blocked-recovered", agentId: record.agentId, runId: record.runId, sequence: record.sequence, noticeId: `${record.runId ?? record.name}:blocked-recovered:${record.blockedEpisode ?? 0}` },
+				wake: terminalWake(notifications(deps)), deliverAs: deliverAsFor(deps, "blocked-recovered") });
+			record.blockedNotified = false;
+		}
 
 		// Fleet reports idle or done. Pi children with a session deliver the
 		// JSONL — including the no-sidecar case: an autonomous child whose
@@ -787,19 +794,18 @@ function orchestratorIsBusy(deps: { busy?: () => boolean }): boolean {
 }
 
 /**
- * Delivery mode for one push. Only a waking `done` queues while busy
- * (followUp). error/gone/start-error follow notifications. blocked and
- * stalled are steer even when busy — followUp would wait out the run.
+ * Legacy adapter mode only. Production parent admission durably holds all
+ * busy/finished notices and rechecks the boundary before body commitment.
  */
 function deliverAsFor(
 	deps: DeliveryDeps,
-	kind: DeliveryKind | "stalled" | "stall-recovered" | "blocked",
+	kind: DeliveryKind | "stalled" | "stall-recovered" | "blocked" | "blocked-recovered",
 ): DeliverAs {
-	if (kind === "blocked" || kind === "stalled" || kind === "stall-recovered") {
-		return "steer";
-	}
 	if (!terminalWake(notifications(deps))) return "nextTurn";
-	if (kind === "done" && orchestratorIsBusy(deps)) return "followUp";
+	if (orchestratorIsBusy(deps)) {
+		if (kind === "done") return "followUp"; // legacy adapters; production parent admission holds busy events
+		return "nextTurn";
+	}
 	return "steer";
 }
 
@@ -1093,16 +1099,16 @@ export async function watchdogOnce(deps: WatchdogDeps = {}): Promise<void> {
 				content:
 					`Agent "${record.name}" looks STALLED (${reason}). ` +
 					`Steer it with herdr_message_agent, or inspect with herdr_get_agent_result.`,
-				details: { name: record.name, kind: "stalled", reason },
-				wake: true,
-				deliverAs: "steer",
+				details: { name: record.name, kind: "stalled", reason, agentId: record.agentId, runId: record.runId, sequence: record.sequence },
+				wake: terminalWake(notifications(deps)),
+				deliverAs: deliverAsFor(deps, "stalled"),
 			});
 		} else {
 			push({
 				content: `Agent "${record.name}" recovered from a stall — responsive again.`,
-				details: { name: record.name, kind: "stall-recovered" },
-				wake: true,
-				deliverAs: "steer",
+				details: { name: record.name, kind: "stall-recovered", agentId: record.agentId, runId: record.runId, sequence: record.sequence },
+				wake: terminalWake(notifications(deps)),
+				deliverAs: deliverAsFor(deps, "stall-recovered"),
 			});
 		}
 	}
