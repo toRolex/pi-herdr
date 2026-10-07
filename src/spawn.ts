@@ -697,19 +697,10 @@ export interface SpawnRecord {
 	deniedTools?: string[];
 	/** Extra env vars for the child pane (issue 14: PI_HERDR_SCHEMA). */
 	extraEnv?: Record<string, string>;
-	/** Terminal event already steered to the orchestrator (issue 06) —
-	 * one push per terminal event; 07 prunes fleet rows on this. */
-	delivery?: { kind: DeliveryKind; at: number };
-	/** Pane close pending (manual e2e F2): the terminal delivery found the
-	 * pane still listed actively live (the auto-exit race) — the close is
-	 * retried on later ticks once the fleet stops listing it. Also set when
-	 * an adopted orphan's close was rejected after the result was delivered,
-	 * so a later tick can retry without pushing the letter again. Never set
-	 * for taken-over panes that have not re-arm-delivered, or workflow
-	 * children (the run owns their panes). */
+	/** rearm 只记录本次终态的显式授权，旧投递不能推断授权。 */
+	delivery?: { kind: DeliveryKind; at: number; rearm?: true };
+	/** 投递与关闭独立，待关闭重试不得重复推送终态。 */
 	paneClosePending?: boolean;
-	/** Why the last pane close was rejected (issue 41). Cleared when a later
-	 * close succeeds. The session file is never deleted because of it. */
 	paneCloseError?: string;
 	/** Why the last orphan push was rejected (issue 41). The pane stays up
 	 * and the result is not marked delivered. */
