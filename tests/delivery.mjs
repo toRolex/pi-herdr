@@ -669,6 +669,100 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		};
 	}
 
+	for (const pushFails of [false, true]) {
+		const r = rec("quiet-debug", { sessionPath: "/offline/quiet.jsonl" });
+		const w = world([r]);
+		w.deps.readSidecar = () => ({ state: "ok", sidecar: { type: "done", text: "quiet letter" } });
+		w.deps.extract = () => null;
+		w.deps.sidecarWrittenAt = () => 999_960;
+		let attempts = 0;
+		w.deps.push = (msg) => { attempts++; if (pushFails) throw new Error("push unavailable"); w.pushes.push(msg); };
+		const stderr = [];
+		const stdout = [];
+		const oldErr = process.stderr.write;
+		const oldOut = process.stdout.write;
+		try {
+			process.stderr.write = (text) => { stderr.push(String(text)); return true; };
+			process.stdout.write = (text) => { stdout.push(String(text)); return true; };
+			for (let tick = 0; tick < 6; tick++) await w.tick();
+		} finally { process.stderr.write = oldErr; process.stdout.write = oldOut; }
+		assert(stderr.length === 0 && stdout.length === 0 && attempts === (pushFails ? 6 : 1) &&
+			(pushFails ? r.pushError === "push unavailable" : r.delivery?.kind === "done"),
+			`default debug writes neither stream with ${pushFails ? "repeated push failures" : "successful delivery"}`);
+	}
+
+	for (const adopted of [false, true]) {
+		function closeWorld(over = {}) {
+			const root = "/offline/root.jsonl";
+			const mid = "/offline/mid.jsonl";
+			const child = rec("close-child", { sessionPath: "/offline/child.jsonl", lineage: { rootSession: root, ownerSession: mid }, ...over });
+			const owner = rec("close-owner", { sessionPath: mid, tookNotified: true, delivery: { kind: "done", at: 1 } });
+			const w = world(adopted ? [owner] : [child]);
+			let saved;
+			w.deps.sessionPath = root;
+			w.deps.readRegistry = (path) => path === mid ? (saved ? JSON.parse(saved) : [child]) : [];
+			w.deps.writeRegistry = (_path, records) => { saved = JSON.stringify(records); };
+			w.deps.readSidecar = () => ({ state: "ok", sidecar: { type: "done", text: "close letter", ...(over.rearm ? { rearm: true } : {}) } });
+			w.deps.extract = () => null;
+			w.deps.readTakeover = () => ({ taken: false });
+			return { w, record: () => adopted && saved ? JSON.parse(saved)[0] : child };
+		}
+		const label = adopted ? "adopted" : "ordinary";
+		for (const rejected of [false, true]) {
+			const { w, record } = closeWorld();
+			let attempts = 0;
+			w.deps.closePane = async () => {
+				await sleep(5);
+				if (++attempts === 1) { if (rejected) throw new Error("close unavailable"); return { ok: false, error: { message: "close unavailable" } }; }
+				return { ok: true };
+			};
+			await w.tick();
+			assert(record().delivery?.kind === "done" && record().paneClosePending === true && record().paneCloseError === "close unavailable", `${label} awaits ${rejected ? "reject" : "resolved failure"} and retains close failure`);
+			for (const status of ["working", "blocked"]) {
+				w.setFleet([{ paneId: record().paneId, status }]);
+				await w.tick();
+				assert(attempts === 1 && record().paneClosePending === true, `${label} pending close holds while ${status}`);
+			}
+			w.setFleet([]);
+			await w.tick();
+			await w.tick();
+			assert(attempts === 2 && w.pushes.length === 1 && record().paneClosePending === false && record().paneCloseError === undefined, `${label} retries only close and clears error on success`);
+		}
+		for (const rearm of [false, true]) {
+			const { w, record } = closeWorld({ rearm, tookNotified: true });
+			let attempts = 0;
+			w.deps.closePane = async () => ++attempts === 1 ? { ok: false, error: { message: "retry" } } : { ok: true };
+			await w.tick();
+			w.deps.readTakeover = () => ({ taken: true });
+			await w.tick();
+			assert(record().takenOver === true && w.pushes.length === 1 && attempts === (rearm ? 2 : 1) &&
+				(rearm ? record().delivery.rearm === true && record().paneClosePending === false : record().paneClosePending === true), `${label} refreshes takeover on retry and preserves only explicit rearm authorization`);
+		}
+		for (const error of [
+			{ code: "pane_not_found", message: "missing" },
+			{ code: "NOT_FOUND", message: "missing", details: { code: "pane_not_found" } },
+			{ code: "NOT_FOUND", message: "pane not found" },
+			{ code: "OTHER", message: "pane not found" },
+		]) {
+			const { w, record } = closeWorld();
+			let attempts = 0;
+			w.deps.closePane = async () => { attempts++; return { ok: false, error }; };
+			await w.tick();
+			await w.tick();
+			const missing = error.code === "pane_not_found" || error.details?.code === "pane_not_found";
+			assert(w.pushes.length === 1 && attempts === (missing ? 1 : 2) && record().paneClosePending === !missing &&
+				(missing ? record().paneCloseError === undefined : record().paneCloseError === error.message), `${label} accepts only exact pane_not_found as idempotent close success (${error.code}, ${!!error.details})`);
+		}
+		if (adopted) {
+			const { w, record } = closeWorld();
+			let attempts = 0;
+			w.deps.closePane = async () => { attempts++; return { ok: true }; };
+			w.deps.writeRegistry = () => { throw new Error("pre-close write failed"); };
+			await w.tick().catch(() => {});
+			assert(attempts === 0 && w.pushes.length === 1 && record().delivery === undefined, "adopted pre-close persistence failure keeps pane open");
+		}
+	}
+
 	// --- route 1: the typed sidecar --------------------------------------
 	{
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-"));
