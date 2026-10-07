@@ -17,6 +17,12 @@ const jiti = createJiti(import.meta.url);
 const agents = await jiti.import(join(ROOT, "src/tools/agents.ts"), { parent: ROOT });
 const waitModule = await jiti.import(join(ROOT, "src/tools/wait.ts"), { parent: ROOT });
 const resultModule = await jiti.import(join(ROOT, "src/tools/result.ts"), { parent: ROOT });
+// spec43 T12: result consumption requires a durable receiver host session;
+// waiting moved to herdr_wait_agent_event, so this harness owns the host file
+// and uses wait explicitly (never get_agent_result(wait), which no longer exists).
+const hostFile = join(tmp, "receiver-host.jsonl");
+writeFileSync(hostFile, "");
+const hostCtx = { sessionManager: { getSessionFile: () => hostFile } };
 const { herdr } = await jiti.import(join(ROOT, "src/herdr.ts"), { parent: ROOT });
 const tools = [];
 const pi = { registerTool: t => tools.push(t), on: () => {} };
@@ -40,7 +46,7 @@ async function launch(prompt, label) {
   const deadline = Date.now() + 120000;
   while (!d.paneId && Date.now() < deadline) {
     await sleep(250);
-    const r = await getResult.execute("t6-live-inspect", { target: name }, undefined);
+    const r = await getResult.execute("t6-live-inspect", { target: name }, undefined, undefined, hostCtx);
     Object.assign(d, r.details);
     if (d.paneId) panes.add(d.paneId);
   }
@@ -55,7 +61,7 @@ async function save(summary) { writeFileSync(join(evidenceDir, "summary.json"), 
 try {
   // Event arrives before wait begins; durable state must still satisfy the wait.
   const first = await launch("Reply with exactly EVENT_FIRST_OK", "eventfirst");
-  const final1 = await getResult.execute("t6-first-result", { target: first.name, wait: 180000 }, undefined);
+  const final1 = await getResult.execute("t6-first-result", { target: first.name }, undefined, undefined, hostCtx);
   check("event-first result completed", final1.details?.status === "done", { status: final1.details?.status });
   const e1 = await wait.execute("t6-first-wait", { target: first.name, timeout: 10000 }, undefined);
   check("event-first wait observes persisted completion", !e1.isError && e1.details?.status === "available", { status: e1.details?.status, eventId: e1.details?.eventId });
@@ -74,7 +80,7 @@ try {
   controller.abort();
   const cancellation = await waiting;
   check("cancellation returns cancelled", cancellation.details?.status === "cancelled", { status: cancellation.details?.status });
-  const recovered = await getResult.execute("t6-recover", { target: third.name, wait: 180000 }, undefined);
+  const recovered = await getResult.execute("t6-recover", { target: third.name }, undefined, undefined, hostCtx);
   check("result retrievable after cancellation", recovered.details?.status === "done" && String(recovered.details?.result ?? "").trim().length > 0, { status: recovered.details?.status, result: recovered.details?.result });
   const after = await wait.execute("t6-after-cancel", { target: third.name, timeout: 10000 }, undefined);
   check("completion event remains observable after cancellation", after.details?.status === "available", { status: after.details?.status, eventId: after.details?.eventId });

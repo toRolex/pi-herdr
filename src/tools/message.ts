@@ -294,7 +294,7 @@ async function resolveTarget(
 				kind: "err",
 				error: err(
 					"NOT_FOUND",
-					`agent "${record.name}" is still queued (fleet at max_parallel_agents) — no pane exists to deliver to yet. Wait it into the world with herdr_get_agent_result(wait) first.`,
+					`agent "${record.name}" is still queued (fleet at max_parallel_agents) — no pane exists to deliver to yet. Wait it into the world with herdr_wait_agent_event first.`,
 					{ name: record.name },
 				),
 			};
@@ -558,7 +558,12 @@ export async function messageAgent(
 // ---- registration --------------------------------------------------------------
 
 const DESCRIPTION =
-	"Send a message to a herdr agent pane — the open channel, anyone ↔ anyone, no broker. " +
+	"LEGACY COMPATIBILITY ENTRY — prefer the separated tools: herdr_send_agent for ordinary " +
+	"correspondence (queue-only, never wakes), herdr_trigger_turn for dispatching new work " +
+	"(starts or safely queues a run), herdr_wait_agent_event to wait, herdr_get_agent_result to " +
+	"consume a result. This open channel is retained for its legacy wake/injection semantics — " +
+	"it is NOT remapped onto the queue-only mailbox. " +
+	"Send a message to a herdr agent pane — anyone ↔ anyone, no broker. " +
 	"The target is always explicit and resolves as: exact pane-id → herdr name → spawn-registry handle " +
 	"(the name herdr_spawn_agent returned). The reserved role \"orchestrator\" is only your direct parent's pane " +
 	"(PI_HERDR_ORCHESTRATOR_PANE) — a live agent of that name does not take the alias; unset or a gone parent " +
@@ -571,21 +576,23 @@ const DESCRIPTION =
 	"No state gates: text to a working child queues natively. Fire-and-forget: the receipt reports " +
 	"{delivered, target, state, delivery: \"message\"|\"answer\"}, but delivered-to-the-pane ≠ consumed-by-the-model — " +
 	"there is no read receipt. Replies arrive as injected <agent-message> text or the next completion notification " +
-	"(herdr_get_agent_result(wait) is the wait). A gone target errors naming the handle — see herdr_list_agents; " +
+	"(herdr_wait_agent_event is the wait). A gone target errors naming the handle — see herdr_list_agents; " +
 	"a queued spawn (accepted over the parallel cap, no pane yet) has nothing to deliver to and errors the same way. " +
 	"Inbound sends are limited to 20 messages per 10 seconds per sender label. The label is spawner-declared and never verified, and the scope is local (same OS user) — not a trust boundary. " +
 	"Admission is enforced by the receiving pi session, not this sender process. Refused inputs produce an out-of-band aggregate receipt to the receiver and affected sender. " +
 	"A BLOCKED overlay answer does not count and is never refused by this limit. " +
-	"A busy receiver holds 8 pending messages shared across senders, automatically drains on settle, and drops the oldest pending input on overflow. Already-delivered text is kept.";
+	"A busy receiver holds 8 pending messages shared across senders, automatically drains on settle, and drops the oldest pending input on overflow. Already-delivered text is kept. " +
+	"This entry never restores user takeover and never bypasses completion-event delivery arbitration — a child " +
+	"completion is still delivered exactly once through the durable ledger.";
 
 export function registerMessageTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "herdr_message_agent",
-		label: "Message herdr agent",
+		label: "Message herdr agent (legacy compatibility)",
 		description: DESCRIPTION,
-		promptSnippet: "Send a message to a herdr agent pane (open channel)",
+		promptSnippet: "Legacy open channel: message a herdr agent pane (prefer herdr_send_agent / herdr_trigger_turn)",
 		promptGuidelines: [
-			"Use herdr_message_agent for any agent↔agent text: follow-ups, steering, answers to a blocked agent's freeform question.",
+			"Legacy compatibility entry: use herdr_send_agent for ordinary agent↔agent correspondence and herdr_trigger_turn to dispatch work; use this tool only for its legacy wake/injection semantics (e.g. answering a blocked agent's freeform question).",
 			"Answer a blocked agent's OPTION-LIST question with herdr_send_keys, not this tool — typed text never reaches option rows.",
 			"When you receive an <agent-message from to> tag, it is another agent messaging you — the from identity is spawner-declared, never verified.",
 		],
@@ -634,7 +641,7 @@ export function registerMessageTool(pi: ExtensionAPI): void {
 				? `Accepted pending for "${who}" (pane ${d.target}, state: ${d.state}) — not typed yet. Pending inbox holds ${PENDING_CAP}.`
 				: d.delivery === "answer"
 					? `Delivered to "${who}" (pane ${d.target}, state: ${d.state}) as a RAW ANSWER — typed into its question overlay, unsubmitted=${!d.submit}. If it was an option list, select with herdr_send_keys instead.`
-					: `Delivered to "${who}" (pane ${d.target}, state: ${d.state}) as an <agent-message> envelope (from "${d.from}"). Fire-and-forget: delivered ≠ consumed — the reply arrives as injected <agent-message> text or its next completion (wait with herdr_get_agent_result).`;
+					: `Delivered to "${who}" (pane ${d.target}, state: ${d.state}) as an <agent-message> envelope (from "${d.from}"). Fire-and-forget: delivered ≠ consumed — the reply arrives as injected <agent-message> text or its next completion (wait with herdr_wait_agent_event).`;
 			const text = d.notice ? `${body} ${d.notice}` : body;
 			return { content: [{ type: "text", text }], details: d };
 		},

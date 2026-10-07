@@ -14,14 +14,13 @@
 //   3. pane disappearance — the same absence path lands on an honest gone
 //      note when there is nothing on disk to deliver.
 // Transient herdr errors are never absence evidence (the tick is skipped).
-//
-// Wake governance (the `notifications` setting): `normal` → steer + wake,
-// `quiet` → next natural turn (no wake), `none` → no terminal push at all
-// (pull-only; results stay in the registry + JSONL). A `done` push read while
-// the orchestrator is busy queues as followUp + wake instead of steer — the
-// running tool is not cancelled. blocked and stalled stay steer. error keeps
-// the notifications matrix (quiet → nextTurn, none → no push, normal → steer).
-// A BLOCKED child always wakes regardless of the setting.
+// Wake governance (the `notifications` setting): `normal` -> wake at safe
+// run boundaries, never a surprise wake of a finished parent; `quiet` ->
+// next natural turn (no wake); `none` -> no terminal push at all (pull-only;
+// results stay in the registry + JSONL). A `done` push read while
+// the orchestrator is busy queues as followUp + wake instead of steer - the
+// running tool is not cancelled. blocked and stalled respect the same
+// notifications matrix (quiet -> nextTurn, none -> no push, normal -> wake).
 //
 
 import { readFileSync, statSync, watch, type FSWatcher } from "node:fs";
@@ -440,7 +439,7 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 		if (live === "blocked") {
 			if (!record.blockedNotified) {
 				record.blockedNotified = true;
-				// always wakes — the notifications setting does not apply
+				// wake follows the notifications matrix (normal only; see T10 admission)
 				const episode = (record.blockedEpisode ?? 0) + 1;
 				push({
 					content:

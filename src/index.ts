@@ -64,8 +64,8 @@ export default function (pi: ExtensionAPI): void {
 
 	// Push delivery (v0.6 issue 06): the shared poll loop watches the spawn
 	// registry and steers terminal events into THIS session — full final
-	// messages, blocked wakes — with wake governed by the
-	// `notifications` setting (blocked always wakes).
+	// messages, blocked notices — with wake governed by the
+	// `notifications` setting under the finished-parent boundary (spec 43).
 	registerDelivery(pi);
 	// Transcript fold (issue #30) and the one-notice merge (issue #38).
 	// Reload rebuilds history before session_start; register now, read the
