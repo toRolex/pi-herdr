@@ -30,6 +30,7 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { resetCompletionEvent } from "./completion-event.js";
+import { parseTriggerTurn } from "./agent-message.js";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -488,7 +489,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 
 	/** Persist a completion declaration before allowing autonomous shutdown.
 	 * A persistence-error sidecar is a governance signal, not a task failure. */
-	const identity = {
+	let identity = {
 		agentId: process.env.PI_HERDR_AGENT_ID,
 		runId: process.env.PI_HERDR_RUN_ID,
 		sequence: Number(process.env.PI_HERDR_SEQUENCE ?? 1),
@@ -706,6 +707,16 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	function isHumanInput(event: { source?: unknown; text?: unknown }): boolean {
 		const watermark = readSteerWatermark(session);
 		const text = typeof event.text === "string" ? event.text : undefined;
+		const followup = text ? parseTriggerTurn(text) : undefined;
+		if (followup) {
+			identity = { ...identity, runId: followup.runId, sequence: 1 };
+			completionEventId = followup.runId;
+			completionSaved = false;
+			latestMessages = undefined;
+			try { writeFileSync(`${session}.completion-event`, completionEventId, { mode: 0o600 }); } catch { /* run identity is carried in the durable declaration */ }
+			clearSteerWatermark(session);
+			return false;
+		}
 		if (inputMatchesSteer(text, watermark)) {
 			clearSteerWatermark(session);
 			return false; // our orchestrator steering itself

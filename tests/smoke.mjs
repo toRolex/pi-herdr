@@ -68,8 +68,8 @@ await ext.default(mockPi);
 const names = tools.map((t) => t.name);
 const expected = [
 	// the v0.6 surface (issue 02 cut + issue 04 substrate): ONE surface.
-	// Later tickets register theirs (05 → message_agent, 10 → interrupt/resume,
-	// 12 → run_workflow) and the count converges to 12.
+	// Later tickets register theirs (05 → message_agent, T5 → trigger_turn,
+	// 10 → interrupt/resume, 12 → run_workflow).
 	"herdr_spawn_agent",
 	// the `.md` registry persistence tool (issue 03; ungated by decision)
 	"herdr_save_agent",
@@ -81,7 +81,7 @@ const expected = [
 	// the legacy trio
 	"herdr_message_agent",
 	"herdr_wake_subscription",
-	// the lifecycle pair (issue 10): turn cancel + the gone-agent recovery move
+	"herdr_trigger_turn",
 	"herdr_interrupt_agent",
 	"herdr_resume_agent",
 	// the fleet's single introspection tool

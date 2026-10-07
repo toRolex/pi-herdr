@@ -50,9 +50,7 @@ export default function (pi: ExtensionAPI): void {
 	registerMessageTool(pi);
 	registerWakeTools(pi);
 	registerReceiverInbox(pi, { parse: parseAgentMessage, deliver: handleAgentMessageInput });
-	// Lifecycle actions (v0.6 issue 10): herdr_interrupt_agent (turn cancel)
-	// + herdr_resume_agent (the gone-agent recovery move on the retained
-	// session file).
+	// Lifecycle actions and explicit T5 followup trigger.
 	registerLifecycle(pi);
 	registerAgents(pi);
 	registerPaneSync(pi);

@@ -1,0 +1,140 @@
+{
+  "receipts": [
+    {
+      "ok": true,
+      "data": {
+        "name": "t5-idle",
+        "agentId": "db4de539-7a7d-4503-99da-eeb9bb2125e1",
+        "runId": "b1ad6213-f594-4480-82fc-8eda3075e719",
+        "sequence": 1,
+        "status": "starting",
+        "paneId": "w9D:p3",
+        "started": false
+      }
+    },
+    {
+      "ok": true,
+      "data": {
+        "name": "t5-busy",
+        "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918",
+        "runId": "536919ae-d39d-400c-8c49-c07cf2df80d4",
+        "sequence": 1,
+        "status": "queued",
+        "started": false
+      }
+    },
+    {
+      "ok": true,
+      "data": {
+        "name": "t5-busy",
+        "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918",
+        "runId": "32f70662-f177-4a4e-8ae4-c71563fe211a",
+        "sequence": 1,
+        "status": "queued",
+        "started": false
+      }
+    },
+    {
+      "ok": true,
+      "data": {
+        "name": "t5-busy",
+        "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918",
+        "runId": "b10b7757-a060-4802-b617-0815451d5b2e",
+        "sequence": 1,
+        "status": "queued",
+        "started": false
+      }
+    }
+  ],
+  "pushes": [
+    {
+      "content": "Agent \"t5-busy\" completion is not recoverable as a saved result: missing durable terminal declaration",
+      "details": {
+        "name": "t5-busy",
+        "kind": "persistence-error",
+        "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918",
+        "runId": "5f90a2ff-6d52-49b4-80e9-2e21906bd2ee",
+        "sequence": 1
+      },
+      "wake": true
+    },
+    {
+      "content": "T5_FINAL BUSY PANDA CONTEXT_PANDA=true",
+      "details": {
+        "name": "t5-busy",
+        "kind": "done",
+        "eventId": "5f90a2ff-6d52-49b4-80e9-2e21906bd2ee",
+        "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918",
+        "runId": "5f90a2ff-6d52-49b4-80e9-2e21906bd2ee",
+        "sequence": 1,
+        "result": "T5_FINAL BUSY PANDA CONTEXT_PANDA=true",
+        "sessionPath": "/Users/rolex/.pi/agent/sessions/--private-var-folders-d9-_0gbv97x6332wsrqhr4fcyj80000gn-T-pi-herdr-verify-rdyqdG--/2026-10-07T03-06-56-379Z_34c6320f-36a3-4f23-bc05-5d56d62dac6a.jsonl"
+      },
+      "wake": true,
+      "deliverAs": "steer"
+    },
+    {
+      "content": "T5_FINAL <herdr-followup runId=\"536919ae-d39d-400c-8c49-c07cf2df80d4\">\nFIRST\n</herdr-followup> CONTEXT_PANDA=true",
+      "details": {
+        "name": "t5-busy",
+        "kind": "done",
+        "eventId": "536919ae-d39d-400c-8c49-c07cf2df80d4",
+        "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918",
+        "runId": "536919ae-d39d-400c-8c49-c07cf2df80d4",
+        "sequence": 1,
+        "result": "T5_FINAL <herdr-followup runId=\"536919ae-d39d-400c-8c49-c07cf2df80d4\">\nFIRST\n</herdr-followup> CONTEXT_PANDA=true",
+        "sessionPath": "/Users/rolex/.pi/agent/sessions/--private-var-folders-d9-_0gbv97x6332wsrqhr4fcyj80000gn-T-pi-herdr-verify-rdyqdG--/2026-10-07T03-06-56-379Z_34c6320f-36a3-4f23-bc05-5d56d62dac6a.jsonl"
+      },
+      "wake": true,
+      "deliverAs": "steer"
+    },
+    {
+      "content": "T5_FINAL <herdr-followup runId=\"32f70662-f177-4a4e-8ae4-c71563fe211a\">\nSECOND\n</herdr-followup> CONTEXT_PANDA=true",
+      "details": {
+        "name": "t5-busy",
+        "kind": "done",
+        "eventId": "32f70662-f177-4a4e-8ae4-c71563fe211a",
+        "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918",
+        "runId": "32f70662-f177-4a4e-8ae4-c71563fe211a",
+        "sequence": 1,
+        "result": "T5_FINAL <herdr-followup runId=\"32f70662-f177-4a4e-8ae4-c71563fe211a\">\nSECOND\n</herdr-followup> CONTEXT_PANDA=true",
+        "sessionPath": "/Users/rolex/.pi/agent/sessions/--private-var-folders-d9-_0gbv97x6332wsrqhr4fcyj80000gn-T-pi-herdr-verify-rdyqdG--/2026-10-07T03-06-56-379Z_34c6320f-36a3-4f23-bc05-5d56d62dac6a.jsonl"
+      },
+      "wake": true,
+      "deliverAs": "steer"
+    },
+    {
+      "content": "T5_FINAL <herdr-followup runId=\"b10b7757-a060-4802-b617-0815451d5b2e\">\nGONE\n</herdr-followup> CONTEXT_PANDA=true",
+      "details": {
+        "name": "t5-busy",
+        "kind": "done",
+        "eventId": "b10b7757-a060-4802-b617-0815451d5b2e",
+        "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918",
+        "runId": "b10b7757-a060-4802-b617-0815451d5b2e",
+        "sequence": 1,
+        "result": "T5_FINAL <herdr-followup runId=\"b10b7757-a060-4802-b617-0815451d5b2e\">\nGONE\n</herdr-followup> CONTEXT_PANDA=true",
+        "sessionPath": "/Users/rolex/.pi/agent/sessions/--private-var-folders-d9-_0gbv97x6332wsrqhr4fcyj80000gn-T-pi-herdr-verify-rdyqdG--/2026-10-07T03-06-56-379Z_34c6320f-36a3-4f23-bc05-5d56d62dac6a.jsonl"
+      },
+      "wake": true,
+      "deliverAs": "steer"
+    }
+  ],
+  "old": {
+    "ok": true,
+    "data": {
+      "target": "5f90a2ff-6d52-49b4-80e9-2e21906bd2ee",
+      "eventId": "5f90a2ff-6d52-49b4-80e9-2e21906bd2ee",
+      "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918",
+      "runId": "5f90a2ff-6d52-49b4-80e9-2e21906bd2ee",
+      "sequence": 1,
+      "status": "done",
+      "source": "session-jsonl",
+      "sessionPath": "/Users/rolex/.pi/agent/sessions/--private-var-folders-d9-_0gbv97x6332wsrqhr4fcyj80000gn-T-pi-herdr-verify-rdyqdG--/2026-10-07T03-06-56-379Z_34c6320f-36a3-4f23-bc05-5d56d62dac6a.jsonl",
+      "result": "T5_FINAL BUSY PANDA CONTEXT_PANDA=true"
+    }
+  },
+  "realCLI": true,
+  "realChildTUI": true,
+  "sameSession": "/Users/rolex/.pi/agent/sessions/--private-var-folders-d9-_0gbv97x6332wsrqhr4fcyj80000gn-T-pi-herdr-verify-rdyqdG--/2026-10-07T03-06-56-379Z_34c6320f-36a3-4f23-bc05-5d56d62dac6a.jsonl",
+  "agentId": "ce929ea7-3604-4e8c-a82b-96efd9336918"
+}

@@ -40,6 +40,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { seedSessionFile, writeSteerWatermark } from "./sessionfile.js";
+import { completionEventPath } from "./completion-event.js";
+import { clearSidecars } from "./sessionfile.js";
 import { currentOrchestratorSession } from "./push.js";
 import {
 	type Err,
@@ -732,6 +734,10 @@ export interface SpawnRecord {
 	 * inline spawn, deleted .md). Frontmatter pins are the spawn-time
 	 * snapshot; routing levels 3–5 still resolve against CURRENT settings. */
 	definition?: SpawnSpec;
+	/** Queued followups accepted while a run was busy; drained serially after settle. */
+	pendingFollowups?: { runId: string; text: string }[];
+	/** When set, the next startRecordNow runs this accepted execution identity. */
+	pendingRunId?: string;
 	/** Workflow run id (v0.6 issue 12): the child belongs to a herdr_run_workflow
 	 * run — the RUN reports for its children (one aggregated completion push),
 	 * so per-child terminal pushes are suppressed and issue 14's card rehomes
@@ -824,6 +830,7 @@ export function restoreSpawnRegistry(sessionPath: string): void {
 	}
 	spawnRegistry.clear();
 	for (const record of records) spawnRegistry.set(record.name, record);
+	if (records.some(record => record.pendingFollowups?.length)) ensureDrainLoop({});
 }
 
 export function writePersistedRegistry(
@@ -841,6 +848,11 @@ function persistOwnRegistry(deps: SpawnDeps): void {
 	} catch {
 		/* best-effort — a missing sessions dir must not fail the spawn */
 	}
+}
+
+export function persistSpawnRegistry(deps: SpawnDeps = {}): void {
+	const owner = deps.parentSession ?? currentOrchestratorSession();
+	if (owner) writePersistedRegistry(owner, [...spawnRegistry.values()]);
 }
 
 /** Terminal (or one-shot) events the delivery loop steers to the
@@ -865,18 +877,30 @@ export function putSpawnRecordForTests(record: SpawnRecord): void {
 
 /** Records accepted but not yet started (the queue, in accept order). */
 function queuedRecords(): SpawnRecord[] {
-	return [...spawnRegistry.values()].filter((r) => !r.paneId && !r.startError);
+	return [...spawnRegistry.values()].filter((r) => (!r.paneId || (r.pendingFollowups?.length ?? 0) > 0) && !r.startError && !(r.startBeganAt && !r.startedAt));
+}
+
+const executionLocks = new Set<string>();
+export function claimAgentExecution(record: SpawnRecord): (() => void) | undefined {
+	const key = record.agentId ?? record.name;
+	if (executionLocks.has(key)) return undefined;
+	executionLocks.add(key);
+	return () => { executionLocks.delete(key); };
 }
 
 // ---- injectable seams ------------------------------------------------------------
 
 export interface SpawnDeps {
+	/** Internal followup recovery bypasses maintenance-only gone validation. */
+	forceStart?: boolean;
+	/** TriggerTurn run identity promoted only when the recovery start executes. */
+	followupRunId?: string;
 	/** Effective settings — default: live read of both settings files. */
 	load?: () => HerdrSettings;
 	/** Live agent kinds — default: cached `herdr agent` kind list. */
 	kinds?: () => Promise<string[]>;
 	/** Live agents (fleet) — default: `herdr agent list`. */
-	list?: () => Promise<{ name?: string; paneId?: string }[]>;
+	list?: () => Promise<{ name?: string; paneId?: string; agentStatus?: string }[]>;
 	/** Live pane ids (ANY pane — booting included) — default: `herdr pane
 	 * list`. Split targeting reads THIS, not `list`: a just-split pane won't
 	 * be an agent for seconds. */
@@ -953,7 +977,7 @@ const defaultLoad = (): HerdrSettings =>
 	loadSettings(getSettingsPaths(process.cwd())).effective;
 export { defaultLoad };
 
-const defaultList = async (): Promise<{ name?: string; paneId?: string }[]> => {
+const defaultList = async (): Promise<{ name?: string; paneId?: string; agentStatus?: string }[]> => {
 	const r = await herdr<{ agents?: unknown[] }>(["agent", "list"], {
 		timeoutMs: 10_000,
 	});
@@ -1196,6 +1220,14 @@ export async function startRecordNow(
 	//    full argv is composed by buildLaunchPlan — the substrate flags ahead
 	//    of the spec's own. Non-pi kinds get the same builder's passthrough
 	//    branch (plain argv, no substrate).
+	if (record.pendingRunId) {
+		record.runId = record.pendingRunId;
+		record.pendingRunId = undefined;
+		if (record.sessionPath) {
+			clearSidecars(record.sessionPath);
+			writeFileSync(completionEventPath(record.sessionPath), record.runId, { mode: 0o600 });
+		}
+	}
 	if (isPiKind(record.kind)) {
 		const seedErr = seedRecordSession(record, cwd ?? process.cwd(), deps);
 		if (seedErr) return seedErr;
@@ -1712,11 +1744,37 @@ export async function drainQueueOnce(deps: SpawnDeps = {}): Promise<number> {
 	for (const record of queued) {
 		if (free <= 0) break;
 		free--;
-		const r = await startRecordNow(record, deps);
-		if (!r.ok) {
-			record.startError = r.error.message;
-			continue; // slot stays used-for-now; a later pass may retry nothing (record marked)
-		}
+		const followup = record.pendingFollowups?.[0];
+		// An idle pane may still have a live executor. Delivery retires it.
+		if (followup && record.paneId && (livePaneIds.has(record.paneId) || !record.delivery)) { free++; continue; }
+		if (!followup && record.delivery) { free++; continue; }
+		const release = claimAgentExecution(record);
+		if (!release) { free++; continue; }
+		try {
+			if (followup) {
+				record.pendingRunId = followup.runId;
+				record.sequence = 1;
+				record.prompt = `<herdr-followup runId="${followup.runId}">\n${followup.text}\n</herdr-followup>`;
+				record.paneId = undefined;
+				record.paneClosePending = false;
+				record.paneCloseAuthorization = undefined;
+				record.delivery = undefined;
+				record.startError = undefined;
+				record.submitted = false;
+				record.sawWorking = false;
+				record.startedAt = undefined;
+				record.goneAt = undefined;
+				if (record.sessionPath) writeSteerWatermark(record.sessionPath, record.prompt);
+			}
+			const r = await startRecordNow(record, deps);
+			if (!r.ok) {
+				record.startError = r.error.message;
+				persistOwnRegistry(deps);
+				continue;
+			}
+			if (followup) record.pendingFollowups?.shift();
+			persistOwnRegistry(deps);
+		} finally { release(); }
 		started++;
 	}
 	return started;
