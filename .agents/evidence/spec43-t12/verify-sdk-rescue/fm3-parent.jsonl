@@ -1,0 +1,3 @@
+{"type":"session","version":3,"id":"01a11694-94e1-75e5-b70f-119d29e2eb1b","timestamp":"2026-10-07T13:36:38.625Z","cwd":"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t12-sdk-lsM1PM/fm3-legacy-pending-reload"}
+{"type":"message","id":"4df82a52","parentId":null,"timestamp":"2026-10-07T13:36:38.625Z","message":{"role":"user","content":[{"type":"text","text":"seed"}],"timestamp":1}}
+{"type":"custom_message","customType":"herdr-delivery","details":{"eventId":"event-fm3","delivery":{"eventId":"event-fm3","token":"legacy-token-fm3","channel":"push","hostFile":"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t12-sdk-lsM1PM/fm3-legacy-pending-reload/2026-10-07T13-36-38-625Z_01a11694-94e1-75e5-b70f-119d29e2eb1b.jsonl","bodyCommitted":true}}}

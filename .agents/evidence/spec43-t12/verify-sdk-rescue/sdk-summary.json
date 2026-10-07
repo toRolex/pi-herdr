@@ -1,0 +1,41 @@
+{
+  "feature": "spec43-t12-sdk",
+  "total": 5,
+  "failed": 0,
+  "cases": [
+    {
+      "name": "FM1 SDK-accept-without-host-commit stays pending, no duplicate send",
+      "status": "queued",
+      "retryRefused": true,
+      "result": "pending retained"
+    },
+    {
+      "name": "FM2 host-commit + ledger-ACK-write-loss repairs to delivered after restart",
+      "secondClaimRefused": true,
+      "result": "no duplicate, no loss"
+    },
+    {
+      "name": "FM3 legacy unknown pending survives reload; durable evidence resolves it",
+      "token": "legacy-token-fm3",
+      "finalStatus": "delivered",
+      "result": "pending retained then resolved"
+    },
+    {
+      "name": "FM4 registered SDK pull commits before ACK; restart repairs ACK loss without replay",
+      "receipt": "persisted",
+      "confirmationErrors": 3,
+      "recoveredStatus": "delivered",
+      "result": "no duplicate body"
+    },
+    {
+      "name": "FM5 actual SDK nextTurn drain wins shared Push/Pull ledger; pull returns no second body",
+      "pushedBodies": 1,
+      "pulledBodies": 0,
+      "finalStatus": "delivered",
+      "result": "one body persisted"
+    }
+  ],
+  "baseline": "spec43-integration 73e52a7",
+  "namespace": "verify-sdk-rescue",
+  "boundary": "Real pi AgentSession, ExtensionRunner registration, pi.sendMessage, and SessionManager JSONL; only model output deterministic. The tests do not claim crash/power-loss atomicity beyond ledger fsync and host JSONL evidence, because the SDK host JSONL append is not fsynced."
+}
