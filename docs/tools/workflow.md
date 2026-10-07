@@ -85,9 +85,11 @@ upstream ruling: *"workflow script completed with unawaited agent launch(es):
 Workflow children are real spawn-registry agents — they hold ordinary fleet
 rows, queue through the ordinary cap, and appear in the widget — but their
 terminal pushes are suppressed: **the run reports for them**, once,
-aggregated. A blocked child still wakes you (blocked always wakes); answer
-with `herdr_message_agent` and the run continues — `agent()` waits for the
-settle. Stopping a run is the kill-all menu action (in-flight children close,
+aggregated (spec 43: per-child completion bodies are never separately
+delivered, so the once-per-event delivery contract cannot duplicate child
+prose). A blocked child still requests attention, respecting the
+notification setting; answer through the legacy `herdr_message_agent`
+raw-answer path and the run continues — `agent()` waits for the settle. Stopping a run is the kill-all menu action (in-flight children close,
 sessions retained); `workflows_enabled: false` removes the tool from the
 surface (evaluated at load; a mid-session toggle refuses new runs until
 `/reload`) and never stops one in flight.

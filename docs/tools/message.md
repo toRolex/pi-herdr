@@ -1,9 +1,12 @@
 # `herdr_message_agent`
 
-**The open channel** (v0.6 issue 05) — one tool, anyone ↔ anyone, no broker:
-any session (orchestrator, child, or peer) delivers text to any agent pane.
-Absorbed `herdr_send_prompt` (same send machinery underneath; the deleted tool
-was the last of the legacy result trio).
+**Legacy compatibility entry** (spec 43) — the open channel (v0.6 issue 05):
+one tool, anyone ↔ anyone, no broker. Any session (orchestrator, child, or
+peer) delivers text to any agent pane. It is retained for its legacy
+wake/injection semantics and is **not** remapped onto the queue-only mailbox
+(`herdr_send_agent`); it never restores user takeover and never bypasses
+completion-event delivery arbitration. Ordinary correspondence belongs to
+`herdr_send_agent`; dispatching new work belongs to `herdr_trigger_turn`.
 
 **Wraps:** `agent prompt <target> <text>` (submit) or `pane send-text <pane>
 <text>` (`submit: false`) — the same delivery path the spawn engine uses for
@@ -59,9 +62,9 @@ is unchanged: it is only the direct parent.
 
 `{delivered: true, target: <resolved pane-id>, to, from, state, delivery:
 "message" | "answer", name?, submit}` — no state gates (text to a working
-child queues natively), no `wait` (that is `herdr_get_agent_result(wait)`),
-and no read receipt: **delivered to the pane ≠ consumed by the model**.
-Replies arrive as injected `<agent-message>` text or the next completion
+child queues natively), no wait (that is `herdr_wait_agent_event`), and no
+read receipt: **delivered to the pane ≠ consumed by the model**. Replies
+arrive as injected `<agent-message>` text or the next completion
 notification.
 
 ## Inbound limit

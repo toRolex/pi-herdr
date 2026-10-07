@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — spec 43: subagent communication protocol rework
+(one delivery, explicit followup, safe wake; [#43](https://github.com/toRolex/pi-herdr/issues/43))
+
+Breaking behavior changes, all listed per the compatibility-and-migration
+contract:
+
+- **Tool surface: 12 → 16.** New model-facing tools with separated
+  responsibilities: `herdr_send_agent` (QueueOnly ordinary correspondence —
+  durable accept only, never wakes or interrupts), `herdr_trigger_turn`
+  (explicit followup dispatch — idle starts, busy safely queues, a gone
+  pane's retained session auto-resumes, each acceptance gets a fresh runId),
+  `herdr_wait_agent_event` (wait for an event reference — status/identity
+  only, no body, no consumption), and `herdr_wake_subscription` (explicit,
+  scoped, TTL-bounded, one-shot wake authorization).
+- **`herdr_get_agent_result` is consumption-only.** The tool schema no longer
+  accepts `wait`; old waiting usage migrates to `herdr_wait_agent_event`.
+  Mid-flight calls report status only — no drafts, no consumption, no
+  unbounded re-reads. A completion body is delivered once per receiver host
+  through a durable push/pull arbitration ledger; `reread: true` is the
+  explicit repeat path; `ack` declares an event handled without receiving
+  the body (never a claim of model reading).
+- **`herdr_message_agent` is now a labeled legacy compatibility entry.** It
+  keeps its legacy wake/injection semantics (including raw answers to
+  blocked overlays) and is NOT remapped onto the queue-only mailbox; it
+  never restores user takeover and never bypasses completion-event delivery
+  arbitration. Ordinary correspondence migrates to `herdr_send_agent`;
+  dispatching work migrates to `herdr_trigger_turn`.
+- **User takeover and Idle re-arm are removed.** Input-driven takeover,
+  markers, and the 15-minute idle re-arm no longer exist; typing into a
+  child pane is ordinary direct input (busy input queues safely) with no
+  lifecycle side effects on either side. The `idle_rearm_minutes` setting
+  still parses from old config files but is inert — no error, no effect.
+- **`notifications: normal` no longer surprise-wakes.** Delivery happens at
+  safe run boundaries: after the parent's final answer, a late completion
+  only increments unread until the next natural run or an explicit wake
+  subscription. `quiet` (next natural run, no wake) and `none` (stored
+  pull-only) are unchanged and can never be overridden by a subscription.
+- **Autonomous children recycle promptly** once their result and undelivered
+  events are durably saved — without waiting for parent ACK or read; parent
+  offline delivery still recovers from the retained events. Interactive
+  children keep resident panes.
+- **Legacy registry/pending migration.** Old registry records without
+  agent/run identity load flagged `identityReviewRequired` (kept for review,
+  never fabricated into new historical completions); old pending outcomes
+  migrate to the durable ledger as pending-unknown and are never
+  automatically re-sent; already-delivered historical notifications do not
+  replay after reload/restart.
+- **Documentation.** The glossary's Push/Pull/User takeover/Idle re-arm
+  contracts are replaced by the agent/run/event, send/followup/wait/result,
+  and delivery-arbitration vocabulary; tool docs and both READMEs describe
+  the separated contract.
+
 ## [1.0.0] - 2026-10-03
 
 Hard fork of [AndrewJacop/pi-herdr](https://github.com/AndrewJacop/pi-herdr),
