@@ -107,12 +107,24 @@ export interface ResultView {
 	adopted?: boolean;
 	note?: string;
 	interruptedByInput?: true;
+	reread?: true;
+	acknowledged?: true;
 	/** A claim proof accompanies the body only; receipts never carry bodyCommitted. */
 	delivery?: DeliveryProof | { eventId: string; hostFile: string; status: DeliveryRecord["status"]; channel?: "push" | "pull"; token?: string };
 }
 
+export interface CompletionAck {
+	eventId: string;
+	agentId: string;
+	runId: string;
+	sequence: number;
+	hostFile: string;
+}
+
 export interface GetResultParams {
 	target: string;
+	reread?: boolean;
+	ack?: CompletionAck;
 	wait?: boolean | number;
 	lines?: number;
 }
@@ -459,6 +471,7 @@ async function inspectRecord(
 
 /** Consumption never reads session assistant drafts, even when the pane is settled or gone. */
 async function consumeResult(params: GetResultParams, deps: GetResultDeps): Promise<Result<ResultView>> {
+	if (params.reread && params.ack) return err("VALIDATION_ERROR", "reread and ACK are mutually exclusive");
 	if (!deps.toolCallId) return err("VALIDATION_ERROR", "completion consumption requires a tool call id");
 	if (deps.signal?.aborted) return err("TIMEOUT", "aborted");
 	try { readFileSync(deps.hostFile!, "utf8"); }
@@ -473,11 +486,12 @@ async function consumeResult(params: GetResultParams, deps: GetResultDeps): Prom
 			catch { continue; }
 			if (saved.ok && saved.sidecar.eventId === params.target &&
 				(!candidate.agentId || saved.sidecar.agentId === candidate.agentId)) {
-				return consumeSidecar(params.target, candidate, saved.sidecar, deps);
+				return consumeSidecar(params.target, candidate, saved.sidecar, deps, params);
 			}
 		}
 	}
 	if (!record || record.kind.toLowerCase() !== "pi") {
+		if (params.ack || params.reread) return err("VALIDATION_ERROR", "explicit reread/ACK requires a durable pi completion event");
 		return { ok: true, data: await inspectAdopted(params.target, deps, params.lines ?? 80, record ? viewBase(params.target, record) : undefined) };
 	}
 	const base = { ...viewBase(params.target, record), agentId: record.agentId, runId: record.runId, sequence: record.sequence };
@@ -492,13 +506,14 @@ async function consumeResult(params: GetResultParams, deps: GetResultDeps): Prom
 		return sidecar;
 	};
 	const first = read();
-	if (first) return consumeSidecar(params.target, record, first, deps);
+	if (first) return consumeSidecar(params.target, record, first, deps, params);
+	if (params.ack || params.reread) return err("VALIDATION_ERROR", "explicit reread/ACK refused: no matching durable terminal event");
 	if (record.startError) return { ok: true, data: { ...base, status: "gone", lastKnown: lastKnownOf(record), note: `the pane never started: ${record.startError}` } };
 	if (!record.paneId) return { ok: true, data: { ...base, status: "queued", interim: true } };
 	const live = await (deps.status ?? getAgentStatus)(record.paneId);
 	if (deps.signal?.aborted) return err("TIMEOUT", "aborted");
 	const raced = read();
-	if (raced) return consumeSidecar(params.target, record, raced, deps);
+	if (raced) return consumeSidecar(params.target, record, raced, deps, params);
 	if (!live.ok && (live.error.code === "NOT_FOUND" || (live.error.details as { code?: string } | undefined)?.code === "agent_not_found")) {
 		return { ok: true, data: { ...base, status: "gone", lastKnown: lastKnownOf(record), note: "no durable terminal declaration; no draft was read" } };
 	}
@@ -507,17 +522,27 @@ async function consumeResult(params: GetResultParams, deps: GetResultDeps): Prom
 	return { ok: true, data: { ...base, ...projected, interim: true, note: "no durable terminal declaration; status only, no draft was read" } };
 }
 
-function consumeSidecar(target: string, record: SpawnRecord, sidecar: ExitSidecar, deps: GetResultDeps): Result<ResultView> {
+function consumeSidecar(target: string, record: SpawnRecord, sidecar: ExitSidecar, deps: GetResultDeps, params: GetResultParams): Result<ResultView> {
 	const base = { ...viewBase(target, record), agentId: sidecar.agentId, runId: sidecar.runId, sequence: sidecar.sequence, eventId: sidecar.eventId };
 	if (sidecar.type === "persistence-error") {
+		if (params.ack || params.reread) return err("VALIDATION_ERROR", "explicit reread/ACK requires a durably saved completion");
 		return { ok: true, data: { ...base, status: "error", note: "governance failure: completion was not durably saved" } };
 	}
 	const body = sidecar.text?.trim() ? sidecar.text : sidecar.type === "done" && sidecar.structured?.trim() ? sidecar.structured : undefined;
 	if (!validEventId(sidecar.eventId) || !body) {
+		if (params.ack || params.reread) return err("VALIDATION_ERROR", "explicit reread/ACK requires a durable event id and final body");
 		return { ok: true, data: { ...base, status: "error", note: "governance failure: completion declaration has no durable event id or final body" } };
 	}
 	const ledger = new DeliveryLedger(deps.hostFile!);
-	const claimed = ledger.claimPull({ eventId: sidecar.eventId, agentId: sidecar.agentId, runId: sidecar.runId, sequence: sidecar.sequence, sessionPath: record.sessionPath }, deps.toolCallId!);
+	const ref = { eventId: sidecar.eventId, agentId: sidecar.agentId, runId: sidecar.runId, sequence: sidecar.sequence, sessionPath: record.sessionPath };
+	if (params.reread) return { ok: true, data: { ...base, status: sidecar.type, source: "session-jsonl", result: body, reread: true, note: "explicit reread of the original completion; not a new delivery" } };
+	if (params.ack) {
+		const ack = params.ack;
+		if (!ref.agentId || !ref.runId || ref.sequence === undefined || ack.hostFile !== deps.hostFile || ack.eventId !== ref.eventId || ack.agentId !== ref.agentId || ack.runId !== ref.runId || ack.sequence !== ref.sequence) return err("VALIDATION_ERROR", "ACK agent/run/sequence/event or receiver host mismatch");
+		const acknowledged = ledger.acknowledge(ref);
+		return { ok: true, data: { ...base, status: sidecar.type, acknowledged: true, delivery: { eventId: ref.eventId, hostFile: ledger.hostFile, status: acknowledged.status }, note: "caller declared handled; no claim that the model read or understood the body" } };
+	}
+	const claimed = ledger.claimPull(ref, deps.toolCallId!);
 	if (!claimed.bodyAllowed) {
 		return { ok: true, data: { ...base, status: sidecar.type, delivery: { eventId: sidecar.eventId, hostFile: ledger.hostFile, status: claimed.record.status, channel: claimed.record.channel, token: claimed.record.token }, note: "completion body already claimed; status reference only" } };
 	}
@@ -534,6 +559,7 @@ export async function getAgentResult(
 	deps: GetResultDeps = {},
 ): Promise<Result<ResultView>> {
 	if (deps.hostFile) return consumeResult(params, deps);
+	if (params.ack || params.reread) return err("VALIDATION_ERROR", "explicit reread/ACK requires a receiving host session");
 	const now = deps.now ?? (() => Date.now());
 	const pollMs = deps.pollMs ?? 1_500;
 	const wait = params.wait;
@@ -667,6 +693,8 @@ function fail(r: Err): ToolReturn {
 
 /** Render a ResultView as the tool's text + error flag. */
 function render(view: ResultView): ToolReturn {
+	if (view.reread) return { content: [{ type: "text", text: `Explicit reread of completion ${view.eventId} — original final message:\n\n${view.result}` }], details: view };
+	if (view.acknowledged) return { content: [{ type: "text", text: `Completion ${view.eventId} ACK: caller declared handled; this does not claim model reading or understanding. No body returned.` }], details: view };
 	if (view.delivery && !("bodyCommitted" in view.delivery)) {
 		return {
 			content: [{ type: "text", text: `Completion ${view.eventId} is ${view.delivery.status} via ${view.delivery.channel ?? "unclaimed"}; this call is a status reference, not another body delivery.` }],
@@ -843,6 +871,8 @@ export function registerResultTool(pi: ExtensionAPI, deps: GetResultDeps = {}): 
 			"Pull an agent's result — the inspection tool for agents you spawned with herdr_spawn_agent. " +
 			"For pi children, only a durable completion event can deliver the full final body once. " +
 			"Mid-flight calls report status without reading drafts; already claimed events return status references. " +
+			"Use reread:true to explicitly review the original full body without changing its identity or delivery state. " +
+			"Use ack with event/agent/run/sequence and receiver hostFile to declare handled without receiving the body; ACK is not proof of reading or understanding. Unknown pending submissions must first be durably confirmed. " +
 			"For panes this session did not spawn (or non-pi kinds) it falls back to pane-tail reading. " +
 			"A gone pane still answers with its last-known metadata; its session file stays readable and resumable. " +
 			"Single-shot and never blocks: one call, one snapshot. Poll by calling again.",
@@ -854,8 +884,13 @@ export function registerResultTool(pi: ExtensionAPI, deps: GetResultDeps = {}): 
 		parameters: Type.Object({
 			target: Type.String({
 				description:
-					"Spawn handle (the name herdr_spawn_agent returned) or pane id.",
+					"Spawn handle, pane id, or immutable completion eventId (including a retained older run).",
 			}),
+			reread: Type.Optional(Type.Boolean({ description: "Explicitly reread the immutable final body, including after ACK; not a new delivery." })),
+			ack: Type.Optional(Type.Object({
+				eventId: Type.String(), agentId: Type.String(), runId: Type.String(),
+				sequence: Type.Integer({ minimum: 1 }), hostFile: Type.String({ description: "Exact receiving session file from the result reference." }),
+			}, { description: "Caller declares this completion handled. No body returned; not evidence of reading or understanding." })),
 			lines: Type.Optional(
 				Type.Integer({
 					description:
@@ -869,7 +904,7 @@ export function registerResultTool(pi: ExtensionAPI, deps: GetResultDeps = {}): 
 			try {
 				confirmPending();
 				const r = await getAgentResult(
-					{ target: p.target, lines: p.lines },
+					{ target: p.target, lines: p.lines, reread: p.reread, ack: p.ack },
 					{ ...deps, hostFile, toolCallId: id, signal },
 				);
 				if (!r.ok) return fail(r);

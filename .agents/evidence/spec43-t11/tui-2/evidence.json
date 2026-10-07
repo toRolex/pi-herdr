@@ -1,0 +1,6 @@
+{
+  "feature": "spec43-t11",
+  "captured": true,
+  "childFixture": "child.exit.json",
+  "parentTranscript": "parent.jsonl"
+}

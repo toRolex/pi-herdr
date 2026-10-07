@@ -1,0 +1,10 @@
+{
+  "exitCode": 0,
+  "normalBodies": 1,
+  "explicitRereads": 1,
+  "durableState": "acked",
+  "realHerdrCLI": true,
+  "realPiTUI": true,
+  "receiptVisible": true,
+  "boundary": "Child durable event seeded fixture; provider deterministic; registered tools, parent TUI, session writes and UI receipts real."
+}
