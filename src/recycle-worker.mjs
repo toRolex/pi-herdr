@@ -22,8 +22,9 @@ for (let attempt = 0; attempt < 120; attempt++) {
   if (!intent.pending) break;
   const declaration = JSON.parse(readFileSync(intent.sessionPath + '.exit', 'utf8'));
   if (declaration.eventId !== intent.eventId || declaration.runId !== intent.runId || declaration.agentId !== intent.agentId) { save({...intent, pending:false, error:'stale close intent refused'}); break; }
-  const fleet = command(['agent', 'list']);
-  const agent = (fleet.agents ?? []).find(a => a.pane_id === intent.paneId);
+  const fleet = await command(['agent', 'list']);
+  if (!fleet || typeof fleet !== 'object' || !Array.isArray(fleet.agents)) throw new Error('Herdr agent list response is missing its agents array');
+  const agent = fleet.agents.find(a => a.pane_id === intent.paneId);
   if (agent && agent.name !== intent.name) { save({...intent, pending:false, error:'pane ownership changed'}); break; }
   if (agent) continue; // Only an empty shell may be recycled; never a live TUI.
   if (intent.ownerSession) {
@@ -31,10 +32,11 @@ for (let attempt = 0; attempt < 120; attempt++) {
    const owner = registry.find(r => r.agentId === intent.agentId);
    if (!owner || owner.runId !== intent.runId || owner.paneId !== intent.paneId) { save({...intent, pending:false, error:'registry ownership changed'}); break; }
   }
-  const panes = command(['pane','list']);
-  if (!(panes.panes ?? []).some(p => (p.pane_id ?? p.id) === intent.paneId)) { save({...intent, pending:false}); break; }
-  command(['pane','close',intent.paneId]);
-  save({...intent, pending:false}); break;
+  const panes = await command(['pane','list']);
+  if (!panes || typeof panes !== 'object' || !Array.isArray(panes.panes)) throw new Error('Herdr pane list response is missing its panes array');
+  if (!panes.panes.some(p => (p.pane_id ?? p.id) === intent.paneId)) { save({...intent, pending:false, error:undefined}); break; }
+  await command(['pane','close',intent.paneId]);
+  save({...intent, pending:false, error:undefined}); break;
  } catch(error) {
   try { save({...read(), pending:true, error:String(error)}); } catch { break; }
  }

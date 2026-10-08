@@ -44,9 +44,11 @@ export function registerWakeTools(pi: ExtensionAPI): void {
     return { content: [{ type: "text", text: JSON.stringify(details) }], details };
    } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const reason = error instanceof WakeSubscriptionError
-     ? error.code === "policy-conflict" ? "notification-policy" : "invalid-argument"
-     : "persistence-error";
+    let reason = "persistence-error";
+    if (error instanceof WakeSubscriptionError) {
+     reason = "invalid-argument";
+     if (error.code === "policy-conflict") reason = "notification-policy";
+    }
     const policy = reason === "notification-policy" ? /notifications=(normal|quiet|none)/.exec(message)?.[1] : undefined;
     return unwrap({ ok: false, error: {
      code: "VALIDATION_ERROR",
