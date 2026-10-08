@@ -710,14 +710,13 @@ export interface SpawnRecord {
 	deniedTools?: string[];
 	/** Extra env vars for the child pane (issue 14: PI_HERDR_SCHEMA). */
 	extraEnv?: Record<string, string>;
-	/** Terminal event already steered to the orchestrator (issue 06) —
-	 * one push per terminal event; 07 prunes fleet rows on this. */
+	/** 当前 run 的终态已提交，关闭重试不得重复投递。 */
 	delivery?: { kind: DeliveryKind; at: number };
-	/** Pane close pending; retries remain bound to the settled run and pane. */
+	/** pane 关闭待重试，不得因此重复投递终态。 */
 	paneClosePending?: boolean;
+	/** 关闭授权绑定到已结束的 agent/run/pane 身份。 */
 	paneCloseAuthorization?: { agentId?: string; runId?: string; paneId: string };
-	/** Why the last pane close was rejected (issue 41). Cleared when a later
-	 * close succeeds. The session file is never deleted because of it. */
+	/** 最近一次 pane 关闭失败原因，成功后清除。 */
 	paneCloseError?: string;
 	/** Why the last orphan push was rejected (issue 41). The pane stays up
 	 * and the result is not marked delivered. */
