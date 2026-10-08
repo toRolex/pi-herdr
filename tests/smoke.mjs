@@ -68,17 +68,21 @@ await ext.default(mockPi);
 const names = tools.map((t) => t.name);
 const expected = [
 	// the v0.6 surface (issue 02 cut + issue 04 substrate): ONE surface.
-	// Later tickets register theirs (05 → message_agent, 10 → interrupt/resume,
-	// 12 → run_workflow) and the count converges to 12.
+	// Later tickets register theirs (05 → message_agent, T5 → trigger_turn,
+	// 10 → interrupt/resume, 12 → run_workflow).
 	"herdr_spawn_agent",
 	// the `.md` registry persistence tool (issue 03; ungated by decision)
 	"herdr_save_agent",
 	// the pull/inspection tool (issue 04) — retired wait_agent + read_agent of
 	// the legacy result trio
 	"herdr_get_agent_result",
+	"herdr_wait_agent_event",
 	// the open message channel (issue 05) — absorbed send_prompt, the last of
 	// the legacy trio
 	"herdr_message_agent",
+	"herdr_wake_subscription",
+	"herdr_trigger_turn",
+	"herdr_send_agent",
 	// the lifecycle pair (issue 10): turn cancel + the gone-agent recovery move
 	"herdr_interrupt_agent",
 	"herdr_resume_agent",
@@ -150,19 +154,18 @@ const selfReportActive =
 // Footer wiring (v0.6 issue 11): the footer no longer polls the fleet per
 // turn — the widget owns the agent counts; the footer is probe-diagnostics,
 // set once at session_start alongside the widget's UI capture. agent_start
-// is self-report's (when in-pane), the delivery busy tracker, and receiver
-// inbox busy tracking, never the footer's.
+// 还包括生产 parent controller 的 run 生命周期；footer 不注册这些 hook。
 assert(
-	(events.agent_start?.length ?? 0) === (selfReportActive ? 3 : 2),
-	"agent_start: self-report, delivery busy tracker, and receiver inbox — no footer hook",
+	(events.agent_start?.length ?? 0) === (selfReportActive ? 4 : 3),
+	"agent_start: self-report, delivery busy tracker, receiver inbox, and parent controller — no footer hook",
 );
 assert(
-	!events.turn_end?.length,
-	"no turn_end footer hook (footer is probe-diagnostics)",
+	(events.turn_end?.length ?? 0) === 2,
+	"turn_end: durable result confirmation and parent controller safe-boundary tracking",
 );
 assert(
-	events.session_start?.length === (selfReportActive ? 9 : 8),
-	"session_start: probe, widget, input wake, delivery renderer, orchestrator session, receiver inbox, registry restore, durable sink, and in-pane self-report",
+	events.session_start?.length === (selfReportActive ? 10 : 9),
+	"session_start includes the production parent controller alongside existing integrations",
 );
 assert(
 	commands.some((c) => c.name === "subagents"),

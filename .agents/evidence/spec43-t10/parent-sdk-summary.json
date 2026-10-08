@@ -1,0 +1,497 @@
+[
+  {
+    "name": "notices-normal",
+    "requests": 2,
+    "events": [
+      {
+        "type": "agent_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "system",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "system",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_end",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_settled",
+        "agentStreaming": false,
+        "sessionStreaming": false
+      },
+      {
+        "type": "agent_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_end",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_settled",
+        "agentStreaming": false,
+        "sessionStreaming": false
+      }
+    ],
+    "policy": "normal",
+    "finishedRequests": 1,
+    "naturalRequests": 2,
+    "noticeKinds": [
+      "blocked",
+      "blocked-recovered",
+      "error",
+      "stall-recovered"
+    ]
+  },
+  {
+    "name": "notices-quiet",
+    "requests": 2,
+    "events": [
+      {
+        "type": "agent_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "system",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "system",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_end",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_settled",
+        "agentStreaming": false,
+        "sessionStreaming": false
+      },
+      {
+        "type": "agent_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "custom",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_end",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_settled",
+        "agentStreaming": false,
+        "sessionStreaming": false
+      }
+    ],
+    "policy": "quiet",
+    "finishedRequests": 1,
+    "naturalRequests": 2,
+    "noticeKinds": [
+      "blocked",
+      "blocked-recovered",
+      "error",
+      "stall-recovered"
+    ]
+  },
+  {
+    "name": "notices-none",
+    "requests": 2,
+    "events": [
+      {
+        "type": "agent_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "system",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "system",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_end",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_settled",
+        "agentStreaming": false,
+        "sessionStreaming": false
+      },
+      {
+        "type": "agent_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_start",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "user",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_start",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "message_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "turn_end",
+        "role": "assistant",
+        "stopReason": "stop",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_end",
+        "agentStreaming": true,
+        "sessionStreaming": true
+      },
+      {
+        "type": "agent_settled",
+        "agentStreaming": false,
+        "sessionStreaming": false
+      }
+    ],
+    "policy": "none",
+    "finishedRequests": 1,
+    "naturalRequests": 2,
+    "noticeKinds": [
+      "blocked",
+      "blocked-recovered",
+      "error",
+      "stall-recovered"
+    ]
+  }
+]

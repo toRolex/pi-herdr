@@ -1,0 +1,9 @@
+{
+  "eventId": "event-q",
+  "agentId": "agent-1",
+  "runId": "run-1",
+  "sequence": 1,
+  "status": "available",
+  "updatedAt": 1791378986214,
+  "diagnostic": "host boundary withdrew queued body; deferred until next natural run"
+}

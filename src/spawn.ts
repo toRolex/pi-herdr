@@ -38,7 +38,10 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { seedSessionFile, writeSteerWatermark } from "./sessionfile.js";
+import { randomUUID } from "node:crypto";
+import { seedSessionFile } from "./sessionfile.js";
+import { completionEventPath } from "./completion-event.js";
+import { clearSidecars } from "./sessionfile.js";
 import { currentOrchestratorSession } from "./push.js";
 import {
 	type Err,
@@ -648,6 +651,16 @@ export function buildAgentArgs(
 // and the denied-tools list the child strip reports.
 
 export interface SpawnRecord {
+	/** Stable logical agent identity, assigned when the spawn is accepted. */
+	agentId: string;
+	/** Stable execution identity; legacy records without one need reconciliation. */
+	runId: string;
+	/** Completion event sequence within this run. */
+	sequence: number;
+	/** Legacy records lacking identity are preserved, not guessed. */
+	identityReviewRequired?: boolean;
+	/** Unread completion events, if tracked by a later delivery layer. */
+	unread?: number;
 	/** Pane handle (unique-ified at accept). */
 	name: string;
 	kind: string;
@@ -697,15 +710,18 @@ export interface SpawnRecord {
 	deniedTools?: string[];
 	/** Extra env vars for the child pane (issue 14: PI_HERDR_SCHEMA). */
 	extraEnv?: Record<string, string>;
-	/** rearm 只记录本次终态的显式授权，旧投递不能推断授权。 */
-	delivery?: { kind: DeliveryKind; at: number; rearm?: true };
-	/** 投递与关闭独立，待关闭重试不得重复推送终态。 */
+	/** 当前 run 的终态已提交，关闭重试不得重复投递。 */
+	delivery?: { kind: DeliveryKind; at: number };
+	/** pane 关闭待重试，不得因此重复投递终态。 */
 	paneClosePending?: boolean;
+	/** 关闭授权绑定到已结束的 agent/run/pane 身份。 */
+	paneCloseAuthorization?: { agentId?: string; runId?: string; paneId: string };
+	/** 最近一次 pane 关闭失败原因，成功后清除。 */
 	paneCloseError?: string;
 	/** Why the last orphan push was rejected (issue 41). The pane stays up
 	 * and the result is not marked delivered. */
 	pushError?: string;
-	/** A human took the pane over (child-reported <session>.takeover). */
+	/** Legacy registry compatibility only; inert. */
 	takenOver?: boolean;
 	/** Turn cancelled (issue 10): when the parent sent Escape to the pane.
 	 * Drives the projected `interrupted` state; cleared by new work (a
@@ -717,6 +733,10 @@ export interface SpawnRecord {
 	 * inline spawn, deleted .md). Frontmatter pins are the spawn-time
 	 * snapshot; routing levels 3–5 still resolve against CURRENT settings. */
 	definition?: SpawnSpec;
+	/** Queued followups accepted while a run was busy; drained serially after settle. */
+	pendingFollowups?: { runId: string; text: string }[];
+	/** When set, the next startRecordNow runs this accepted execution identity. */
+	pendingRunId?: string;
 	/** Workflow run id (v0.6 issue 12): the child belongs to a herdr_run_workflow
 	 * run — the RUN reports for its children (one aggregated completion push),
 	 * so per-child terminal pushes are suppressed and issue 14's card rehomes
@@ -736,10 +756,10 @@ export interface SpawnRecord {
 	 * original prompt must NOT be resubmitted. Rides the record so the
 	 * queue drain's startRecordNow stays silent too. */
 	resumeSilent?: boolean;
-	/** The quiet `user took over <agent>` note was sent. */
-	tookNotified?: boolean;
 	/** A blocked wake was pushed for the current blocked episode. */
 	blockedNotified?: boolean;
+	/** Monotonic within one logical agent; retained across receiver reloads. */
+	blockedEpisode?: number;
 	/** First absence evidence — the bounded-grace measurement (ms epoch). */
 	goneAt?: number;
 	/** Watchdog bookkeeping (07): whether a stall ping was sent for the
@@ -802,12 +822,14 @@ export function restoreSpawnRegistry(sessionPath: string): void {
 		if (!record || typeof record.name !== "string" || !record.name || typeof record.kind !== "string") {
 			throw new Error("invalid spawn registry record");
 		}
+		if (!record.agentId || !record.runId) record.identityReviewRequired = true;
 		if (record.lineage && record.lineage.ownerSession !== sessionPath) {
 			throw new Error("spawn registry owner does not match current session");
 		}
 	}
 	spawnRegistry.clear();
 	for (const record of records) spawnRegistry.set(record.name, record);
+	if (records.some(record => record.pendingFollowups?.length)) ensureDrainLoop({});
 }
 
 export function writePersistedRegistry(
@@ -825,6 +847,11 @@ function persistOwnRegistry(deps: SpawnDeps): void {
 	} catch {
 		/* best-effort — a missing sessions dir must not fail the spawn */
 	}
+}
+
+export function persistSpawnRegistry(deps: SpawnDeps = {}): void {
+	const owner = deps.parentSession ?? currentOrchestratorSession();
+	if (owner) writePersistedRegistry(owner, [...spawnRegistry.values()]);
 }
 
 /** Terminal (or one-shot) events the delivery loop steers to the
@@ -849,18 +876,30 @@ export function putSpawnRecordForTests(record: SpawnRecord): void {
 
 /** Records accepted but not yet started (the queue, in accept order). */
 function queuedRecords(): SpawnRecord[] {
-	return [...spawnRegistry.values()].filter((r) => !r.paneId && !r.startError);
+	return [...spawnRegistry.values()].filter((r) => (!r.paneId || (r.pendingFollowups?.length ?? 0) > 0) && !r.startError && !(r.startBeganAt && !r.startedAt));
+}
+
+const executionLocks = new Set<string>();
+export function claimAgentExecution(record: SpawnRecord): (() => void) | undefined {
+	const key = record.agentId ?? record.name;
+	if (executionLocks.has(key)) return undefined;
+	executionLocks.add(key);
+	return () => { executionLocks.delete(key); };
 }
 
 // ---- injectable seams ------------------------------------------------------------
 
 export interface SpawnDeps {
+	/** Internal followup recovery bypasses maintenance-only gone validation. */
+	forceStart?: boolean;
+	/** TriggerTurn run identity promoted only when the recovery start executes. */
+	followupRunId?: string;
 	/** Effective settings — default: live read of both settings files. */
 	load?: () => HerdrSettings;
 	/** Live agent kinds — default: cached `herdr agent` kind list. */
 	kinds?: () => Promise<string[]>;
 	/** Live agents (fleet) — default: `herdr agent list`. */
-	list?: () => Promise<{ name?: string; paneId?: string }[]>;
+	list?: () => Promise<{ name?: string; paneId?: string; agentStatus?: string }[]>;
 	/** Live pane ids (ANY pane — booting included) — default: `herdr pane
 	 * list`. Split targeting reads THIS, not `list`: a just-split pane won't
 	 * be an agent for seconds. */
@@ -937,7 +976,7 @@ const defaultLoad = (): HerdrSettings =>
 	loadSettings(getSettingsPaths(process.cwd())).effective;
 export { defaultLoad };
 
-const defaultList = async (): Promise<{ name?: string; paneId?: string }[]> => {
+const defaultList = async (): Promise<{ name?: string; paneId?: string; agentStatus?: string }[]> => {
 	const r = await herdr<{ agents?: unknown[] }>(["agent", "list"], {
 		timeoutMs: 10_000,
 	});
@@ -1180,6 +1219,14 @@ export async function startRecordNow(
 	//    full argv is composed by buildLaunchPlan — the substrate flags ahead
 	//    of the spec's own. Non-pi kinds get the same builder's passthrough
 	//    branch (plain argv, no substrate).
+	if (record.pendingRunId) {
+		record.runId = record.pendingRunId;
+		record.pendingRunId = undefined;
+		if (record.sessionPath) {
+			clearSidecars(record.sessionPath);
+			writeFileSync(completionEventPath(record.sessionPath), record.runId, { mode: 0o600 });
+		}
+	}
 	if (isPiKind(record.kind)) {
 		const seedErr = seedRecordSession(record, cwd ?? process.cwd(), deps);
 		if (seedErr) return seedErr;
@@ -1201,7 +1248,7 @@ export async function startRecordNow(
 	});
 
 	// 3. pane (herdr's native kind axis; version-branched launcher)
-	const childEnv = buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes);
+	const childEnv = buildChildEnv(record);
 	const start = deps.start ?? startHerdrAgent;
 	// Layout is decided at START, never at accept: a queued spawn that drains
 	// later sees whatever is live then, and a setting change only affects the
@@ -1423,7 +1470,7 @@ async function planGridSeat(
 			const made = await run<{
 				tab?: { tab_id?: string; root_pane?: string; pane_id?: string };
 			}>(
-				createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes), record.worktreePath ?? record.cwd),
+				createGridTabArgs(here.workspace_id, group, buildChildEnv(record), record.worktreePath ?? record.cwd),
 				{ signal: deps.signal },
 			);
 			if (!made.ok || !made.data?.tab?.tab_id) return undefined;
@@ -1502,7 +1549,7 @@ async function planGridSeat(
 	const split = splitFor(plan, record.name, known);
 	if (!split) return undefined;
 	if (plan.openedTab) {
-		split.commands = [{ args: createGridTabArgs(here.workspace_id, group, buildChildEnv(record, (deps.load ?? defaultLoad)().idle_rearm_minutes), record.worktreePath ?? record.cwd) }];
+		split.commands = [{ args: createGridTabArgs(here.workspace_id, group, buildChildEnv(record), record.worktreePath ?? record.cwd) }];
 	}
 	if (!split.paneId && tabId !== here.tab_id) {
 		const anchor = live[0]?.pane_id;
@@ -1514,7 +1561,7 @@ async function planGridSeat(
 
 /** Child env stamped onto a tab the grid creates, because `agent start`
  * has no `--env` of its own — the shell inherits the tab's. */
-function buildChildEnv(record: SpawnRecord, idleRearmMinutes: number): Record<string, string> {
+function buildChildEnv(record: SpawnRecord): Record<string, string> {
 	const env: Record<string, string> = {};
 	const stamp = (k: string, v: string | undefined) => {
 		if (v !== undefined) env[k] = v;
@@ -1523,6 +1570,10 @@ function buildChildEnv(record: SpawnRecord, idleRearmMinutes: number): Record<st
 	stamp("PI_HERDR_ORCHESTRATOR_PANE", record.orchestratorPane);
 	if (record.sessionPath) {
 		stamp("PI_HERDR_SESSION", record.sessionPath);
+		stamp("PI_HERDR_AGENT_ID", record.agentId);
+		stamp("PI_HERDR_RUN_ID", record.runId);
+		stamp("PI_HERDR_OWNER_SESSION", record.lineage?.ownerSession);
+		stamp("PI_HERDR_SEQUENCE", String(record.sequence));
 		stamp("PI_HERDR_NAME", record.name);
 		stamp("PI_HERDR_AGENT", record.type ?? "");
 		stamp(
@@ -1531,8 +1582,9 @@ function buildChildEnv(record: SpawnRecord, idleRearmMinutes: number): Record<st
 		);
 		stamp("PI_HERDR_DENIED_TOOLS", (record.deniedTools ?? []).join(","));
 		stamp("PI_HERDR_ACTIVITY_FILE", record.activityPath);
-		stamp("PI_HERDR_IDLE_REARM_MS", String(Math.max(0, idleRearmMinutes) * 60_000));
+
 		stamp("PI_HERDR_ROOT_SESSION", record.lineage?.rootSession);
+		stamp("PI_HERDR_PARENT_SESSION", record.lineage?.ownerSession);
 	}
 	for (const [k, v] of Object.entries(record.extraEnv ?? {})) stamp(k, v);
 	return env;
@@ -1568,11 +1620,7 @@ async function submitRecordPrompt(
 	if (!record.paneId) return;
 	const submit = deps.submit ?? defaultSubmit;
 	const deadline = Date.now() + SUBMIT_CHUNK_MS;
-	// Steer watermark (issue 06): the exact text about to be typed. The child
-	// matches its input event against it so the parent's own steering is never
-	// mistaken for a human takeover. The task is pasted once; a missing Enter
-	// is a key, not a second paste.
-	if (record.sessionPath) writeSteerWatermark(record.sessionPath, record.prompt);
+	// The task is pasted once; a missing Enter is retried as a key.
 	const r = await submit(record.paneId, record.prompt, deadline, deps.signal);
 	if (deps.signal?.aborted) {
 		record.submitted = false;
@@ -1692,11 +1740,36 @@ export async function drainQueueOnce(deps: SpawnDeps = {}): Promise<number> {
 	for (const record of queued) {
 		if (free <= 0) break;
 		free--;
-		const r = await startRecordNow(record, deps);
-		if (!r.ok) {
-			record.startError = r.error.message;
-			continue; // slot stays used-for-now; a later pass may retry nothing (record marked)
-		}
+		const followup = record.pendingFollowups?.[0];
+		// An idle pane may still have a live executor. Delivery retires it.
+		if (followup && record.paneId && (livePaneIds.has(record.paneId) || !record.delivery)) { free++; continue; }
+		if (!followup && record.delivery) { free++; continue; }
+		const release = claimAgentExecution(record);
+		if (!release) { free++; continue; }
+		try {
+			if (followup) {
+				record.pendingRunId = followup.runId;
+				record.sequence = 1;
+				record.prompt = `<herdr-followup runId="${followup.runId}">\n${followup.text}\n</herdr-followup>`;
+				record.paneId = undefined;
+				record.paneClosePending = false;
+				record.paneCloseAuthorization = undefined;
+				record.delivery = undefined;
+				record.startError = undefined;
+				record.submitted = false;
+				record.sawWorking = false;
+				record.startedAt = undefined;
+				record.goneAt = undefined;
+			}
+			const r = await startRecordNow(record, deps);
+			if (!r.ok) {
+				record.startError = r.error.message;
+				persistOwnRegistry(deps);
+				continue;
+			}
+			if (followup) record.pendingFollowups?.shift();
+			persistOwnRegistry(deps);
+		} finally { release(); }
 		started++;
 	}
 	return started;
@@ -1763,6 +1836,9 @@ export interface SpawnParams {
 
 export interface SpawnResultData {
 	name: string;
+	agentId: string;
+	runId: string;
+	sequence: number;
 	status: SpawnStatus;
 	paneId?: string;
 	kind: string;
@@ -1836,6 +1912,9 @@ function substrateResultFields(
 	coercedNote?: string,
 ): Partial<SpawnResultData> {
 	return {
+		agentId: record.agentId,
+		runId: record.runId,
+		sequence: record.sequence,
 		...routingResultFields(routing, record.session_mode),
 		...(record.sessionPath ? { sessionPath: record.sessionPath } : {}),
 		...(record.activityPath ? { activityPath: record.activityPath } : {}),
@@ -1991,6 +2070,9 @@ export async function spawnAgent(
 	}
 
 	const record: SpawnRecord = {
+		agentId: randomUUID(),
+		runId: randomUUID(),
+		sequence: 1,
 		name: handle,
 		kind: merged.kind,
 		type: definition.name || params.type,
@@ -2029,6 +2111,9 @@ export async function spawnAgent(
 			return {
 				ok: true,
 				data: {
+					agentId: record.agentId!,
+					runId: record.runId!,
+					sequence: record.sequence!,
 					name: handle,
 					status: "queued",
 					kind: merged.kind,
@@ -2053,6 +2138,9 @@ export async function spawnAgent(
 		return {
 			ok: true,
 			data: {
+				agentId: record.agentId!,
+				runId: record.runId!,
+				sequence: record.sequence!,
 				name: handle,
 				status: "starting",
 				kind: merged.kind,
@@ -2073,6 +2161,9 @@ export async function spawnAgent(
 			return {
 				ok: true,
 				data: {
+					agentId: record.agentId!,
+					runId: record.runId!,
+					sequence: record.sequence!,
 					name: handle,
 					status: "queued",
 					kind: merged.kind,
@@ -2088,6 +2179,9 @@ export async function spawnAgent(
 		return {
 			ok: true,
 			data: {
+				agentId: record.agentId!,
+				runId: record.runId!,
+				sequence: record.sequence!,
 				name: handle,
 				status,
 				paneId: record.paneId,
@@ -2142,6 +2236,9 @@ export async function spawnAgent(
 		return {
 			ok: true,
 			data: {
+				agentId: record.agentId!,
+				runId: record.runId!,
+				sequence: record.sequence!,
 				name: handle,
 				status: await currentStatus(record, deps),
 				paneId: record.paneId,
@@ -2158,6 +2255,9 @@ export async function spawnAgent(
 	return {
 		ok: true,
 		data: {
+			agentId: record.agentId!,
+			runId: record.runId!,
+			sequence: record.sequence!,
 			name: handle,
 			status,
 			paneId: record.paneId,

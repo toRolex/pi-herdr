@@ -44,6 +44,8 @@ import {
 	kindCaps,
 	materializeAgentArgs,
 	mergeSpawnSpec,
+	persistSpawnRegistry,
+	claimAgentExecution,
 	spawnRecords,
 	startRecordNow,
 	validateKindEnforcement,
@@ -59,6 +61,9 @@ import {
 } from "../agentdefs.js";
 import { resolveRouting, validateRouting } from "../launchplan.js";
 import { clearSidecars } from "../sessionfile.js";
+import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { completionEventPath } from "../completion-event.js";
 import { defaultAgentGet, type AgentView } from "./message.js";
 import type {
 	HerdrErrorCode,
@@ -67,6 +72,14 @@ import type {
 } from "../env.js";
 
 // ---- small helpers ------------------------------------------------------------
+
+function persistCompletionRun(sessionPath: string, runId: string): void {
+	try {
+		writeFileSync(completionEventPath(sessionPath), runId, { mode: 0o600 });
+	} catch {
+		/* The child's env identity remains authoritative on restart. */
+	}
+}
 
 function err(
 	code: HerdrErrorCode,
@@ -198,7 +211,7 @@ export async function interruptAgent(
 	if (was === "idle" || was === "done") {
 		return err(
 			"VALIDATION_ERROR",
-			`"${record.name}" is settled (${was}) — no turn to cancel. Send new work with herdr_message_agent.`,
+			`"${record.name}" is settled (${was}) — no turn to cancel. Send new work with herdr_trigger_turn.`,
 			{ name: record.name, state: was },
 		);
 	}
@@ -216,12 +229,155 @@ export async function interruptAgent(
 
 // ---- resume -------------------------------------------------------------------
 
+export interface TriggerTurnParams {
+	target: string;
+	text: string;
+}
+
+export interface TriggerTurnReceipt {
+	name: string;
+	agentId: string;
+	runId: string;
+	sequence: number;
+	status: "accepted" | "queued" | "starting";
+	paneId?: string;
+	started: boolean;
+}
+
+async function defaultFollowupSubmit(paneId: string, text: string, signal?: AbortSignal): Promise<Result<true>> {
+	const sent = await herdr(["agent", "prompt", paneId, text], { signal, timeoutMs: 10_000 });
+	return sent.ok ? { ok: true, data: true } : sent;
+}
+
+/** Accept a new followup run; only launch immediately when the pane is idle. */
+export async function triggerTurn(
+	params: TriggerTurnParams,
+	deps: SpawnDeps = {},
+): Promise<Result<TriggerTurnReceipt>> {
+	const record = spawnRecords().get(params.target);
+	if (!record) return err("NOT_FOUND", `no spawned agent matches "${params.target}" — use herdr_list_agents.`);
+	if (record.kind.toLowerCase() !== "pi" || !record.sessionPath || !record.agentId) {
+		return err("VALIDATION_ERROR", `"${record.name}" has no resumable pi session.`, { name: record.name });
+	}
+	const agentId = record.agentId;
+	const release = claimAgentExecution(record);
+	if (!release) return err("VALIDATION_ERROR", `a followup for "${record.name}" is already being accepted; retry shortly.`);
+	try {
+		const fleet = await (deps.fleet ?? fleetList)(deps.signal);
+		if (!fleet.ok) return { ok: false, error: fleet.error };
+		const live = record.paneId ? fleet.data.find((pane) => pane.paneId === record.paneId) : undefined;
+		if (record.paneId && !live && record.startBeganAt && record.startedAt === undefined) {
+			return err("VALIDATION_ERROR", `"${record.name}" is still starting; retry the followup when startup settles.`);
+		}
+		if (!record.paneId && !live && !record.startError && !record.delivery && !record.pendingFollowups?.length) {
+			return err("VALIDATION_ERROR", `"${record.name}" is still queued; followup was not accepted to avoid losing work.`);
+		}
+		const busy = live ? live.agentStatus !== "idle" && live.agentStatus !== "done" : false;
+		if (live?.agentStatus === "blocked") {
+			return err("VALIDATION_ERROR", `"${record.name}" is blocked on user input; answer the question before triggering a followup.`);
+		}
+		const wasBusyQueue = (record.pendingFollowups?.length ?? 0) > 0;
+		const oldRunId = record.runId;
+		const oldSequence = record.sequence;
+		const runId = randomUUID();
+		if (busy) {
+			record.pendingFollowups = [...(record.pendingFollowups ?? []), { runId, text: params.text }];
+
+			persistSpawnRegistry(deps);
+			ensureDrainLoop(deps);
+			return { ok: true, data: { name: record.name, agentId, runId, sequence: 1, status: "queued", started: false } };
+		}
+		if ((live && (wasBusyQueue || record.pendingFollowups?.length || (record.delivery && record.delivery.kind !== "blocked"))) || (!live && record.pendingFollowups?.length)) {
+			record.pendingFollowups = [...(record.pendingFollowups ?? []), { runId, text: params.text }];
+			persistSpawnRegistry(deps);
+			ensureDrainLoop(deps);
+			return { ok: true, data: { name: record.name, agentId, runId, sequence: 1, status: "queued", started: false } };
+		}
+		if (live && live.paneId && !wasBusyQueue && (!record.delivery || record.delivery.kind === "blocked")) {
+			const previousCloseAuthorization = record.paneCloseAuthorization;
+			record.pendingFollowups = [{ runId, text: params.text }];
+			record.pendingRunId = runId;
+			record.runId = runId;
+			record.sequence = 1;
+			record.prompt = params.text;
+			record.resumeSilent = false;
+			record.paneClosePending = false;
+			record.paneCloseAuthorization = undefined;
+			record.delivery = undefined;
+			persistSpawnRegistry(deps);
+			clearSidecars(record.sessionPath);
+			persistCompletionRun(record.sessionPath, runId);
+			const envelope = `<herdr-followup runId="${runId}">\n${params.text}\n</herdr-followup>`;
+			const result = await (deps.submit ? deps.submit(live.paneId, envelope, 30_000, deps.signal) : defaultFollowupSubmit(live.paneId, envelope, deps.signal));
+			if (result && !result.ok) {
+				record.pendingFollowups = [{ runId, text: params.text }];
+				record.runId = oldRunId;
+				record.sequence = oldSequence;
+				record.pendingRunId = undefined;
+				if (record.sessionPath) persistCompletionRun(record.sessionPath, oldRunId);
+				record.paneCloseAuthorization = previousCloseAuthorization;
+				record.startError = result.error.message;
+				persistSpawnRegistry(deps);
+				return { ok: false, error: { ...result.error, details: { name: record.name, agentId, runId, status: "start-error", started: false } } };
+			}
+			record.pendingFollowups = [];
+			record.pendingRunId = undefined;
+			record.submitted = true;
+			persistSpawnRegistry(deps);
+			return { ok: true, data: { name: record.name, agentId, runId, sequence: 1, status: "starting", paneId: live.paneId, started: false } };
+		}
+		record.paneId = live?.paneId;
+		record.submitted = false;
+		record.sawWorking = false;
+		record.startedAt = undefined;
+		record.startError = undefined;
+		record.delivery = undefined;
+		record.goneAt = undefined;
+		const pending: Promise<Result<TriggerTurnReceipt>> = (async () => {
+			const previousPaneId = record.paneId;
+			const previousDelivery = record.delivery;
+			record.delivery = undefined;
+			record.paneId = undefined;
+			record.pendingFollowups = [{ runId, text: params.text }];
+			record.pendingRunId = runId;
+			persistSpawnRegistry(deps);
+			record.stance = "interactive";
+			const envelope = `<herdr-followup runId="${runId}">\n${params.text}\n</herdr-followup>`;
+			const result = await resumeAgentSerial({ target: record.name, message: envelope }, { ...deps, forceStart: true, followupRunId: runId });
+			record.stance = record.definition?.interactive === true || record.definition?.auto_exit === false ? "interactive" : "autonomous";
+			if (!result.ok) {
+				record.runId = runId;
+				record.sequence = 1;
+				record.paneId = previousPaneId;
+				record.delivery = previousDelivery;
+				record.pendingRunId = undefined;
+				record.startError = result.error.message;
+				return { ok: false as const, error: result.error };
+			}
+			if (!result.data.queued) record.pendingFollowups = [];
+			return { ok: true as const, data: { name: record.name, agentId, runId, sequence: 1, status: result.data.queued ? "queued" as const : "starting" as const, paneId: result.data.paneId, started: false } };
+		})();
+		const outcome = await pending;
+		if (!outcome.ok) {
+			record.runId = runId;
+			record.sequence = 1;
+			record.delivery = undefined;
+			persistSpawnRegistry(deps);
+			return { ok: false, error: { ...outcome.error, details: { name: record.name, agentId, runId, status: "start-error", started: false } } };
+		}
+		persistSpawnRegistry(deps);
+		return outcome;
+	} finally {
+		release();
+	}
+}
+
 export interface ResumeParams {
 	/** Registry HANDLE (never a raw path — the registry holds the retained
 	 * session file). */
 	target: string;
 	/** Optional opening prompt, submitted after the boot gate (with the
-	 * steer watermark + task-artifact machinery). Omitted → the child
+	 * task-artifact machinery). Omitted → the child
 	 * replays the session and sits open (nothing is resubmitted). */
 	message?: string;
 }
@@ -248,7 +404,15 @@ export interface ResumeResultData {
  * same session file) so message/result/list keep addressing the agent, and
  * the delivery loop + watchdog resume supervision untouched.
  */
-export async function resumeAgent(
+export async function resumeAgent(params: ResumeParams, deps: SpawnDeps = {}): Promise<Result<ResumeResultData>> {
+	const record = spawnRecords().get(params.target);
+	if (!record) return resumeAgentSerial(params, deps);
+	const release = claimAgentExecution(record);
+	if (!release) return err("VALIDATION_ERROR", `"${record.name}" already has an execution transition in progress.`);
+	try { return await resumeAgentSerial(params, deps); } finally { release(); }
+}
+
+async function resumeAgentSerial(
 	params: ResumeParams,
 	deps: SpawnDeps = {},
 ): Promise<Result<ResumeResultData>> {
@@ -279,19 +443,20 @@ export async function resumeAgent(
 
 	// 3. gone only. One fleet observation feeds the absence check AND the
 	//    cap count; a FAILED observation is never absence evidence.
+
 	const fleet = await (deps.fleet ?? fleetList)(deps.signal);
 	if (!fleet.ok) return { ok: false, error: fleet.error };
 	const livePaneIds = new Set(
 		fleet.data.map((a) => a.paneId).filter((p): p is string => Boolean(p)),
 	);
-	if (record.paneId && livePaneIds.has(record.paneId)) {
+	if (record.paneId && livePaneIds.has(record.paneId) && !deps.forceStart) {
 		return err(
 			"VALIDATION_ERROR",
-			`"${record.name}" is still live (pane ${record.paneId}) — interrupt its turn with herdr_interrupt_agent or steer it with herdr_message_agent instead of resuming.`,
+			`"${record.name}" is still live (pane ${record.paneId}) — interrupt its turn with herdr_interrupt_agent or dispatch work with herdr_trigger_turn instead of resuming.`,
 			{ name: record.name, paneId: record.paneId },
 		);
 	}
-	if (!record.paneId && !record.startError) {
+	if (!record.paneId && !record.startError && !deps.forceStart) {
 		return err(
 			"VALIDATION_ERROR",
 			`"${record.name}" is still queued (fleet at max_parallel_agents) — nothing to resume yet.`,
@@ -365,9 +530,14 @@ export async function resumeAgent(
 	const gates = checkGates(settings, env, liveCount);
 	if (gates.decision === "refuse") return { ok: false, error: gates.error };
 
-	// 6. fresh run on the SAME record: reset transients, drop the dead pane
-	//    binding, clear the previous run's sidecars — a stale completion
-	//    sidecar would be re-delivered instantly as THIS run's result.
+	// 6. fresh run on the SAME record: reset transients and drop the dead
+	//    pane binding. TriggerTurn owns identity/event preparation; maintenance
+	//    resume keeps the established run identity and sidecar reset behavior.
+	if (!deps.forceStart) clearSidecars(record.sessionPath);
+	if (deps.followupRunId) {
+		record.pendingRunId = deps.followupRunId;
+		record.sequence = 1;
+	}
 	record.prompt = params.message ?? record.prompt;
 	record.resumeSilent = params.message === undefined;
 	record.paneId = undefined;
@@ -379,12 +549,9 @@ export async function resumeAgent(
 	record.watch = undefined;
 	record.delivery = undefined;
 	record.blockedNotified = false;
-	record.takenOver = false;
-	record.tookNotified = false;
 	record.interruptedAt = undefined;
 	record.lastStatus = undefined;
 	record.taskArtifactPath = undefined;
-	clearSidecars(record.sessionPath);
 
 	// 7. start now, or re-enter the queue when the fleet is at cap.
 	const common = {
@@ -456,7 +623,7 @@ const INTERRUPT_DESCRIPTION =
 	"Sends Escape to the child pane (pi children only) and stamps the registry so herdr_list_agents / " +
 	"herdr_get_agent_result report `interrupted` immediately — even while herdr still shows the pane " +
 	"working; a lagging pre-interrupt activity snapshot cannot overwrite it. The pane stays open, the " +
-	"session file and supervision intact; new work via herdr_message_agent returns it to active — " +
+	"session file and supervision intact; new work via herdr_trigger_turn returns it to active — " +
 	"stop-and-redirect in one flow. The target resolves as: spawn-registry handle → pane id → herdr name " +
 	"(agents THIS SESSION spawned only; anything else is refused — use herdr_send_keys for a raw Escape). " +
 	"Honest refusals: non-pi kinds (Escape turn-cancel is the pi TUI's), queued/never-started agents, " +
@@ -470,7 +637,7 @@ export function registerLifecycle(pi: ExtensionAPI): void {
 		description: INTERRUPT_DESCRIPTION,
 		promptSnippet: "Interrupt a spawned herdr agent's current turn (Escape)",
 		promptGuidelines: [
-			"Use herdr_interrupt_agent to stop an agent's current turn without killing the pane; follow with herdr_message_agent to redirect it (stop-and-redirect).",
+			"Use herdr_interrupt_agent to stop an agent's current turn without killing the pane; follow with herdr_trigger_turn to redirect it (stop-and-redirect), or herdr_send_agent for context-only correspondence.",
 			"A gone agent cannot be interrupted — recover it with herdr_resume_agent instead.",
 		],
 		parameters: Type.Object({
@@ -486,11 +653,27 @@ export function registerLifecycle(pi: ExtensionAPI): void {
 				content: [
 					{
 						type: "text",
-						text: `Interrupted "${d.name}" (pane ${d.target}, was: ${d.was}) — Escape sent; the projected state is interrupted until new work arrives. Redirect with herdr_message_agent, or recover later with herdr_resume_agent.`,
+						text: `Interrupted "${d.name}" (pane ${d.target}, was: ${d.was}) — Escape sent; the projected state is interrupted until new work arrives. Redirect with herdr_trigger_turn, or recover later with herdr_resume_agent.`,
 					},
 				],
 				details: d,
 			};
+		},
+	});
+
+	// trigger_turn --------------------------------------------------------------
+	pi.registerTool({
+		name: "herdr_trigger_turn",
+		label: "Trigger herdr agent turn",
+		description: "Accept a new followup run for a spawned pi agent. Busy agents queue it without interrupting their current tools; idle agents start immediately. A gone pane whose session is retained is restored automatically on the same session — no separate resume call is needed. The receipt distinguishes accepted/queued/starting and carries the new runId; accepted does not mean started. Use herdr_send_agent for context-only messaging; this tool triggers work.",
+		promptSnippet: "Start a new run for a spawned agent, safely queueing if busy",
+		promptGuidelines: ["Use herdr_trigger_turn when an agent must act on new work; it creates a new run while retaining the same logical agent and session.", "Busy agents are never interrupted; the new run is queued."],
+		parameters: Type.Object({ target: Type.String({ description: "Spawn-registry handle returned by herdr_spawn_agent." }), text: Type.String({ description: "New work for the agent." }) }),
+		async execute(_id, p, signal) {
+			const r = await triggerTurn({ target: p.target, text: p.text }, { signal });
+			if (!r.ok) return fail(r.error);
+			const d = r.data;
+			return { content: [{ type: "text", text: `Followup ${d.status} for "${d.name}" (agent ${d.agentId}, run ${d.runId}${d.paneId ? `, pane ${d.paneId}` : ""}); ${d.started ? "startup requested—not yet guaranteed active." : "accepted but not started."}` }], details: d };
 		},
 	});
 

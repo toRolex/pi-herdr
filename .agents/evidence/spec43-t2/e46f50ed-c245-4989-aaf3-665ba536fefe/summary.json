@@ -1,0 +1,23 @@
+{
+  "id": "e46f50ed-c245-4989-aaf3-665ba536fefe",
+  "evidence": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/.agents/evidence/spec43-t2/e46f50ed-c245-4989-aaf3-665ba536fefe",
+  "runId": "t2-e46f50ed-c245-4989-aaf3-665ba536fefe",
+  "agentId": "agent-e46f50ed-c245-4989-aaf3-665ba536fefe",
+  "finalBytes": 10171,
+  "childSource": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/src/child.ts",
+  "childSha256": "035161a6dc71456b702bb11f7508b41de91f8f3aa773b224dfe8a9405fcbfe5a",
+  "recycleSha256": "651be92ff2f0d5cac15127134fc71cd1783a989e16697cb99d618f9d8d323c10",
+  "deliveryPasses": 0,
+  "ackWrites": 0,
+  "parentMode": "inert node tracer; delivery module never imported",
+  "workspace": "w8C",
+  "pane": "w8C:p1",
+  "completionObservedAt": 1791328942040,
+  "childPid": 83180,
+  "childExitObservedAt": 1791328942040,
+  "paneGoneObservedAt": 1791328943066,
+  "declarationSha256": "572b53d3a22859cf95080eb58a41afcf43b9d973a819adbc6a172faa6d573d19",
+  "sessionSha256": "76f9412c1246ddcf1304578dd56db68deb45bee7f440ac0cf43e3a58dddc5421",
+  "success": true,
+  "cleanupError": "AssertionError [ERR_ASSERTION]: herdr workspace close w8C: {\"error\":{\"code\":\"workspace_not_found\",\"message\":\"workspace w8C not found\"},\"id\":\"cli:workspace:close\"}\n\n\n1 !== 0\n"
+}

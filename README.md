@@ -71,29 +71,35 @@ The corresponding spawn arguments are:
 }
 ```
 
-`herdr_spawn_agent` returns immediately with an accepted handle and `starting` or `queued`. `starting` does not guarantee that the child has booted. `queued` means there is no pane yet because the concurrency cap is full.
+`herdr_spawn_agent` returns immediately with an accepted handle, stable agent/run identity, and `starting` or `queued`. `starting` does not guarantee that the child has booted. `queued` means there is no pane yet because the concurrency cap is full.
 
-Completion arrives later, subject to the notification setting. To inspect the current state, call `herdr_list_agents`, or call `herdr_get_agent_result` with:
+Completion arrives later, subject to the notification setting. To inspect the current state, call `herdr_list_agents`. To wait for the completion event reference, call `herdr_wait_agent_event` with:
 
 ```json
 { "target": "summ" }
 ```
 
-One result call returns one snapshot. It does not wait for completion. Neither public spawn nor result tools accept a `wait` parameter.
+Then consume the final body with `herdr_get_agent_result`. One result call returns one snapshot and never waits; the waiting concern lives in `herdr_wait_agent_event`.
 
 ## Tools
 
-The extension registers **12 tools by default**, or **11** when `workflows_enabled: false` at load. [src/index.ts](src/index.ts) registers them. Run `node tests/smoke.mjs` to verify the default tool list.
+The extension registers **16 tools by default**, or **15** when `workflows_enabled: false` at load. [src/index.ts](src/index.ts) registers them. Run `node tests/smoke.mjs` to verify the default tool list.
+
+The protocol tools separate concerns: **spawn** starts work, **list** discovers state, **send** is ordinary queue-only correspondence, **trigger_turn** dispatches a new run (followup), **wait** waits for an event reference, **result** consumes a completion body, and **interrupt** explicitly cancels a turn.
 
 | Tool | Parameters and contract |
 | --- | --- |
-| `herdr_spawn_agent` | Required `prompt`. Optional `type` or inline `agent`, never both. Also accepts `name`, `kind`, `model`, `thinking`, `fork`, `agent_args`, `cwd`, `isolated`, and `group`. Returns acceptance immediately, not completion. |
+| `herdr_spawn_agent` | Required `prompt`. Optional `type` or inline `agent`, never both. Also accepts `name`, `kind`, `model`, `thinking`, `fork`, `agent_args`, `cwd`, `isolated`, and `group`. Returns acceptance immediately with stable agent/run identity, not completion. |
 | `herdr_save_agent` | Exactly one of `type` or inline `agent`. `target` is `project` by default or `global`. Existing files require `overwrite: true`. Saving is not gated by the spawn kill-switch. |
-| `herdr_get_agent_result` | `target` is a spawn handle or pane ID. Optional `lines`, default 80, limits only fallback pane output. Single snapshot, not a blocking wait. |
-| `herdr_message_agent` | Required `target` and `text`. `submit` defaults to true. False types text without pressing Enter. Delivery is not proof that the model consumed the message. |
+| `herdr_list_agents` | No parameters. This session's children report projected state, title, activity, and unread count — never message bodies. Consumes nothing. |
+| `herdr_send_agent` | Required `target` and `text`. QueueOnly: durably queues ordinary correspondence. Never starts a turn, never interrupts, never resumes a pane. `queued` is not a read receipt. |
+| `herdr_trigger_turn` | Required `target` and `text`. Dispatches a new run: idle starts immediately, busy safely queues, a gone pane's retained session is resumed automatically. Each acceptance gets a fresh runId. |
+| `herdr_wait_agent_event` | Required `target`; optional `timeout` (default 30000 ms). Waits for a completion event (or recoverable blocked state) to become available and returns only its status and identity reference — no body, no consumption. Timeout/cancellation never stops the child. |
+| `herdr_get_agent_result` | `target` is a spawn handle, pane ID, or completion eventId. Optional `lines` (default 80, fallback pane output only), `reread` (explicit repeat of the original body), and `ack` (declare the event handled without receiving the body). Mid-flight calls report status only. Single snapshot, never blocks. |
+| `herdr_wake_subscription` | `action` is `subscribe`, `revoke`, or `list`. A subscription is explicit, scoped (agent/run/event), TTL-bounded (max 1 hour), and one-shot; it never overrides `quiet`/`none`. |
+| `herdr_message_agent` | Legacy compatibility entry. Required `target` and `text`. `submit` defaults to true. False types text without pressing Enter. Retains the legacy wake/injection semantics (raw answers to blocked overlays); it is not remapped onto the queue-only mailbox and never bypasses completion-event delivery arbitration. Prefer `herdr_send_agent` for correspondence and `herdr_trigger_turn` for dispatch. |
 | `herdr_interrupt_agent` | `target` resolves to a pi child spawned by this session. Cancels its current turn with Escape, not its process. |
-| `herdr_resume_agent` | `target` must be a retained spawn handle, not a file path. Optional `message` gives a gone pi child new work. |
-| `herdr_list_agents` | No parameters. This session's children have projected states. Other panes keep herdr's coarse state. |
+| `herdr_resume_agent` | Maintenance entry for a gone pi child: `target` must be a retained spawn handle, not a file path. Optional `message` gives the resumed child new work. Regular followups auto-resume via `herdr_trigger_turn` instead. |
 | `herdr_run_workflow` | `scriptPath` takes precedence over `script`, then saved `name`. Also accepts JSON-shaped `args` and `resumeFromRunId`. Returns a background run ID and script path. |
 | `herdr_run_command` | Required `paneId` and `command`. Types a shell command and presses Enter in an existing raw pane. |
 | `herdr_read_pane` | Required `paneId`. `source` is `recent`, `visible`, or `recent-unwrapped`. Defaults are `recent`, `lines: 50`, and `format: "text"`. Format can also be `ansi`. |
@@ -150,17 +156,17 @@ For pi children spawned by this session, result inspection reads the exact final
 
 Messages resolve a pane ID or herdr name first, then a spawn handle. The reserved `orchestrator` role is only the sender's direct parent; a same-name agent does not take it. A normal message uses an `<agent-message from="…" to="…">` envelope. Its identity is declared by the spawner, not verified.
 
-A blocked freeform question takes raw text through `herdr_message_agent`. An option-list question takes logical keys through `herdr_send_keys`. Queued children have no pane to receive a message, and gone targets refuse delivery.
+A blocked freeform question takes raw text through the legacy `herdr_message_agent` (the message becomes its answer). An option-list question takes logical keys through `herdr_send_keys`. Queued children have no pane to receive a message, and gone targets refuse delivery.
 
-Interrupt works only for this session's live pi children. It refuses non-pi, queued, settled, and gone children. After an interrupt, use `herdr_message_agent` to redirect the child. For a gone pi child, use `herdr_resume_agent` with its handle and a new `message`. Resume reuses the retained session file and re-resolves the definition and routing against current settings. Without a message, the resumed child replays the session and sits idle. Process-only state is not recovered.
+Interrupt works only for this session's live pi children. It refuses non-pi, queued, settled, and gone children. After an interrupt, dispatch new work with `herdr_trigger_turn` (or correspond with `herdr_send_agent`). A gone pi child is recovered by `herdr_trigger_turn`, which auto-resumes the retained session, or by the maintenance entry `herdr_resume_agent` with a new `message`. Resume reuses the retained session file and re-resolves the definition and routing against current settings. Without a message, the resumed child replays the session and sits idle. Process-only state is not recovered.
 
-Completion notifications carry the full final message. `normal` wakes the parent, `quiet` delivers on its next natural turn, and `none` disables completion pushes. Blocked children wake the parent unless a human has taken over the pane. Human input in a child pane disables auto-close and suppresses mid-conversation pushes. After the child settles and remains quiet for `idle_rearm_minutes`, its latest result follows the notification setting and its pane closes. With `notifications: "none"`, the pane still closes, but no result is pushed. Any keystroke resets that timer.
+Completion notifications carry the full final message of the run that produced them. A completion body is delivered to each receiver host once through the durable delivery ledger; `herdr_get_agent_result` with `reread: true` is the explicit repeat path. `normal` delivers at safe run boundaries without surprise wakes: after the parent has produced its final answer, a late completion only increments the unread count until the next natural run or an explicit wake subscription. `quiet` delivers on the next natural run without waking. `none` disables automatic delivery entirely — results stay stored for `wait`/`result`. Blocked and failure notices respect the same boundaries and never restart a finished parent on their own. Typing into a child pane is ordinary direct input: busy input queues safely, and it neither disables auto-close nor affects delivery.
 
 The circular-wait fix affects **internal foreground result waits only**. New input lets that internal wait return an interim snapshot with `interruptedByInput`. It does not abort unrelated tools. Public result inspection remains single-shot. Background workflow waits explicitly use `inputWake: null` and still await child completion.
 
 ### Background workflows
 
-`herdr_run_workflow` returns immediately. The script runs in a sandbox, and the parent receives one aggregated result when the run finishes. Child completion messages go to the run instead of producing separate parent completion pushes. Blocked children still request attention.
+`herdr_run_workflow` returns immediately. The script runs in a sandbox, and the parent receives one aggregated result when the run finishes. Child completion bodies are never separately pushed — the run reports once, so migration to the once-per-event delivery contract cannot duplicate child prose. Blocked children still request attention (respecting the notification setting).
 
 Example `script` value:
 
@@ -195,12 +201,12 @@ Settings merge from global `~/.pi/agent/herdr.json` and project `.pi/herdr.json`
 | `models.agents` | `{}` | Map from agent definition names to model ID strings. |
 | `max_parallel_agents` | `3` | Excess spawns queue. |
 | `max_spawn_depth` | `2` | Limits recursive spawning. |
-| `notifications` | `"normal"` | `normal`, `quiet`, or `none`. |
-| `idle_rearm_minutes` | `15` | Quiet period after a settled human takeover. |
+| `notifications` | `"normal"` | `normal` = safe run boundaries, no surprise wake; `quiet` = next natural run, no wake; `none` = stored pull-only. |
+| `idle_rearm_minutes` | `15` | Legacy compatibility value; accepted in old config files but ignored. Ordinary input never changes pane recycling. |
 | `workflows_enabled` | `true` | Registration is evaluated at load. A later disable refuses new runs. Reload to change the registered tool list. |
 | `layout_mode` | `"grid"` | `grid` or `spiral`, applied to newly created panes. |
 
-Spawn gates, model routing, and notifications read their settings when used. `idle_rearm_minutes` is passed to the child at launch. `HERDR_BIN` overrides the binary path. `PI_HERDR_NO_SELF_REPORT=1` disables self-report in that pi process.
+Spawn gates, model routing, and notifications read their settings when used. `HERDR_BIN` overrides the binary path. `PI_HERDR_NO_SELF_REPORT=1` disables self-report in that pi process.
 
 ## Limitations and platform support
 

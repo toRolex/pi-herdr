@@ -73,27 +73,33 @@ pi -ne -e ./src/index.ts
 
 `herdr_spawn_agent` 立即返回已接受的 handle，以及 `starting` 或 `queued`。`starting` 不保证子代理已经启动完成。`queued` 表示并发额度已满，尚无窗格。
 
-完成结果稍后按通知设置送达。要检查当前状态，可以调用 `herdr_list_agents`，或用以下参数调用 `herdr_get_agent_result`：
+完成结果稍后按通知设置送达。要检查当前状态，可以调用 `herdr_list_agents`；要等待完成事件引用，用以下参数调用 `herdr_wait_agent_event`：
 
 ```json
 { "target": "summ" }
 ```
 
-每次 result 调用只返回一次快照，不等待完成。公开 spawn 和 result 工具均不接受 `wait` 参数。
+随后用 `herdr_get_agent_result` 消费最终正文。每次 result 调用只返回一次快照，永不等待；等待职责由 `herdr_wait_agent_event` 承担。
 
 ## 工具
 
-默认注册 **12 个工具**；加载时若 `workflows_enabled: false`，则为 **11 个**。注册入口为 [src/index.ts](src/index.ts)。执行 `node tests/smoke.mjs` 可验证默认工具列表。
+默认注册 **16 个工具**；加载时若 `workflows_enabled: false`，则为 **15 个**。注册入口为 [src/index.ts](src/index.ts)。执行 `node tests/smoke.mjs` 可验证默认工具列表。
+
+协议工具职责分离：**spawn** 启动工作，**list** 发现状态，**send** 是普通的只入队通信，**trigger_turn** 派工新 run（followup），**wait** 等待事件引用，**result** 消费完成正文，**interrupt** 显式取消回合。
 
 | 工具 | 参数与合同 |
 | --- | --- |
-| `herdr_spawn_agent` | 必填 `prompt`。可选 `type` 或内联 `agent`，不能同时提供。另接受 `name`、`kind`、`model`、`thinking`、`fork`、`agent_args`、`cwd`、`isolated`、`group`。立即返回接受状态，不是完成结果。 |
+| `herdr_spawn_agent` | 必填 `prompt`。可选 `type` 或内联 `agent`，不能同时提供。另接受 `name`、`kind`、`model`、`thinking`、`fork`、`agent_args`、`cwd`、`isolated`、`group`。立即返回接受状态与稳定 agent/run 身份，不是完成结果。 |
 | `herdr_save_agent` | `type` 与内联 `agent` 必须二选一。`target` 默认为 `project`，也可为 `global`。覆盖已有文件需 `overwrite: true`。保存不受 spawn kill-switch 限制。 |
-| `herdr_get_agent_result` | `target` 为 spawn handle 或窗格 ID。可选 `lines`，默认 80，仅限制回退窗格输出。返回单次快照，不阻塞等待。 |
-| `herdr_message_agent` | 必填 `target` 与 `text`。`submit` 默认 true；false 仅输入文字，不按 Enter。送达不证明模型已消费消息。 |
+| `herdr_list_agents` | 无参数。本会话子代理显示推导状态、标题、活动与未读数——绝不携带消息正文，不产生消费。 |
+| `herdr_send_agent` | 必填 `target` 与 `text`。QueueOnly：持久排队普通通信。不启动回合、不打断、不恢复窗格。`queued` 不是已读回执。 |
+| `herdr_trigger_turn` | 必填 `target` 与 `text`。派工新 run：空闲立即启动，忙时安全排队，已消失窗格自动恢复原 session。每次接受分配新的 runId。 |
+| `herdr_wait_agent_event` | 必填 `target`；可选 `timeout`（默认 30000 毫秒）。等待完成事件（或可恢复 blocked 状态）可用，只返回状态与身份引用——无正文、不消费。超时/取消不会停止子代理。 |
+| `herdr_get_agent_result` | `target` 为 spawn handle、窗格 ID 或完成 eventId。可选 `lines`（默认 80，仅限制回退窗格输出）、`reread`（显式复读原正文）、`ack`（声明事件已处理但不接收正文）。mid-flight 调用只报状态。单次快照，永不阻塞。 |
+| `herdr_wake_subscription` | `action` 为 `subscribe`、`revoke` 或 `list`。订阅必须显式、限范围（agent/run/event）、有 TTL（最多 1 小时）、一次性；绝不覆盖 `quiet`/`none`。 |
+| `herdr_message_agent` | Legacy 兼容入口。必填 `target` 与 `text`。`submit` 默认 true；false 仅输入文字，不按 Enter。保留 legacy 唤醒/注入语义（向 blocked 覆盖层投递原始回答）；不映射为只入队邮箱，也不绕过完成事件交付仲裁。普通通信请用 `herdr_send_agent`，派工请用 `herdr_trigger_turn`。 |
 | `herdr_interrupt_agent` | `target` 解析为本会话启动的 pi 子代理。用 Escape 取消当前回合，不终止进程。 |
-| `herdr_resume_agent` | `target` 必须为保留的 spawn handle，不是文件路径。可选 `message` 给已消失的 pi 子代理新任务。 |
-| `herdr_list_agents` | 无参数。本会话子代理显示推导状态，其他窗格保留 herdr 的粗粒度状态。 |
+| `herdr_resume_agent` | 已消失 pi 子代理的维护入口：`target` 必须为保留的 spawn handle，不是文件路径。可选 `message` 给恢复的子代理新任务。常规 followup 改由 `herdr_trigger_turn` 自动恢复。 |
 | `herdr_run_workflow` | 优先使用 `scriptPath`，其次 `script`，最后已保存的 `name`。另接受 JSON 形态的 `args` 和 `resumeFromRunId`。返回后台 run ID 与脚本路径。 |
 | `herdr_run_command` | 必填 `paneId` 与 `command`。在已有原始窗格输入 shell 命令并按 Enter。 |
 | `herdr_read_pane` | 必填 `paneId`。`source` 为 `recent`、`visible` 或 `recent-unwrapped`。默认 `recent`、`lines: 50`、`format: "text"`。格式也可为 `ansi`。 |
@@ -150,17 +156,17 @@ Spawn 门禁按 kill-switch、spawn depth、parallel cap 顺序执行。超过�
 
 消息先解析窗格 ID 或 herdr 名称，再解析 spawn handle。保留角色 `orchestrator` 只指发送者的直接父，同名 agent 不能抢占。普通消息使用 `<agent-message from="…" to="…">` 包装，身份由 spawner 声明，不经过验证。
 
-阻塞的自由文本问题通过 `herdr_message_agent` 接收原始回答；选项列表问题通过 `herdr_send_keys` 接收逻辑按键。排队中的子代理没有可接收消息的窗格，已消失目标会拒绝投递。
+阻塞的自由文本问题通过 legacy `herdr_message_agent` 接收原始回答（消息即回答）；选项列表问题通过 `herdr_send_keys` 接收逻辑按键。排队中的子代理没有可接收消息的窗格，已消失目标会拒绝投递。
 
-Interrupt 仅支持本会话启动且仍存活的 pi 子代理，拒绝非 pi、排队、已空闲和已消失的子代理。中断后用 `herdr_message_agent` 调整任务。已消失的 pi 子代理可用 handle 和新 `message` 调用 `herdr_resume_agent`。Resume 复用保留的 session 文件，并按当前 settings 重新解析定义与路由。没有 message 时，恢复的子代理仅回放会话并保持空闲，不恢复进程内存状态。
+Interrupt 仅支持本会话启动且仍存活的 pi 子代理，拒绝非 pi、排队、已空闲和已消失的子代理。中断后用 `herdr_trigger_turn` 派工新任务（或用 `herdr_send_agent` 发普通通信）。已消失的 pi 子代理由 `herdr_trigger_turn` 自动恢复保留 session，也可用维护入口 `herdr_resume_agent` 携 handle 和新 `message` 恢复。Resume 复用保留的 session 文件，并按当前 settings 重新解析定义与路由。没有 message 时，恢复的子代理仅回放会话并保持空闲，不恢复进程内存状态。
 
-完成通知携带完整最终消息。`normal` 唤醒父会话，`quiet` 在下一次自然回合投递，`none` 禁用完成推送。阻塞子代理会唤醒父会话，但人类已接管窗格时除外。人类在子窗格输入会禁用自动关闭，并抑制对话中的推送。子代理空闲后，持续安静达到 `idle_rearm_minutes`，最新结果按通知设置投递，窗格关闭。`notifications: "none"` 时仍关闭窗格，但不推送结果。任意按键重置计时。
+完成通知携带产生它的 run 的完整最终消息。完成正文经持久交付账本向每个接收宿主交付一次；`herdr_get_agent_result` 携 `reread: true` 是显式复读路径。`normal` 在安全 run 边界投递、不意外唤醒：父会话已给出最终答复后，晚到的完成只增加未读数，直到下一次自然 run 或显式 wake 订阅。`quiet` 在下一次自然 run 投递且不唤醒。`none` 完全关闭自动投递——结果保留存储，供 `wait`/`result` 使用。blocked 与失败通知遵守同样边界，绝不自行重启已结束的父会话。向子窗格输入是普通 direct input：忙时安全排队，既不关闭自动回收，也不影响投递。
 
 循环等待修复**仅影响内部前台 result wait**。新输入使该内部等待提前返回带 `interruptedByInput` 的 interim 快照，不 abort 无关工具。公开 result 检查仍为单次快照。后台 workflow 等待显式使用 `inputWake: null`，继续等待子代理完成。
 
 ### 后台 workflow
 
-`herdr_run_workflow` 立即返回。脚本在沙箱中运行，结束后父会话收到一次聚合结果。子代理完成消息交给 run，不分别向父会话推送完成消息；阻塞子代理仍请求关注。
+`herdr_run_workflow` 立即返回。脚本在沙箱中运行，结束后父会话收到一次聚合结果。子代理完成正文绝不单独推送——run 只汇报一次，迁移到单次交付合同不会重复发布 child 正文。阻塞子代理仍请求关注（遵守通知设置）。
 
 示例 `script` 值：
 
@@ -195,12 +201,12 @@ return results.filter(Boolean);
 | `models.agents` | `{}` | 从代理定义名到模型 ID 字符串的映射。 |
 | `max_parallel_agents` | `3` | 超额 spawn 排队。 |
 | `max_spawn_depth` | `2` | 限制递归启动。 |
-| `notifications` | `"normal"` | `normal`、`quiet` 或 `none`。 |
-| `idle_rearm_minutes` | `15` | 人类接管后，代理空闲时的安静时长。 |
+| `notifications` | `"normal"` | `normal` = 安全 run 边界，不意外唤醒；`quiet` = 下一次自然 run，不唤醒；`none` = 仅存储拉取。 |
+| `idle_rearm_minutes` | `15` | Legacy 兼容值；旧配置文件可读取但无效。普通输入从不改变窗格回收。 |
 | `workflows_enabled` | `true` | 加载时决定是否注册。随后禁用会拒绝新 run；改变工具注册列表需 reload。 |
 | `layout_mode` | `"grid"` | `grid` 或 `spiral`，用于新建窗格。 |
 
-Spawn 门禁、模型路由和通知在使用时读取对应设置。`idle_rearm_minutes` 在启动时传给子代理。`HERDR_BIN` 覆盖二进制路径，`PI_HERDR_NO_SELF_REPORT=1` 在该 pi 进程中禁用 self-report。
+Spawn 门禁、模型路由和通知在使用时读取对应设置。`HERDR_BIN` 覆盖二进制路径，`PI_HERDR_NO_SELF_REPORT=1` 在该 pi 进程中禁用 self-report。
 
 ## 限制与平台支持
 

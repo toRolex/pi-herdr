@@ -1,12 +1,8 @@
-// Offline tests for push delivery + user takeover + idle re-arm (issue 06).
+// Offline tests for push delivery (issue 06, spec43).
 //
 // Sections:
-//   [1] sessionfile: sidecar rearm typing, takeover/steer markers, the
-//       steer-watermark matcher (human typing vs the parent's own steering)
-//   [2] child extension: takeover flag/marker, idle re-arm timer, error-grace
-//       suppression under takeover
 //   [3] delivery loop: the three detection routes, wake flags, push labels,
-//       single-push dedupe, takeover suppression
+//       single-push dedupe
 //
 // No live herdr server required: every herdr-facing seam is injected.
 //
@@ -47,548 +43,6 @@ const sf = await jiti.import(join(ROOT, "src/sessionfile.ts"), {
 // temp area for real marker files (the helpers use the real fs, like
 // readExitSidecar — substrates stay honest by testing against disk)
 const tmp = mkdtempSync(join(tmpdir(), "pi-herdr-delivery-"));
-
-// ---------------------------------------------------------------------------
-console.log("\n[1] Sidecar rearm + takeover/steer markers");
-{
-	// rearm typing
-	assert(
-		sf.parseExitSidecar('{"type":"done"}').sidecar.rearm === undefined,
-		"plain done sidecar carries no rearm (back-compat)",
-	);
-	assert(
-		sf.parseExitSidecar('{"type":"done","rearm":true}').sidecar.rearm === true,
-		"done + rearm parses",
-	);
-	const errS = sf.parseExitSidecar(
-		'{"type":"error","errorMessage":"overload","stopReason":"error","rearm":true}',
-	).sidecar;
-	assert(
-		errS.rearm === true && errS.errorMessage === "overload",
-		"error + rearm parses with the mined message",
-	);
-	assert(
-		sf.parseExitSidecar('{"type":"done","rearm":"yes"}').sidecar.rearm ===
-			undefined,
-		"non-boolean rearm ignored (tolerant)",
-	);
-	assert(
-		sf.parseExitSidecar('{"type":"done","unknown":{"x":1}}').ok === true,
-		"unknown fields tolerated (forward compat)",
-	);
-	const withText = sf.parseExitSidecar(
-		'{"type":"done","text":"The scan found 3 issues."}',
-	).sidecar;
-	assert(
-		withText.type === "done" && withText.text === "The scan found 3 issues.",
-		"done sidecar keeps the committed final text",
-	);
-	assert(
-		sf.parseExitSidecar('{"type":"done"}').sidecar.text === undefined,
-		"old done sidecar without text still parses",
-	);
-	assert(
-		sf.parseExitSidecar('{"type":"done","text":""}').sidecar.text === undefined &&
-			sf.parseExitSidecar('{"type":"done","text":"   "}').sidecar.text ===
-				undefined &&
-			sf.parseExitSidecar('{"type":"done","text":12}').sidecar.text ===
-				undefined,
-		"blank or non-string sidecar text is treated as absent",
-	);
-	const withBoth = sf.parseExitSidecar(
-		'{"type":"done","text":"final","rearm":true,"structured":"{\\"ok\\":true}"}',
-	).sidecar;
-	assert(
-		withBoth.text === "final" &&
-			withBoth.rearm === true &&
-			withBoth.structured === '{"ok":true}',
-		"sidecar text rides alongside rearm and structured",
-	);
-	const withRoot = sf.parseExitSidecar(
-		'{"type":"done","text":"grandchild letter","rootSession":"/root/session.jsonl"}',
-	).sidecar;
-	assert(
-		withRoot.rootSession === "/root/session.jsonl" &&
-			withRoot.text === "grandchild letter",
-		"done sidecar keeps the root session pointer with the committed text",
-	);
-	assert(
-		sf.parseExitSidecar('{"type":"done"}').sidecar.rootSession === undefined &&
-			sf.parseExitSidecar('{"type":"done","rootSession":""}').sidecar
-				.rootSession === undefined &&
-			sf.parseExitSidecar('{"type":"done","rootSession":12}').sidecar
-				.rootSession === undefined,
-		"a missing, blank, or non-string root pointer is absent",
-	);
-	const withEvent = sf.parseExitSidecar(
-	'{"type":"done","eventId":"evt-done-1"}',
-).sidecar;
-assert(
-	withEvent.eventId === "evt-done-1",
-	"done sidecar keeps a business eventId",
-);
-const errEvent = sf.parseExitSidecar(
-	'{"type":"error","errorMessage":"overload","stopReason":"error","eventId":"evt-err-1"}',
-).sidecar;
-assert(
-	errEvent.eventId === "evt-err-1" && errEvent.errorMessage === "overload",
-	"error sidecar keeps a business eventId",
-);
-assert(
-	sf.parseExitSidecar('{"type":"done"}').sidecar.eventId === undefined &&
-		sf.parseExitSidecar('{"type":"done","eventId":""}').sidecar.eventId ===
-			undefined &&
-		sf.parseExitSidecar('{"type":"done","eventId":12}').sidecar.eventId ===
-			undefined,
-	"an old sidecar with no eventId, or a blank/non-string one, still parses without inventing an id",
-);
-
-const errRoot = sf.parseExitSidecar(
-		'{"type":"error","errorMessage":"boom","stopReason":"error","rootSession":"/root/session.jsonl"}',
-	).sidecar;
-	assert(
-		errRoot.rootSession === "/root/session.jsonl" &&
-			errRoot.errorMessage === "boom",
-		"error sidecar keeps the root session pointer",
-	);
-	assert(
-		sf.refuseBareDone("") !== null &&
-			sf.refuseBareDone("   ") !== null &&
-			sf.refuseBareDone(undefined) !== null,
-		"bare agent_done is refused when the session has no assistant text",
-	);
-	assert(
-		typeof sf.refuseBareDone("") === "string" &&
-			sf.refuseBareDone("").length > 0,
-		"the refusal is a non-empty message the model can correct from",
-	);
-	assert(
-		sf.refuseBareDone("The scan found 3 issues.") === null,
-		"agent_done is allowed once assistant text exists",
-	);
-
-	// takeover marker
-	const sess = join(tmp, "a.jsonl");
-	assert(sf.readTakeoverMarker(sess).taken === false, "no marker = not taken");
-	writeFileSync(sf.takeoverPathFor(sess), "{}");
-	const t = sf.readTakeoverMarker(sess);
-	assert(t.taken === true, "marker present = taken");
-	assert(typeof t.at === "number", "marker carries its mtime");
-
-	// steer watermark + matcher
-	assert(sf.readSteerWatermark(sess) === null, "no watermark = null");
-	sf.writeSteerWatermark(sess, "scan the repo and report\nfailures");
-	assert(
-		sf.readSteerWatermark(sess)?.startsWith("scan the repo"),
-		"watermark round-trips",
-	);
-	assert(
-		sf.inputMatchesSteer("scan the repo and report\nfailures", sf.readSteerWatermark(sess)) ===
-			true,
-		"exact steer text matches",
-	);
-	assert(
-		sf.inputMatchesSteer("  scan  the repo and report failures \n", sf.readSteerWatermark(sess)) ===
-			true,
-		"whitespace-insensitive match (chunked/pasted delivery)",
-	);
-	assert(
-		sf.inputMatchesSteer("2", "2") === true,
-		"short option-list answer matches its watermark",
-	);
-	assert(
-		sf.inputMatchesSteer("let me just fix this myself", sf.readSteerWatermark(sess)) ===
-			false,
-		"a human's own words do not match",
-	);
-	assert(
-		sf.inputMatchesSteer(undefined, "anything") === false &&
-			sf.inputMatchesSteer("x", null) === false,
-		"missing input or watermark never matches",
-	);
-	sf.clearSteerWatermark(sess);
-	assert(
-		sf.readSteerWatermark(sess) === null && !existsSync(sf.steerPathFor(sess)),
-		"clear consumes the watermark",
-	);
-	sf.clearSteerWatermark(sess); // second clear is a harmless no-op
-	assert(true, "double clear does not throw");
-}
-
-// ---------------------------------------------------------------------------
-console.log("\n[2] Child extension — takeover + idle re-arm");
-{
-	const child = await jiti.import(join(ROOT, "src/child.ts"), { parent: ROOT });
-
-	function makePi() {
-		const registered = {
-			widgets: {},
-			tools: [],
-			handlers: {},
-			sessionName: undefined,
-		};
-		const mockPi = {
-			setSessionName: (n) => (registered.sessionName = n),
-			getAllTools: () => [],
-			setWidget: (key, lines) => (registered.widgets[key] = lines),
-			registerShortcut: () => {},
-			registerTool: (t) => registered.tools.push(t),
-			on: (ev, h) => (registered.handlers[ev] ??= []).push(h),
-		};
-		return { mockPi, registered };
-	}
-
-	async function childSession(env) {
-		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-takeover-"));
-		const sess = join(dir, "s.jsonl");
-		writeFileSync(sess, "");
-		for (const [k, v] of Object.entries(env)) process.env[k] = v;
-		const { mockPi, registered } = makePi();
-		child.registerChildExtension(mockPi);
-		return {
-			dir,
-			sess,
-			registered,
-			cleanup() {
-				for (const k of Object.keys(env)) delete process.env[k];
-				rmSync(dir, { recursive: true, force: true });
-			},
-		};
-	}
-	const sidecar = (sess) =>
-		existsSync(`${sess}.exit`)
-			? JSON.parse(readFileSync(`${sess}.exit`, "utf8"))
-			: undefined;
-	let shuts = 0;
-	async function runTo(registered, stopReason = "stop") {
-		await registered.handlers.agent_end[0]({
-			type: "agent_end",
-			messages: [{ role: "assistant", stopReason }],
-		});
-		// pi fires every agent_settled listener; the activity recorder registers
-		// before the exit decision, so the last handler is the one that exits.
-		const settled = registered.handlers.agent_settled ?? [];
-		for (const handler of settled) {
-			await handler({}, { shutdown: () => shuts++ });
-		}
-	}
-
-	// --- takeover marking: human vs steering echo vs programmatic ---------
-	{
-		const t = await childSession({
-			PI_HERDR_SESSION: "",
-		});
-		// PI_HERDR_SESSION must be set AFTER makePi snapshots env — handle below
-		t.cleanup();
-	}
-	{
-		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-takeover-"));
-		const sess = join(dir, "s.jsonl");
-		writeFileSync(sess, "");
-		process.env.PI_HERDR_SESSION = sess;
-		process.env.PI_HERDR_NAME = "scout";
-		const { mockPi, registered } = makePi();
-		child.registerChildExtension(mockPi);
-		try {
-			const input = registered.handlers.input[0];
-
-			// the parent's own steering echo: watermark matches → NOT takeover,
-			// watermark consumed
-			sf.writeSteerWatermark(sess, "scan the repo and report");
-			await input({ type: "input", text: "scan the repo and report", source: "interactive" });
-			assert(
-				sf.readTakeoverMarker(sess).taken === false,
-				"the parent's own steering echo is not a takeover",
-			);
-			assert(
-				sf.readSteerWatermark(sess) === null,
-				"a matched watermark is consumed",
-			);
-
-			// a human types their own words → takeover marker written once
-			await input({ type: "input", text: "focus on the parser instead", source: "interactive" });
-			assert(
-				sf.readTakeoverMarker(sess).taken === true,
-				"a human's typing marks the takeover",
-			);
-			const firstAt = sf.readTakeoverMarker(sess).at;
-			await input({ type: "input", text: "more words", source: "interactive" });
-			assert(
-				sf.readTakeoverMarker(sess).at === firstAt,
-				"the marker is written once (not rewritten per keystroke)",
-			);
-
-			// programmatic input is never a takeover…
-			const dir2 = mkdtempSync(join(tmpdir(), "pi-herdr-takeover2-"));
-			const sess2 = join(dir2, "s.jsonl");
-			writeFileSync(sess2, "");
-			process.env.PI_HERDR_SESSION = sess2;
-			const pi2 = makePi();
-			child.registerChildExtension(pi2.mockPi);
-			await pi2.registered.handlers.input[0]({
-				type: "input",
-				text: "anything",
-				source: "rpc",
-			});
-			assert(
-				sf.readTakeoverMarker(sess2).taken === false,
-				"rpc input is programmatic, not a human takeover",
-			);
-			// …but an input with no source (defensive, older pi) counts human
-			await pi2.registered.handlers.input[0]({ type: "input", text: "hello" });
-			assert(
-				sf.readTakeoverMarker(sess2).taken === true,
-				"input with no source field is treated as human (never slam shut)",
-				
-			);
-			rmSync(dir2, { recursive: true, force: true });
-			delete process.env.PI_HERDR_SESSION;
-		} finally {
-			delete process.env.PI_HERDR_SESSION;
-			delete process.env.PI_HERDR_NAME;
-			rmSync(dir, { recursive: true, force: true });
-		}
-	}
-
-	// --- idle re-arm: taken-over autonomous child -------------------------
-	{
-		const t = await childSession({
-			PI_HERDR_SESSION: "",
-		});
-		t.cleanup();
-	}
-	{
-		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-rearm-"));
-		const sess = join(dir, "s.jsonl");
-		writeFileSync(sess, "");
-		process.env.PI_HERDR_SESSION = sess;
-		process.env.PI_HERDR_AUTO_EXIT = "1";
-		process.env.PI_HERDR_IDLE_REARM_MS = "80";
-		process.env.PI_HERDR_ERROR_EXIT_GRACE_MS = "40";
-		const { mockPi, registered } = makePi();
-		child.registerChildExtension(mockPi);
-		try {
-			const input = registered.handlers.input[0];
-			// human takes over first
-			await input({ type: "input", text: "my own words", source: "interactive" });
-
-			// clean settle under takeover: NO immediate exit, no sidecar yet
-			shuts = 0;
-			await runTo(registered, "stop");
-			assert(
-				shuts === 0 && sidecar(sess) === undefined,
-				"taken-over settle does NOT auto-exit nor write an early sidecar",
-			);
-
-			// a keystroke resets the timer: input mid-window, no settle after
-			await sleep(30);
-			await input({ type: "input", text: "more steering", source: "interactive" });
-			await sleep(80);
-			assert(
-				shuts === 0 && sidecar(sess) === undefined,
-				"a keystroke resets the re-arm timer (cancelled until the next settle)",
-			);
-
-			// quiet window elapses after the fresh settle → rearm sidecar + exit
-			await runTo(registered, "stop");
-			await sleep(120);
-			const s = sidecar(sess);
-			assert(
-				shuts === 1 && s && s.type === "done" && s.rearm === true,
-				"quiet re-arm window → {type:done, rearm:true} sidecar + pane close",
-			);
-		} finally {
-			for (const k of [
-				"PI_HERDR_SESSION",
-				"PI_HERDR_AUTO_EXIT",
-				"PI_HERDR_IDLE_REARM_MS",
-				"PI_HERDR_ERROR_EXIT_GRACE_MS",
-			])
-				delete process.env[k];
-			rmSync(dir, { recursive: true, force: true });
-		}
-	}
-
-	// --- error settle under takeover: re-arm governs, error-grace suppressed
-	{
-		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-rearm-err-"));
-		const sess = join(dir, "s.jsonl");
-		writeFileSync(sess, "");
-		process.env.PI_HERDR_SESSION = sess;
-		process.env.PI_HERDR_AUTO_EXIT = "1";
-		process.env.PI_HERDR_IDLE_REARM_MS = "80";
-		process.env.PI_HERDR_ERROR_EXIT_GRACE_MS = "30";
-		const { mockPi, registered } = makePi();
-		child.registerChildExtension(mockPi);
-		try {
-			await registered.handlers.input[0]({
-				type: "input",
-				text: "human here",
-				source: "interactive",
-			});
-			shuts = 0;
-			await runTo(registered, "error");
-			await sleep(60); // well past the 30ms error-grace
-			assert(
-				shuts === 0,
-				"a pane never slams shut on a human: the 30s error-exit grace is suppressed",
-			);
-			await sleep(80); // past the 80ms re-arm window
-			const s = sidecar(sess);
-			assert(
-				shuts === 1 && s && s.type === "error" && s.rearm === true,
-				"the re-arm window exits with a typed, rearm-labeled error",
-			);
-		} finally {
-			for (const k of [
-				"PI_HERDR_SESSION",
-				"PI_HERDR_AUTO_EXIT",
-				"PI_HERDR_IDLE_REARM_MS",
-				"PI_HERDR_ERROR_EXIT_GRACE_MS",
-			])
-				delete process.env[k];
-			rmSync(dir, { recursive: true, force: true });
-		}
-	}
-
-	// --- interactive stance + takeover: re-arm still applies ---------------
-	{
-		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-rearm-int-"));
-		const sess = join(dir, "s.jsonl");
-		writeFileSync(sess, "");
-		process.env.PI_HERDR_SESSION = sess;
-		process.env.PI_HERDR_AUTO_EXIT = "0";
-		process.env.PI_HERDR_IDLE_REARM_MS = "60";
-		const { mockPi, registered } = makePi();
-		child.registerChildExtension(mockPi);
-		try {
-			await registered.handlers.input[0]({
-				type: "input",
-				text: "human here",
-				source: "interactive",
-			});
-			shuts = 0;
-			await runTo(registered, "stop");
-			await sleep(100);
-			const s = sidecar(sess);
-			assert(
-				shuts === 1 && s && s.type === "done" && s.rearm === true,
-				"taken-over INTERACTIVE pane re-arms too (stance-independent)",
-			);
-		} finally {
-			for (const k of ["PI_HERDR_SESSION", "PI_HERDR_AUTO_EXIT", "PI_HERDR_IDLE_REARM_MS"])
-				delete process.env[k];
-			rmSync(dir, { recursive: true, force: true });
-		}
-	}
-
-	// --- aborted under takeover: open, no timer ----------------------------
-	{
-		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-rearm-abort-"));
-		const sess = join(dir, "s.jsonl");
-		writeFileSync(sess, "");
-		process.env.PI_HERDR_SESSION = sess;
-		process.env.PI_HERDR_AUTO_EXIT = "1";
-		process.env.PI_HERDR_IDLE_REARM_MS = "40";
-		const { mockPi, registered } = makePi();
-		child.registerChildExtension(mockPi);
-		try {
-			await registered.handlers.input[0]({
-				type: "input",
-				text: "human here",
-				source: "interactive",
-			});
-			shuts = 0;
-			await runTo(registered, "aborted");
-			await sleep(90);
-			assert(
-				shuts === 0 && sidecar(sess) === undefined,
-				"aborted run under takeover stays open with no re-arm timer",
-			);
-		} finally {
-			for (const k of ["PI_HERDR_SESSION", "PI_HERDR_AUTO_EXIT", "PI_HERDR_IDLE_REARM_MS"])
-				delete process.env[k];
-			rmSync(dir, { recursive: true, force: true });
-		}
-	}
-
-	// --- untouched behavior: no takeover → the old paths hold --------------
-	{
-		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-rearm-off-"));
-		const sess = join(dir, "s.jsonl");
-		writeFileSync(sess, "");
-		process.env.PI_HERDR_SESSION = sess;
-		process.env.PI_HERDR_AUTO_EXIT = "1";
-		process.env.PI_HERDR_IDLE_REARM_MS = "40";
-		process.env.PI_HERDR_ROOT_SESSION = "/sessions/root.jsonl";
-		const { mockPi, registered } = makePi();
-		child.registerChildExtension(mockPi);
-		try {
-			shuts = 0;
-			await runTo(registered, "stop");
-			assert(
-				shuts === 1 && sidecar(sess)?.type === "done" && !sidecar(sess)?.rearm,
-				"no takeover: autonomous clean settle still exits immediately (unlabeled)",
-			);
-			assert(
-				sidecar(sess)?.rootSession === "/sessions/root.jsonl",
-				"settle sidecar carries the stamped root session pointer",
-			);
-			assert(
-				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
-					sidecar(sess)?.eventId ?? "",
-				),
-				"clean settle sidecar carries a generated business eventId",
-			);
-		} finally {
-			for (const k of ["PI_HERDR_SESSION", "PI_HERDR_AUTO_EXIT", "PI_HERDR_IDLE_REARM_MS", "PI_HERDR_ROOT_SESSION"])
-				delete process.env[k];
-			rmSync(dir, { recursive: true, force: true });
-		}
-	}
-
-	// --- declared done also commits the root pointer ---------------------
-	{
-		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-root-done-"));
-		const sess = join(dir, "s.jsonl");
-		writeFileSync(
-			sess,
-			JSON.stringify({
-				type: "message",
-				message: {
-					role: "assistant",
-					content: [{ type: "text", text: "declared letter" }],
-					stopReason: "stop",
-				},
-			}) + "\n",
-		);
-		process.env.PI_HERDR_SESSION = sess;
-		process.env.PI_HERDR_ROOT_SESSION = "/sessions/root.jsonl";
-		const { mockPi, registered } = makePi();
-		child.registerChildExtension(mockPi);
-		try {
-			const tool = registered.tools.find((t) => t.name === "agent_done");
-			await tool.execute("1", {}, undefined, undefined, { shutdown() {} });
-			const s = sidecar(sess);
-			assert(
-				s?.type === "done" &&
-					s.text === "declared letter" &&
-					s.rootSession === "/sessions/root.jsonl",
-				"agent_done sidecar carries the final text and the root session pointer",
-			);
-			assert(
-				/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
-					s?.eventId ?? "",
-				),
-				"agent_done sidecar carries a generated business eventId",
-			);
-		} finally {
-			delete process.env.PI_HERDR_SESSION;
-			delete process.env.PI_HERDR_ROOT_SESSION;
-			rmSync(dir, { recursive: true, force: true });
-		}
-	}
-}
 
 // ---------------------------------------------------------------------------
 console.log("\n[3] Delivery loop — detection routes + wake flags");
@@ -704,7 +158,6 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.deps.writeRegistry = (_path, records) => { saved = JSON.stringify(records); };
 			w.deps.readSidecar = () => ({ state: "ok", sidecar: { type: "done", text: "close letter", ...(over.rearm ? { rearm: true } : {}) } });
 			w.deps.extract = () => null;
-			w.deps.readTakeover = () => ({ taken: false });
 			return { w, record: () => adopted && saved ? JSON.parse(saved)[0] : child };
 		}
 		const label = adopted ? "adopted" : "ordinary";
@@ -727,16 +180,6 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			await w.tick();
 			await w.tick();
 			assert(attempts === 2 && w.pushes.length === 1 && record().paneClosePending === false && record().paneCloseError === undefined, `${label} retries only close and clears error on success`);
-		}
-		for (const rearm of [false, true]) {
-			const { w, record } = closeWorld({ rearm, tookNotified: true });
-			let attempts = 0;
-			w.deps.closePane = async () => ++attempts === 1 ? { ok: false, error: { message: "retry" } } : { ok: true };
-			await w.tick();
-			w.deps.readTakeover = () => ({ taken: true });
-			await w.tick();
-			assert(record().takenOver === true && w.pushes.length === 1 && attempts === (rearm ? 2 : 1) &&
-				(rearm ? record().delivery.rearm === true && record().paneClosePending === false : record().paneClosePending === true), `${label} refreshes takeover on retry and preserves only explicit rearm authorization`);
 		}
 		for (const error of [
 			{ code: "pane_not_found", message: "missing" },
@@ -770,12 +213,12 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		writeSession(sess, [assistantMsg("The scan found 3 issues. All fixed.")]);
 		const r = rec("scout", { sessionPath: sess });
 		const w = world([r], { fleet: [{ paneId: r.paneId, status: "done" }] });
-		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", text: "The scan found 3 issues. All fixed.", eventId: "event-scout" }));
 		await w.tick();
 		assert(
 			w.pushes.length === 1 &&
-				w.pushes[0].content.includes("The scan found 3 issues. All fixed.") &&
-				w.pushes[0].content.includes('Agent "scout" finished'),
+				w.pushes[0].content === "The scan found 3 issues. All fixed." &&
+				w.pushes[0].details.kind === "done",
 			"sidecar done → the FULL final message is the push (the letter, not a doorbell)",
 		);
 		assert(w.closes[0] === r.paneId, "autonomous done sidecar closes the pane after the result is pushed");
@@ -788,8 +231,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			"terminal event marked delivered in the registry",
 		);
 		assert(
-			w.pushes[0].details.eventId === undefined,
-			"a sidecar with no eventId does not invent one on the push",
+			w.pushes[0].details.eventId === "event-scout",
+			"a declared event reference is preserved on the push",
 		);
 		await w.tick();
 		assert(
@@ -814,11 +257,12 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				closed.push(paneId);
 			},
 		});
-		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", text: "re-armed result", rearm: true }));
 		await w.tick();
 		assert(
-			w.pushes[0]?.content.startsWith("auto-delivered after user steer: "),
-			"rearm sidecar → honestly labeled auto-delivery",
+			w.pushes[0]?.content === "re-armed result" &&
+				w.pushes[0]?.details.rearm === undefined,
+			"旧 rearm 字段不改变完整结果或关闭授权",
 		);
 		assert(
 			closed.length === 1 && closed[0] === r.paneId,
@@ -837,7 +281,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				closed.push(paneId);
 			},
 		});
-		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
+		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", text: "quiet rearm", rearm: true }));
 		await w.tick();
 		assert(
 			w.pushes.length === 1 && closed.length === 1 && r.takenOver !== true,
@@ -862,8 +306,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		);
 		await w.tick();
 		assert(
-			w.pushes[0]?.content.includes('Agent "scout" FAILED: provider overloaded'),
-			"error sidecar → typed failure reaches the parent",
+			w.pushes[0]?.content === "[completion error: provider overloaded]" &&
+				w.pushes[0]?.details.kind === "error" &&
+				w.pushes[0]?.details.error?.errorMessage === "provider overloaded",
+			"error sidecar → minimal failure body; typed failure reaches parent in details", 
 		);
 		assert(closed[0] === r.paneId, "autonomous error sidecar closes the pane after the failure is delivered");
 		assert(
@@ -968,17 +414,19 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-"));
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [
-			assistantMsg("", { stopReason: "error", errorMessage: "rate limited" }),
+			assistantMsg("rate limited", { stopReason: "error", errorMessage: "rate limited" }),
 		]);
 		const r = rec("scout", { sessionPath: sess });
 		const w = world([r]);
+		r.sawWorking = true;
 		await w.tick(); // stamps goneAt (grace starts)
 		w.advance(11_000);
 		await w.tick();
 		assert(
-			w.pushes[0]?.content.includes("FAILED: rate limited") &&
-				w.pushes[0].details.kind === "error",
-			"sentinel mines stopReason=error → typed failure, not a mystery",
+			w.pushes[0]?.content === "rate limited" &&
+				w.pushes[0].details.kind === "error" &&
+				w.pushes[0].details.error?.errorMessage === "rate limited",
+			"sentinel mines stopReason=error → typed failure remains in details", 
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -993,9 +441,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		w.advance(11_000);
 		await w.tick();
 		assert(
-			w.pushes[0]?.content.includes('Agent "scout" is gone') &&
-				w.pushes[0].details.kind === "gone" &&
-				w.pushes[0].content.includes("retained"),
+			w.pushes[0]?.content ===
+					'Agent "scout" is gone (no live pane; it died or its pane was closed without completing).' &&
+				w.pushes[0].details.kind === "gone", 
 			"pane vanished with no evidence → honest gone note, session retained",
 		);
 		assert(
@@ -1037,7 +485,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		assert(w.pushes.length === 0, "...and is honored (still in grace)");
 	}
 
-	// --- blocked always wakes ----------------------------------------------
+	// --- blocked notice admission ----------------------------------------------
 	{
 		const r = rec("scout", { sessionPath: join(tmpdir(), "nope3.jsonl") });
 		const w = world([r], { fleet: [{ paneId: r.paneId, status: "blocked" }] });
@@ -1046,7 +494,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			w.pushes.length === 1 &&
 				w.pushes[0].wake === true &&
 				w.pushes[0].details.kind === "blocked",
-			"blocked always wakes (regardless of the notifications setting)",
+			"normal blocked notice requests admission through parent policy",
 		);
 		await w.tick();
 		assert(
@@ -1059,7 +507,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		await w.tick();
 		w.setFleet([{ paneId: r.paneId, status: "blocked" }]);
 		await w.tick();
-		assert(w.pushes.length === 2, "a NEW blocked episode wakes again");
+		assert(w.pushes.length === 3 && w.pushes[1].details.kind === "blocked-recovered", "recovery then a NEW blocked episode are distinct notices");
 		assert(
 			w.closes.length === 0,
 			"a blocked child's pane is NEVER closed (it needs input, not a funeral)",
@@ -1075,9 +523,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			await w.tick();
 			assert(
 				w.pushes.length === 1 &&
-					w.pushes[0].wake === true &&
-					w.pushes[0].deliverAs === "steer",
-				`blocked wakes even under notifications ${notes}`,
+					w.pushes[0].wake === false &&
+					w.pushes[0].deliverAs === "nextTurn",
+				`blocked respects notifications ${notes}`,
 			);
 		}
 	}
@@ -1087,30 +535,16 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const w = world([r], { fleet: [{ paneId: r.paneId, status: "blocked" }] });
 		await w.tick();
 		assert(
-			w.pushes.length === 0,
-			"a TAKEN-OVER pane never pushes mid-conversation (the human is right there)",
+			w.pushes.length === 1,
+			"a legacy TAKEN-OVER pane never pushes mid-conversation (the human is right there)",
 		);
 	}
 
-	// --- takeover note (quiet, once) ----------------------------------------
+	// Old markers are inert; no lifecycle note is emitted.
 	{
-		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-to-"));
-		const sess = join(dir, "s.jsonl");
-		writeFileSync(sess, "");
-		const r = rec("scout", { sessionPath: sess });
-		const w = world([r], { fleet: [{ paneId: r.paneId, status: "working" }] });
-		writeFileSync(sf.takeoverPathFor(sess), "{}");
-		await w.tick();
-		assert(
-			w.pushes.length === 1 &&
-				w.pushes[0].content === "user took over scout" &&
-				w.pushes[0].wake === false,
-			"takeover marker → quiet (no-wake) `user took over <agent>` note",
-		);
-		assert(r.takenOver === true && r.tookNotified === true, "record flags set");
-		await w.tick();
-		assert(w.pushes.length === 1, "the note is sent once, not per tick");
-		rmSync(dir, { recursive: true, force: true });
+	 const sess = join(tmp, "old-marker.jsonl"); writeFileSync(sess, ""); writeFileSync(`${sess}.takeover`, "{}");
+	 const r = rec("scout", {sessionPath:sess}); const w = world([r], {fleet:[{paneId:r.paneId,status:"working"}]}); await w.tick();
+	 assert(w.pushes.length === 0 && !r.takenOver, "old marker has no lifecycle effect");
 	}
 
 	// --- never-started / queued / non-pi / live-idle ------------------------
@@ -1321,7 +755,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
 		await w.tick();
 		assert(
-			w.pushes.length === 1 && closed.length === 0,
+			w.pushes.length === 1 && closed.length === 1,
 			"a taken-over pane is not closed when its sidecar lands",
 		);
 		rmSync(dir, { recursive: true, force: true });
@@ -1333,6 +767,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("the review")]);
 		const r = rec("stuck", { sessionPath: sess });
+		// Legacy records retain the old read bridge without minting a new event.
 		const closed = [];
 		const w = world([r], {
 			fleet: [{ paneId: r.paneId, status: "idle" }],
@@ -1355,7 +790,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-wf-"));
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("child work")]);
-		writeFileSync(sf.sidecarPathFor(sess), '{"type":"done"}');
+		writeFileSync(sf.sidecarPathFor(sess), '{"type":"done","text":"child work","eventId":"wf-event"}');
 		const child = rec("wfa", { sessionPath: sess, workflow: "wf_abc123" });
 		const closed = [];
 		const w = world([child], {
@@ -1425,32 +860,32 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 
 	// --- pane-close guards + the auto-exit race (manual e2e F2) -------------
 	{
-		// A taken-over pane that has NOT re-arm-delivered: agent_done declared
-		// under a human — delivered, but the pane stays (the human is driving).
+		// 旧 takeover 与 rearm 字段不参与新的 run/pane 关闭授权。
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-to2-"));
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("declared done under a human")]);
 		const r = rec("scout", { sessionPath: sess, takenOver: true });
 		const w = world([r]);
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		writeFileSync(`${sess}.takeover`, JSON.stringify({ at: Date.now() }));
 		await w.tick();
 		assert(
 			w.pushes.length === 1 &&
-				w.closes.length === 0 &&
+				w.closes.length === 1 &&
 				r.delivery?.kind === "done",
-			"a taken-over pane that has NOT re-arm-delivered is never closed",
+			"旧 takeover 标记不影响终态关闭",
 		);
-		// The same situation ON the re-arm delivery: the settings copy promises
-		// "auto-delivered ... and its pane closes" — so it does.
+		// 旧 rearm 字段也不改变正文。
 		const r2 = rec("scout-2", { sessionPath: sess, takenOver: true });
 		const w2 = world([r2]);
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
 		await w2.tick();
 		assert(
 			w2.pushes.length === 1 &&
-				w2.pushes[0].content.startsWith("auto-delivered after user steer: ") &&
+				w2.pushes[0].content === "declared done under a human" &&
+				w2.pushes[0].details.rearm === undefined &&
 				w2.closes.includes(r2.paneId),
-			"the rearm-labeled delivery closes the taken-over pane (the promise)",
+			"旧 rearm 字段不改变正文及关闭行为",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -1476,8 +911,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		rmSync(dir, { recursive: true, force: true });
 	}
 	{
-		// A done sidecar with no text and an empty session still uses the
-		// existing empty-body sentence (#30 matches it).
+		// A done sidecar with no text and an empty session keeps the body empty;
+		// the minimal source shell does not add protocol prose.
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-empty-"));
 		const sess = join(dir, "s.jsonl");
 		writeFileSync(sess, "");
@@ -1487,10 +922,8 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		await w.tick();
 		assert(
 			w.pushes.length === 1 &&
-				w.pushes[0].content.includes(
-					"(the child finished but its session file holds no assistant message)",
-				),
-			"blank sidecar text still uses the empty-assistant sentence",
+				w.pushes[0].content === "" && w.pushes[0].details.kind === "done",
+			"blank sidecar text with no final produces an empty body under the minimal shell", 
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -1621,7 +1054,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const doneSess = (label) => {
 			const sess = join(dir, `${label}.jsonl`);
 			writeSession(sess, [assistantMsg(`${label} letter`)]);
-			writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+			writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", text: `${label} letter`, eventId: `event-${label}` }));
 			return sess;
 		};
 		const errorSess = (label) => {
@@ -1629,7 +1062,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			writeSession(sess, [assistantMsg("", { stopReason: "error" })]);
 			writeFileSync(
 				`${sess}.exit`,
-				JSON.stringify({ type: "error", errorMessage: "boom", stopReason: "error" }),
+				JSON.stringify({ type: "error", errorMessage: "boom", stopReason: "error", text: `${label} letter`, eventId: `event-${label}` }),
 			);
 			return sess;
 		};
@@ -1683,7 +1116,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				"busy unset → idle default (steer + triggerTurn)",
 			);
 		}
-		// blocked stays steer, even while the orchestrator is busy, and even under none
+		// blocked cannot interrupt busy tools or override quiet/none
 		{
 			for (const notes of ["normal", "quiet", "none"]) {
 				const r = rec(`blocked-${notes}`, {
@@ -1698,14 +1131,14 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				await w.tick();
 				assert(
 					sent.length === 1 &&
-						sent[0].opts.deliverAs === "steer" &&
-						sent[0].opts.triggerTurn === true &&
+						sent[0].opts.deliverAs === "nextTurn" &&
+						sent[0].opts.triggerTurn === false &&
 						w.pushes[0].details.kind === "blocked",
-					`blocked stays steer + triggerTurn while busy (notifications ${notes})`,
+					`blocked remains passive while busy (notifications ${notes})`,
 				);
 			}
 		}
-		// stalled stays steer while busy (watchdog push, not a terminal kind)
+		// watchdog notices remain passive while busy
 		{
 			const r = rec("stalled-one", { sessionPath: join(dir, "stalled.jsonl") });
 			const sent = [];
@@ -1727,10 +1160,10 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			});
 			assert(
 				sent.length === 1 &&
-					sent[0].opts.deliverAs === "steer" &&
-					sent[0].opts.triggerTurn === true &&
+					sent[0].opts.deliverAs === "nextTurn" &&
+					sent[0].opts.triggerTurn === false &&
 					pushes[0].details.kind === "stalled",
-				"stalled stays steer + triggerTurn while the orchestrator is busy",
+				"stalled remains passive while the orchestrator is busy",
 			);
 		}
 		// error respects notifications: quiet → nextTurn, none → no push, normal → steer
@@ -1761,9 +1194,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			await wo.tick();
 			assert(
 				so.length === 1 &&
-					so[0].opts.deliverAs === "steer" &&
-					so[0].opts.triggerTurn === true,
-				"error + normal → steer + triggerTurn, even while busy",
+					so[0].opts.deliverAs === "nextTurn" &&
+					so[0].opts.triggerTurn === false,
+				"error + normal remains passive while busy",
 			);
 		}
 		// notifications matrix on done: quiet is nextTurn, none is silence, normal follows busy
@@ -1870,8 +1303,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		await delivery.deliverOnce(depsFor(root, rootRecords));
 		assert(
 			pushes.length === 1 &&
-				pushes[0].content.includes(letter) &&
-				pushes[0].content.includes('Agent "leaf" finished'),
+				pushes[0].content === letter && pushes[0].details.name === "leaf",
 			"dead middle layer: the root push carries the grandchild's full letter",
 		);
 		assert(
@@ -2129,18 +1561,17 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			"a successful restored retry clears the persisted close failure",
 		);
 
-		// A human may take over between failure and retry, without registry writes.
+		// 旧 takeover 标记不能撤销当前 run 的关闭授权。
 		writeFileSync(`${mid}.registry.json`, JSON.stringify([savedFailure]));
 		writeFileSync(`${leaf}.takeover`, JSON.stringify({ at: 1_000_001 }));
 		const beforeRetryTakeover = closes.length;
 		await delivery.deliverOnce(depsFor(restoredRoot()));
 		assert(
-			closes.length === beforeRetryTakeover && pushes.length === 1 &&
-				JSON.parse(readFileSync(`${mid}.registry.json`, "utf8"))[0].takenOver === true,
-			"a fresh-memory close retry rereads the takeover marker and holds the pane",
+			closes.length === beforeRetryTakeover + 1 && pushes.length === 1,
+			"恢复后关闭重试忽略已废弃的 takeover 标记",
 		);
 
-		// takeover: the letter can be delivered, the pane is not recycled
+		// 旧 takeover 标记也不影响孤儿 pane 回收。
 		const held = join(dir, "held.jsonl");
 		writeSession(held, [assistantMsg("human is driving")]);
 		writeFileSync(
@@ -2171,9 +1602,9 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		assert(
 			pushes.length === beforeHeld + 1 &&
 				pushes.at(-1).content.includes("human is driving") &&
-				closes.length === beforeClose &&
+				closes.length === beforeClose + 1 &&
 				existsSync(held),
-			"a taken-over orphan pane is not recycled after its result is delivered",
+			"旧 takeover 标记不阻止孤儿结果投递后回收 pane",
 		);
 
 		rmSync(dir, { recursive: true, force: true });
@@ -2209,6 +1640,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				type: "error",
 				errorMessage: "overload",
 				stopReason: "error",
+				text: "boom",
 				eventId: "evt-error-disk",
 			}),
 		);

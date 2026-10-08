@@ -10,6 +10,10 @@
 // readout (herdr ships fast; knowing the version stays cheap).
 
 import type { Err } from "./env.js";
+import {
+	HERDR_UPGRADE_POINTER as SHARED_HERDR_UPGRADE_POINTER,
+	MIN_HERDR_VERSION as SHARED_MIN_HERDR_VERSION,
+} from "./herdr-transport.mjs";
 
 export interface HerdrVersion {
 	major: number;
@@ -22,11 +26,11 @@ export type HerdrProbe =
 	| { state: "missing" } // binary not found / won't run
 	| { state: "unknown" }; // ran, but version string unparseable
 
-/** The oldest herdr this extension talks to (hard floor). */
-export const MIN_HERDR_VERSION: HerdrVersion = { major: 0, minor: 9, patch: 0 };
+/** 扩展与独立 worker 共用的最低 Herdr 版本。 */
+export const MIN_HERDR_VERSION: HerdrVersion = SHARED_MIN_HERDR_VERSION;
 
 /** Where the upgrade pointer in every HERDR_TOO_OLD error leads. */
-export const HERDR_UPGRADE_POINTER = "https://herdr.dev";
+export const HERDR_UPGRADE_POINTER = SHARED_HERDR_UPGRADE_POINTER;
 
 /** Parse the first `MAJOR.MINOR.PATCH` out of a `herdr --version` string. */
 export function parseVersion(s: string): HerdrVersion | null {

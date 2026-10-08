@@ -1,7 +1,7 @@
 // Real SDK persistence order: message_end stores the tool-call assistant before execute.
 import assert from "node:assert/strict";
 import { createJiti } from "jiti";
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 const jiti = createJiti(import.meta.url);
@@ -19,7 +19,7 @@ const doneCall = message("assistant", [{ type: "toolCall", id: "done-1", name: "
 const persist = entries => writeFileSync(session, entries.map(e => JSON.stringify(e)).join("\n") + "\n");
 function boot() {
  const handlers = {}, tools = [];
- registerChildExtension({ on: (n, h) => (handlers[n] ??= []).push(h), registerTool: t => tools.push(t), registerShortcut() {} });
+ registerChildExtension({ on: (n, h) => (handlers[n] ??= []).push(h), registerTool: t => tools.push(t), registerShortcut() {}, sendUserMessage() {} });
  let shutdowns = 0;
  const ctx = { shutdown: () => shutdowns++ };
  return { tools, ctx, shutdowns: () => shutdowns, emit: async (n, e = {}) => { for (const h of handlers[n] ?? []) await h(e, ctx); } };
@@ -46,8 +46,23 @@ try {
  await deliverOnce({ registry: () => new Map([[record.name, record]]), load: () => ({ notifications: "normal" }), list: async () => ({ ok: true, data: [{ paneId: record.paneId, agentStatus: "done" }] }), push: p => pushes.push(p), closePane: async () => ({ ok: true }) });
  assert.equal(pushes.length, 1);
  assert.equal(pushes[0].details.result, letter);
- assert.ok(pushes[0].content.includes(letter), "push contains the entire committed body");
+ assert.equal(pushes[0].content, letter, "push is the exact complete final answer without protocol shell");
+ assert.equal(pushes[0].details.sessionPath, session, "session path remains metadata");
  console.log("✓ persisted toolCall-only declaration delivers full sidecar + push body");
+
+ // Sidecar write failures must keep the pane open and report governance failure.
+ clean(); persist([user]); child = boot(); await child.emit("agent_start"); persist([user, body, doneCall]);
+ const exitDir = `${session}.exit`; mkdirSync(exitDir);
+ const failed = await child.tools.find(t => t.name === "agent_done").execute("done-failed", {}, undefined, undefined, child.ctx);
+ assert.equal(failed.isError, true);
+ assert.equal(child.shutdowns(), 0);
+ const events = [];
+ const failedRecord = { ...record, delivery: undefined };
+ await deliverOnce({ registry: () => new Map([[failedRecord.name, failedRecord]]), load: () => ({ notifications: "normal" }), list: async () => ({ ok: true, data: [{ paneId: failedRecord.paneId, agentStatus: "working" }] }), readSidecar: () => ({ state: "ok", sidecar: { type: "persistence-error", errorMessage: "completion persistence failed", eventId: "stable" } }), push: p => events.push(p), closePane: async () => ({ ok: true }) });
+ assert.equal(events[0]?.details.kind, "persistence-error");
+ assert.equal(failedRecord.delivery, undefined);
+ rmSync(exitDir, { recursive: true, force: true });
+ console.log("✓ sidecar persistence failure is visible and never closes the pane");
 
  for (const entries of [[user, body, user, doneCall], [user, doneCall]]) {
   clean(); persist(entries); child = boot();
@@ -68,7 +83,7 @@ try {
   await new Promise(r => setTimeout(r, 30));
   assert.equal(sidecar().text, letter, `${mode} preserves completion body`);
   assert.equal(sidecar().type, mode === "error" ? "error" : "done");
-  if (mode === "rearm") assert.equal(sidecar().rearm, true);
+  if (mode === "rearm") { assert.equal(sidecar().rearm, undefined); assert.equal(existsSync(`${session}.takeover`), false, "ordinary input never writes a takeover marker"); }
   assert.equal(child.shutdowns(), 1);
   const settledPushes = [];
   const settledRecord = { ...record, name: mode, delivery: undefined };
@@ -76,10 +91,10 @@ try {
   const terminal = settledPushes.filter(p => p.details?.kind === (mode === "error" ? "error" : "done"));
   assert.equal(terminal.length, 1);
   assert.equal(terminal[0].details.result, letter);
-  assert.ok(terminal[0].content.includes(letter), `${mode} push contains the entire body`);
+  assert.equal(terminal[0].content, letter, `${mode} push is the exact full body`);
   await child.emit("session_shutdown");
  }
- console.log("✓ auto-settle / error / idle-rearm preserve the same body");
+ console.log("✓ auto-settle / error / direct input preserve the same body");
  clean(); persist([user]);
  const schema = join(dir, "schema.json"); writeFileSync(schema, JSON.stringify({ type: "object", properties: { ok: { type: "boolean" } }, required: ["ok"] }));
  process.env.PI_HERDR_SCHEMA = schema;

@@ -1,0 +1,35 @@
+{
+  "result": "passed",
+  "checks": [
+    {
+      "case": "queued-push-pull-and-second-pull",
+      "winner": "pull",
+      "stalePushAllowed": false,
+      "restartDiskRepair": true
+    },
+    {
+      "case": "push-commit-pending-does-not-timeout",
+      "secondPullAllowed": false,
+      "status": "pending"
+    },
+    {
+      "case": "receiver-isolation-read-and-legacy",
+      "independentHost": true,
+      "directReadMutates": false,
+      "unknownLegacyRetained": true
+    },
+    {
+      "case": "unknown-host-and-legacy-format-migration",
+      "malformedHostFailsClosed": true,
+      "changedBodyDoesNotRequeue": true,
+      "legacyQueueBodyWithdrawn": true
+    },
+    {
+      "case": "dispatch-outcome-unknown",
+      "acceptedThenThrowDoesNotRequeue": true,
+      "pendingRetained": true,
+      "stableIdentityMissingHostFailsClosed": true
+    }
+  ],
+  "scope": "state machine and disk evidence; host provider proof is separate"
+}

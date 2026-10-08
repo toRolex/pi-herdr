@@ -1,0 +1,15 @@
+{
+  "feature": "t7-parent-governance",
+  "exitCode": 0,
+  "pane": "w8T:p2",
+  "providerRequests": 5,
+  "finishedLateRequests": 1,
+  "naturalRunRequests": 2,
+  "explicitWakeRequests": 1,
+  "oneShotConsumed": true,
+  "realTUI": true,
+  "realHerdrCLI": true,
+  "fullCheckoutExtension": true,
+  "deterministicProvider": true,
+  "noChildSpawnClaim": true
+}

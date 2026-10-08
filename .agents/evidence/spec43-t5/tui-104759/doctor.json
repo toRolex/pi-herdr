@@ -1,0 +1,25 @@
+{
+  "cwd": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t5",
+  "node": "v24.19.0",
+  "HERDR_ENV": "1",
+  "executables": {
+    "herdr": "/opt/homebrew/Cellar/herdr/0.9.3/bin/herdr",
+    "pi": "/Users/rolex/Library/pnpm/bin/pi",
+    "node": "/Users/rolex/.local/share/fnm/node-versions/v24.19.0/installation/bin/node"
+  },
+  "herdrVersion": "herdr 0.9.3",
+  "piVersion": "1.0.4",
+  "runtime": "client:\n  version: 0.9.3\n  channel: stable\n  protocol: 22\n  endpoint_protocol_generation: 1\n\nserver:\n  status: running\n  version: 0.9.3\n  endpoint_compatible: yes\n  private_protocol: 22\n  private_protocol_compatible: yes\n  socket: /Users/rolex/.config/herdr/herdr.sock\n\nupdate:\n  restart_needed: no\n  server_binary_stale: no\n",
+  "packageVersion": "1.0.0",
+  "localSource": "src/index.ts loaded through turn-probe-entry.ts with -ne and TURN_PROBE_LEGACY_RESULT=0",
+  "sourceSha256": "88a856eb8d1ae27ee8e6e290a962f842b0629daf77791b5d9dee000c4980f4a3",
+  "harnessSha256": "b1be5653c2a05790b0d2af116ce0c3a507bd08da4fd9d1162867af07b322ee27",
+  "workspace": "w96",
+  "panes": [
+    {
+      "paneId": "w96:p1",
+      "tabId": "w96:t1",
+      "cwd": "/private/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pi-herdr-verify-I4UaCO"
+    }
+  ]
+}

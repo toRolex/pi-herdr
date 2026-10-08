@@ -276,8 +276,8 @@ console.log("\n[6] Invalid values skipped (with issue), other file wins");
 		"invalid layout_mode falls through to the default (grid)",
 	);
 	assert(
-		r.issues.length === 7 && r.issues.every((i) => /ignored/.test(i.problem)),
-		"each invalid value reported as ignored (7: depth×2, notifications, idle_rearm, layout_mode, models.default, models.agents)",
+		r.issues.length === 6 && r.issues.every((i) => /ignored/.test(i.problem)),
+		"invalid values reported; legacy idle_rearm silently ignored (6 issues)",
 	);
 }
 

@@ -1,0 +1,18 @@
+{
+  "id": "0fa01d47-c7b7-4830-b4df-36bfe2f040de",
+  "evidence": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/.agents/evidence/spec43-t2/0fa01d47-c7b7-4830-b4df-36bfe2f040de",
+  "runId": "t2-0fa01d47-c7b7-4830-b4df-36bfe2f040de",
+  "agentId": "agent-0fa01d47-c7b7-4830-b4df-36bfe2f040de",
+  "finalBytes": 10171,
+  "childSource": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/src/child.ts",
+  "childSha256": "035161a6dc71456b702bb11f7508b41de91f8f3aa773b224dfe8a9405fcbfe5a",
+  "recycleSha256": "651be92ff2f0d5cac15127134fc71cd1783a989e16697cb99d618f9d8d323c10",
+  "deliveryPasses": 0,
+  "ackWrites": 0,
+  "parentMode": "inert node tracer; delivery module never imported",
+  "workspace": "w8B",
+  "pane": "w8B:p1",
+  "success": false,
+  "error": "AssertionError [ERR_ASSERTION]: herdr agent start t2-0fa01d47 --kind pi --pane w8B:p1 --timeout 30000 -- -ne -ns -nc -np --no-mcp --offline -e /Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/.agents/evidence/spec43-t2/0fa01d47-c7b7-4830-b4df-36bfe2f040de/fixture.ts --model spec43-t2/deterministic --thinking off --session /Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/.agents/evidence/spec43-t2/0fa01d47-c7b7-4830-b4df-36bfe2f040de/child.jsonl Produce the deterministic retained final result.: {\"error\":{\"code\":\"timeout\",\"message\":\"timed out waiting for agent startup\"},\"id\":\"cli:agent:start\"}\n\n\n1 !== 0\n\n    at cli (file:///Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/tests/spec43-t2-live.mjs:37:9)\n    at file:///Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t2/tests/spec43-t2-live.mjs:82:2",
+  "cleanupError": "AssertionError [ERR_ASSERTION]: herdr workspace close w8B: {\"error\":{\"code\":\"workspace_not_found\",\"message\":\"workspace w8B not found\"},\"id\":\"cli:workspace:close\"}\n\n\n1 !== 0\n"
+}

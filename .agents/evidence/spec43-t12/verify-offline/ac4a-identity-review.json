@@ -1,0 +1,7 @@
+{
+  "record": {
+    "name": "old-worker",
+    "identityReviewRequired": true
+  },
+  "pushes": []
+}

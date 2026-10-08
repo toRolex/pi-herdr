@@ -306,7 +306,7 @@ console.log("\n[4] identity + mode-hint blocks — lean, golden strings");
 
 	assert(
 		lp.buildModeHintBlock({ stance: "autonomous", sessionMode: "standalone" }) ===
-			"When your task is complete, write your full final summary as a normal message; settling ends your run (agent_done declares it).",
+			"When your task is complete, write a concise final answer with your conclusion, key evidence, limitations, and references to any deliverables. Put a large report in a file and cite it; do not rely on automatic summarization or truncation. Then settling ends your run (agent_done declares it).",
 		"autonomous mode-hint golden",
 	);
 	assert(
