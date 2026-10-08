@@ -1,15 +1,19 @@
 // Independent of the parent: the retained intent is also replayable after restart.
 import { readFileSync, writeFileSync, renameSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { ensureHerdrVersion, runHerdrCommand } from './herdr-transport.mjs';
 const [intentPath, bin = 'herdr'] = process.argv.slice(2);
 const read = () => { try { return JSON.parse(readFileSync(intentPath, 'utf8')); } catch (error) { throw new Error(`Cannot read recycle intent: ${error}`); } };
 const save = value => { writeFileSync(intentPath + '.tmp', JSON.stringify(value), {mode: 0o600}); renameSync(intentPath + '.tmp', intentPath); };
-const command = args => {
- const output = execFileSync(bin, args, {encoding: 'utf8', timeout: 10000});
- let value;
- try { value = JSON.parse(output.trim().split('\n').at(-1)); } catch (error) { throw new Error(`Cannot observe Herdr: ${error}`); }
- if (value.ok === false || value.error) throw new Error(JSON.stringify(value.error));
- return value.result ?? value.data ?? value;
+let versionChecked = false;
+const command = async args => {
+ if (!versionChecked) {
+  const version = await ensureHerdrVersion(bin);
+  if (!version.ok) throw new Error(`${version.error.code}: ${version.error.message}`);
+  versionChecked = true;
+ }
+ const result = await runHerdrCommand(bin, args, { timeoutMs: 10_000 });
+ if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`);
+ return result.data;
 };
 for (let attempt = 0; attempt < 120; attempt++) {
  await new Promise(resolve => setTimeout(resolve, 1000));

@@ -22,6 +22,7 @@ const { Agent } = await jiti.import('../node_modules/@earendil-works/pi-agent-co
 const { Type } = await jiti.import('typebox');
 const { registerParentDelivery } = await jiti.import('../src/parent-delivery.ts');
 const { makeDeliverySink } = await jiti.import('../src/push.ts');
+const { registerDelivery, stopDeliveryLoop } = await jiti.import('../src/delivery.ts');
 const { ParentNotifyStore } = await jiti.import('../src/parent-notify-store.ts');
 const { DeliveryLedger } = await jiti.import('../src/delivery-ledger.ts');
 const model = { id: 'deterministic', provider: 't7-offline', api: 't7-offline', name: 'T7 deterministic', reasoning: false, input: ['text'], contextWindow: 100000, maxTokens: 1000, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
@@ -154,6 +155,19 @@ try {
  assert.equal(JSON.stringify(toolFixture.requests[2]).includes('BUSY FOLLOWUP BODY'), true);
  toolFixture.save({ toolFinished, aborts, whileToolRunningRequests: 1, afterToolNaturalResponseRequests: 2, finalRequests: 3 });
  toolFixture.session.dispose();
+
+ // 正式 registerDelivery 注册路径必须把 late completion 存入 outbox，直到自然 run 再消费。
+ const registered = await fixture('registered-delivery-parent-boundary', pi => registerDelivery(pi), [response('registered first answer'), response('registered natural answer')]);
+ await registered.session.prompt('finish registered parent', { expandPromptTemplates: false });
+ makeDeliverySink(registered.pi)({ content: 'REGISTERED LATE COMPLETION BODY', details: { eventId: 'registered-late', agentId: 'registered-agent', runId: 'registered-run', kind: 'done' }, wake: true });
+ assert.equal(registered.requests.length, 1, 'registered finished parent does not start an unexpected provider turn');
+ const registeredStore = new ParentNotifyStore(registered.manager.getSessionFile());
+ assert.equal(registeredStore.pending().length, 1, 'late completion is durably unread');
+ await registered.session.prompt('registered natural next run', { expandPromptTemplates: false });
+ assert.equal(registered.requests.length, 2);
+ assert.equal(registered.requests[1].messages.filter(message => JSON.stringify(message.content).includes('REGISTERED LATE COMPLETION BODY')).length, 1);
+ registered.save({ lateCompletionStayedUnread: true, consumedOnNaturalRun: true });
+ stopDeliveryLoop(); registered.session.dispose();
 
  // Production controller + production sink, through actual ExtensionAPI/Runner binding.
  let parent, closingAccepted = false, parentClosingSnapshot;

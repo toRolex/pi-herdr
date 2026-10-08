@@ -53,6 +53,11 @@ try {
  registerWakeTools({ registerTool: tool => tools.push(tool) });
  const tool = tools.find(tool => tool.name === 'herdr_wake_subscription');
  assert.ok(tool);
+ assert.ok(tool.promptSnippet, 'wake subscription has a concise model-facing summary');
+ assert.ok(tool.promptGuidelines?.some(line => line.includes('herdr_wake_subscription')));
+ assert.match(tool.description, /TTL|ttl/i);
+ assert.match(tool.description, /revoke/i);
+ assert.match(tool.description, /quiet and none.*cannot be overridden/i);
  const cwd = join(dir, 'project'); mkdirSync(join(cwd, '.pi'), { recursive: true });
  const ctx = { cwd, sessionManager: { getSessionFile: () => host } };
  writeFileSync(join(cwd, '.pi', 'herdr.json'), JSON.stringify({ notifications: 'normal' }));
@@ -61,13 +66,22 @@ try {
  assert.equal(created.isError, undefined);
  const id = created.details.subscription.id;
  assert.equal((await execute({ action: 'list' })).details.subscriptions.some(s => s.id === id), true);
- writeFileSync(join(cwd, '.pi', 'herdr.json'), JSON.stringify({ notifications: 'none' }));
- const denied = await execute({ action: 'subscribe', scope: { agentId: 'agent' }, ttl_ms: 100 });
- assert.equal(denied.isError, true); assert.equal(denied.details.error.code, 'policy-conflict');
+ for (const notifications of ['quiet', 'none']) {
+  writeFileSync(join(cwd, '.pi', 'herdr.json'), JSON.stringify({ notifications }));
+  const denied = await execute({ action: 'subscribe', scope: { agentId: 'agent' }, ttl_ms: 100 });
+  assert.equal(denied.isError, true);
+  assert.equal(denied.details.error.code, 'VALIDATION_ERROR');
+  assert.equal(denied.details.error.details.reason, 'notification-policy');
+  assert.match(denied.details.error.message, new RegExp(`notifications=${notifications}`));
+ }
  assert.equal((await execute({ action: 'revoke', id })).details.revoked, true);
- assert.equal((await execute({ action: 'revoke' })).details.error.code, 'invalid-argument');
+ const invalid = await execute({ action: 'revoke' });
+ assert.equal(invalid.details.error.code, 'VALIDATION_ERROR');
+ assert.equal(invalid.details.error.details.reason, 'invalid-argument');
  const noHost = await tool.execute('call', { action: 'list' }, undefined, undefined, { cwd, sessionManager: { getSessionFile: () => undefined } });
  assert.equal(noHost.isError, true);
+ assert.equal(noHost.details.error.code, 'VALIDATION_ERROR');
+ assert.equal(noHost.details.error.details.reason, 'invalid-argument');
  const failureHost = join(dir, 'missing', 'session.jsonl');
  const failureStore = new ParentNotifyStore(failureHost);
  assert.throws(() => failureStore.put(msg), /ENOENT/);
@@ -76,7 +90,8 @@ try {
  writeFileSync(join(cwd, '.pi', 'herdr.json'), JSON.stringify({ notifications: 'normal' }));
  const visibleFailure = await tool.execute('call', { action: 'subscribe', scope: { agentId: 'agent' }, ttl_ms: 100 }, undefined, undefined,
   { cwd, sessionManager: { getSessionFile: () => failureHost } });
- assert.equal(visibleFailure.details.error.code, 'persistence-error');
+ assert.equal(visibleFailure.details.error.code, 'VALIDATION_ERROR');
+ assert.equal(visibleFailure.details.error.details.reason, 'persistence-error');
  assert.equal(visibleFailure.isError, true);
  for (const subscriptions of [
   [{ id: 'bad', scope: {}, expiresAt: Date.now() + 1000, oneShot: true }],
@@ -89,6 +104,8 @@ try {
  writeFileSync(host + '.herdr-parent-notify.json', '{broken');
  assert.throws(() => store.pending(), SyntaxError);
  assert.throws(() => store.listSubscriptions(), SyntaxError);
- assert.equal((await execute({ action: 'list' })).details.error.code, 'persistence-error');
+ const corruptStore = await execute({ action: 'list' });
+ assert.equal(corruptStore.details.error.code, 'VALIDATION_ERROR');
+ assert.equal(corruptStore.details.error.details.reason, 'persistence-error');
  console.log('spec43-t7: persistence, explicit subscriptions, model tool and visible I/O failures passed');
 } finally { rmSync(dir, { recursive: true, force: true }); }

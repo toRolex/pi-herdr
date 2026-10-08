@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { unwrap } from "../env.js";
 import { ParentNotifyStore, WakeSubscriptionError } from "../parent-notify-store.js";
 import { getSettingsPaths, loadSettings } from "../settings.js";
 
@@ -8,7 +9,9 @@ export function registerWakeTools(pi: ExtensionAPI): void {
  pi.registerTool({
   name: "herdr_wake_subscription",
   label: "Manage explicit wake subscription",
-  description: "Subscribe once to a completion matching explicit agentId, runId or eventId in this receiver session; all supplied fields must match. TTL is at most 1 hour. quiet/none notifications cannot be overridden. Revoke by id or list active subscriptions. Does not spawn, send, or mark pending messages read.",
+  description: "Create a one-shot wake authorization for explicit agentId, runId or eventId values in this receiver session; every supplied scope field must match. Authorization expires within the requested TTL (maximum 1 hour) and can be revoked by id. Only notifications=normal permits subscriptions; quiet and none remain non-waking and cannot be overridden. Spawn, send and unread never create authorization.",
+  promptSnippet: "Manage explicit, scoped, one-shot wake authorization for a completion",
+  promptGuidelines: ["Use herdr_wake_subscription only when explicitly authorizing a matching completion to wake this receiver; choose a narrow agentId, runId or eventId scope and short TTL, revoke by id when no longer needed, and never assume it overrides quiet/none."],
   parameters: Type.Object({
    action: Type.Union([Type.Literal("subscribe"), Type.Literal("revoke"), Type.Literal("list")]),
    scope: Type.Optional(Type.Object({
@@ -40,8 +43,16 @@ export function registerWakeTools(pi: ExtensionAPI): void {
     }
     return { content: [{ type: "text", text: JSON.stringify(details) }], details };
    } catch (error) {
-    const failure = { code: error instanceof WakeSubscriptionError ? error.code : "persistence-error", message: error instanceof Error ? error.message : String(error) };
-    return { content: [{ type: "text", text: `Error (${failure.code}): ${failure.message}` }], details: { error: failure }, isError: true };
+    const message = error instanceof Error ? error.message : String(error);
+    const reason = error instanceof WakeSubscriptionError
+     ? error.code === "policy-conflict" ? "notification-policy" : "invalid-argument"
+     : "persistence-error";
+    const policy = reason === "notification-policy" ? /notifications=(normal|quiet|none)/.exec(message)?.[1] : undefined;
+    return unwrap({ ok: false, error: {
+     code: "VALIDATION_ERROR",
+     message,
+     details: { reason, ...(policy ? { notifications: policy } : {}) },
+    } });
    }
   },
  });

@@ -30,6 +30,7 @@ import { basename, dirname } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readCompletionEvent } from "./completion-event.js";
 import { fleetList, herdr } from "./herdr.js";
+import { resolveHerdrBin } from "./herdr-transport.mjs";
 import { extractText, type NormalizedAgent, type Result } from "./env.js";
 import {
 	getSettingsPaths,
@@ -59,11 +60,13 @@ import {
 	type DeliveryKind,
 	type SpawnRecord,
 } from "./spawn.js";
+import { registerParentDelivery } from "./parent-delivery.js";
 import {
 	currentOrchestratorSession,
 	type DeliverAs,
 	type SteeredMessage,
 	makeDeliverySink,
+	rememberParentDeliverySink,
 	rememberOrchestratorSession,
 	trackOrchestratorBusy,
 	terminalWake,
@@ -1215,14 +1218,20 @@ export function registerDelivery(pi: ExtensionAPI): void {
 					const intentPath = `${record.sessionPath}.recycle.json`;
 					const intent = JSON.parse(readFileSync(intentPath, "utf8"));
 					if (!intent.pending || intent.runId !== record.runId || intent.agentId !== record.agentId || intent.paneId !== record.paneId) continue;
-					const worker = spawn(process.execPath, [fileURLToPath(new URL("./recycle-worker.mjs", import.meta.url)), intentPath, process.env.HERDR_BIN_PATH ?? "herdr"], { detached: true, stdio: "ignore" });
+					const worker = spawn(process.execPath, [fileURLToPath(new URL("./recycle-worker.mjs", import.meta.url)), intentPath, resolveHerdrBin()], { detached: true, stdio: "ignore" });
 					worker.on("error", error => { record.paneCloseError = String(error); });
 					worker.unref();
 				} catch { /* legacy records have no independent close intent */ }
 			}
 		}
 	});
-	const push = makeDeliverySink(pi);
+	let parent: ReturnType<typeof registerParentDelivery>;
+	const pushSink = makeDeliverySink(pi, undefined, {
+		allowCommit: (details) => parent.allowCommit(details),
+	});
+	parent = registerParentDelivery(pi, pushSink, () => defaultLoad().notifications);
+	rememberParentDeliverySink(pi, (message) => parent.accept(message));
+	const push = (message: SteeredMessage): void => parent.accept(message);
 	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {
 		try {
