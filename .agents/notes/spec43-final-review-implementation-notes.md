@@ -36,6 +36,14 @@
 - 标准双 parent merge commit 为 `e48a11b`，保留 `fe43996` 与 main `abb04df`。最终 `env -u HERDR_BIN_PATH node --run test` 全套通过（exit 0）；不提交 SDK 重跑产生的全套路径/时间戳变化或 lockfile。
 - `spec43-integration` 的 `ceca717` 已是当前分支祖先；按交付步骤再次 merge 确认即可，无需重做其实现。
 
+## 最终 delta：transport 退出状态治理
+
+- Standards delta 新 P2 已用 T2 红测复现：stdout 为成功 JSON 但进程 exit 1 时，旧共享 transport 错误返回 `ok:true`，worker 因此清除 close intent。
+- 仅修共享 transport：优先解析 stdout 标准错误；非零退出且 stdout 非错误时继续解析 stderr 标准错误并保持原错误码映射。非错误 JSON 只有 exit 0 才成功，其他退出状态返回统一 `VALIDATION_ERROR`，保留 exitCode/stdout/stderr，worker 继续保持 pending 和可见错误。
+- 聚焦回归覆盖成功 JSON + exit 1、stdout 成功 + stderr 标准错误的优先级、信号退出未证明成功、正常 JSON + exit 0，以及 worker close 成功 JSON + exit 1 的 pending/error。直接 tsc、T2、T12 SDK 已通过；不重复运行已完成的 live 验收。
+- 已以标准 merge `262509d` 合入协调者最新 integration `fc0c15e`；不修改 resolver、权限、共享依赖或其他 worktree。
+- 最终 `env -u HERDR_BIN_PATH node --run test` 全套 exit 0；强模型窄复核无 must-fix。提交范围仅 transport、T2 回归与本记录，其余 evidence churn 原样保留。
+
 ## Deviations
 
 - 原实施范围仅 Standards 三项；后续协调者追加生产 `registerDelivery` finished-parent 仲裁 must-fix，因此按最小范围加入 parent controller wiring 与 SDK 公共入口回归。

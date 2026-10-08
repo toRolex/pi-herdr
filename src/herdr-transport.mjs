@@ -42,6 +42,7 @@ function parseLastJson(text) {
 
 const messageOf = error => error instanceof Error ? error.message : String(error);
 const failure = (code, message, details) => ({ ok: false, error: { code, message, ...(details === undefined ? {} : { details }) } });
+const isErrorEnvelope = value => value && typeof value === 'object' && (value.error || value.ok === false);
 
 /** 执行 Herdr 命令，并将进程与 envelope 错误归一化为 Result。 */
 export async function ensureHerdrVersion(bin) {
@@ -96,9 +97,9 @@ export function runHerdrCommand(bin, args, options = {}) {
   });
   child.on('close', exitCode => {
    let parsed = parseLastJson(stdout);
-   if (parsed === null && exitCode !== 0) {
+   if (exitCode !== 0 && !isErrorEnvelope(parsed)) {
     const alternate = parseLastJson(stderr);
-    if (alternate && typeof alternate === 'object' && 'error' in alternate) parsed = alternate;
+    if (isErrorEnvelope(alternate)) parsed = alternate;
    }
    if (parsed === null) {
     if (exitCode === 0 && !stdout.trim() && !stderr.trim()) {
@@ -114,9 +115,15 @@ export function runHerdrCommand(bin, args, options = {}) {
     return;
    }
    const envelope = parsed;
-   if (envelope && typeof envelope === 'object' && (envelope.error || envelope.ok === false)) {
+   if (isErrorEnvelope(envelope)) {
     const raw = envelope.error && typeof envelope.error === 'object' ? envelope.error : envelope;
     finish(failure(mapCode(raw.code), String(raw.message ?? 'herdr error'), raw));
+    return;
+   }
+   // JSON 响应不能覆盖进程失败；仅退出码 0 证明命令成功。
+   if (exitCode !== 0) {
+    const diagnostic = stderr.split(/\r?\n/).find(line => line.trim())?.trim();
+    finish(failure('VALIDATION_ERROR', `herdr exited with status ${exitCode ?? 'unknown'}${diagnostic ? `: ${diagnostic}` : ''}`, { exitCode, stderr, stdout }));
     return;
    }
    finish({ ok: true, data: envelope?.result ?? envelope?.data ?? envelope });
