@@ -30,6 +30,7 @@ import { basename, dirname } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readCompletionEvent } from "./completion-event.js";
 import { fleetList, herdr } from "./herdr.js";
+import { resolveHerdrBin } from "./herdr-transport.mjs";
 import { extractText, type NormalizedAgent, type Result } from "./env.js";
 import {
 	getSettingsPaths,
@@ -59,11 +60,13 @@ import {
 	type DeliveryKind,
 	type SpawnRecord,
 } from "./spawn.js";
+import { registerParentDelivery } from "./parent-delivery.js";
 import {
 	currentOrchestratorSession,
 	type DeliverAs,
 	type SteeredMessage,
 	makeDeliverySink,
+	rememberParentDeliverySink,
 	rememberOrchestratorSession,
 	trackOrchestratorBusy,
 	terminalWake,
@@ -115,7 +118,7 @@ export interface DeliveryDeps {
 		path: string,
 		onWrite: (event: { mtimeMs?: number }) => void,
 	) => { close(): void };
-	/** Debug line (detect latency). Default: stderr, so a quiet parent stays quiet. */
+	/** 仅显式注入时输出诊断；直写终端会破坏 pi TUI。 */
 	debug?: (line: string) => void;
 	/** Sidecar mtime in ms epoch, measured when the push is about to land.
 	 * Default: the file's mtime. */
@@ -225,7 +228,11 @@ let deliverySerial: Promise<void> = Promise.resolve();
 
 export function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 	const result = deliverySerial.then(async () => {
-		const before = new Map([...spawnRecords()].map(([name, record]) => [name, { delivery: record.delivery, promptSubmissionNotified: record.promptSubmissionNotified, blockedNotified: record.blockedNotified, blockedEpisode: record.blockedEpisode }]));
+		const before = new Map([...spawnRecords()].map(([name, record]) => [name, {
+			promptSubmissionNotified: record.promptSubmissionNotified,
+			blockedNotified: record.blockedNotified,
+			blockedEpisode: record.blockedEpisode,
+		}]));
 		await deliverOnceSerial(deps);
 		const path = deps.sessionPath ?? currentOrchestratorSession();
 		if (path && !deps.registry) {
@@ -234,7 +241,6 @@ export function deliverOnce(deps: DeliveryDeps = {}): Promise<void> {
 			} catch (error) {
 				const message = `own registry persistence failed: ${error instanceof Error ? error.message : String(error)}`;
 				for (const [name, record] of spawnRecords()) {
-					record.delivery = before.get(name)?.delivery;
 					record.promptSubmissionNotified = before.get(name)?.promptSubmissionNotified;
 					record.blockedNotified = before.get(name)?.blockedNotified;
 					record.blockedEpisode = before.get(name)?.blockedEpisode;
@@ -283,7 +289,6 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 			const priorDurable = priorSidecar.state === "ok" && (priorSidecar.sidecar.type === "persistence-error" || priorSidecar.sidecar.runId === record.runId);
 			if (priorDurable && record.paneId && !record.delivery && record.sessionPath && priorSidecar.state === "ok") {
 				await deliverSidecar(record, priorSidecar.sidecar, deps, paneLive(record.paneId), false, Boolean(priorSidecar.sidecar.eventId));
-				if (record.delivery) persistPendingClose(deps, record);
 				continue;
 			}
 			const absent = Boolean(record.paneId && paneStatus === undefined);
@@ -291,24 +296,28 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 				await reportCompletionGovernanceError(deps, record, "pane vanished without a durable terminal declaration before queued followup");
 			}
 			if (absent && (record.delivery || !priorDurable)) {
-				if (record.paneId && record.paneCloseAuthorization?.runId === record.runId && record.paneClosePending && !paneLive(record.paneId)) {
-					await attemptPaneClose(deps, record);
-					persistPendingClose(deps, record);
+				if (record.paneId && record.paneClosePending) {
+					const persist = () => persistOwnDelivery(deps);
+					persist();
+					await closeDeliveredPane(deps, record, false, persist);
+					if (record.paneClosePending || record.paneCloseAuthorization) continue;
 				}
 				record.paneId = undefined;
 				record.paneClosePending = false;
 				record.paneCloseAuthorization = undefined;
 				record.startError = undefined;
-				persistPendingClose(deps, record);
+				persistOwnDelivery(deps);
 			}
 			if (record.paneId || record.startError) continue;
 			if (!priorDurable && !record.delivery && record.sessionPath) continue;
 		}
 
 		if (record.delivery) {
-			if (record.paneClosePending && record.paneId && !paneLive(record.paneId)) {
-				await attemptPaneClose(deps, record);
-				persistPendingClose(deps, record);
+			// Terminal already delivered: retry close independently, never re-push.
+			if (record.paneClosePending) {
+				const persist = () => persistOwnDelivery(deps);
+				persist();
+				await closeDeliveredPane(deps, record, paneLive(record.paneId), persist);
 			}
 			continue;
 		}
@@ -348,7 +357,6 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 					continue;
 				}
 				await deliverSidecar(record, sidecar.sidecar, deps, paneLive(record.paneId), false, sidecar.sidecar.type === "persistence-error" || Boolean(sidecar.sidecar.eventId));
-				if (record.delivery) persistPendingClose(deps, record);
 				continue;
 			}
 		}
@@ -548,6 +556,10 @@ async function adoptOrphans(
 		} catch {
 			continue;
 		}
+		const persist = (): void => {
+			try { write(owner.sessionPath!, children); }
+			catch (error) { throw new Error(`adopted registry persistence failed: ${String(error)}`); }
+		};
 		let dirty = false;
 		for (const child of children) {
 			if (child.sessionPath && child.paneId && !statusByPane.has(child.paneId)) {
@@ -559,10 +571,9 @@ async function adoptOrphans(
 				// pane (the same guards as the first close).
 				if (child.paneClosePending && child.paneId) {
 					const again = statusByPane.get(child.paneId);
-					if (again !== "working" && again !== "blocked") {
-						await closeDeliveredPane(deps, child, false);
-						dirty = true;
-					}
+					persist();
+					await closeDeliveredPane(deps, child, again === "working" || again === "blocked", persist);
+					dirty = true;
 				}
 				continue;
 			}
@@ -580,13 +591,12 @@ async function adoptOrphans(
 			if (sidecar.sidecar.rootSession && sidecar.sidecar.rootSession !== self) continue;
 			await deliverSidecar(child, sidecar.sidecar, {
 				...deps,
-				persistAdopted: () => write(owner.sessionPath!, children),
+				persistAdopted: persist,
 			}, false, true, Boolean(sidecar.sidecar.eventId));
 			dirty = true;
 		}
 		if (!dirty) continue;
-		try { write(owner.sessionPath, children); }
-		catch (error) { throw new Error(`adopted registry persistence failed: ${String(error)}`); }
+		persist();
 	}
 }
 
@@ -641,12 +651,13 @@ async function deliverSidecar(
 	}
 	if (sidecar.type === "done") {
 		const committed = sidecar.text?.trim() ? sidecar.text : undefined;
+		const body = committed ?? sidecar.structured ?? doneContent(extracted);
 		await deliverTerminal(
 			deps,
 			record,
 			"done",
 			{
-				content: committed ?? sidecar.structured ?? doneContent(extracted),
+				content: body,
 				details: {
 					name: record.name,
 					kind: "done",
@@ -662,15 +673,16 @@ async function deliverSidecar(
 		);
 		return;
 	}
+	const errorBody = declared ? (sidecar.text ?? `[completion error: ${sidecar.errorMessage}]`) : errorContent(
+		sidecar.errorMessage,
+		sidecar.text?.trim() ? { message: extracted?.message ?? {}, text: sidecar.text } : extracted,
+	);
 	await deliverTerminal(
 		deps,
 		record,
 		"error",
 		{
-			content: declared ? (sidecar.text ?? `[completion error: ${sidecar.errorMessage}]`) : errorContent(
-				sidecar.errorMessage,
-				sidecar.text?.trim() ? { message: extracted?.message ?? {}, text: sidecar.text } : extracted,
-			),
+			content: errorBody,
 			details: {
 				name: record.name,
 				kind: "error",
@@ -689,15 +701,15 @@ async function deliverSidecar(
 
 // ---- small helpers ------------------------------------------------------------
 
-function persistPendingClose(deps: DeliveryDeps, record: SpawnRecord): void {
+function markTerminal(record: SpawnRecord, kind: DeliveryKind, now: () => number): void {
+	record.delivery = { kind, at: now() };
+}
+
+function persistOwnDelivery(deps: DeliveryDeps): void {
 	const owner = deps.sessionPath ?? currentOrchestratorSession();
 	if (!owner || deps.registry) return;
 	try { (deps.writeRegistry ?? writePersistedRegistry)(owner, [...spawnRecords().values()]); }
-	catch (error) { record.paneCloseError = `pending close registry persistence failed: ${String(error)}`; }
-}
-
-function markTerminal(record: SpawnRecord, kind: DeliveryKind, now: () => number): void {
-	record.delivery = { kind, at: now() };
+	catch (error) { throw new Error(`own registry persistence failed: ${String(error)}`); }
 }
 
 // ---- the pane-close promise (manual e2e F2) ----------------------------------
@@ -707,34 +719,6 @@ function markTerminal(record: SpawnRecord, kind: DeliveryKind, now: () => number
 const defaultClosePane = (paneId: string): Promise<unknown> =>
 	herdr(["pane", "close", paneId], { timeoutMs: 10_000 });
 
-/** Retry the persisted close intent without repeating its completion push. */
-async function attemptPaneClose(deps: DeliveryDeps, record: SpawnRecord): Promise<void> {
-	if (!record.paneId) return;
-	await closeDeliveredPane(deps, record, false);
-}
-
-/**
- * The documented promise, kept at the single choke point (manual e2e F2): a
- * terminally delivered child's pane closes — the child has exited on every
- * terminal route (the sidecar IS its exit declaration; sentinel/gone mean the
- * fleet no longer lists it), so the leftover empty pane goes too. Sessions are
- * never deleted (issue 04 ruling), so closing loses nothing. Guards: no pane
- * (queued/never-started), a pane the fleet still reports actively live
- * (working/blocked — defensive; held as pending and retried on later ticks,
- * because a dying auto-exit can still be listed when its sidecar lands), and
- */
-async function closeRecordPane(
-	deps: DeliveryDeps,
-	record: SpawnRecord,
-	paneLive: boolean,
-): Promise<void> {
-	if (!record.paneId) return;
-	if (paneLive) {
-		record.paneClosePending = true;
-		return;
-	}
-	await closeDeliveredPane(deps, record, false);
-}
 
 /**
  * Mark a record's terminal event, then steer it — UNLESS the record belongs to
@@ -795,21 +779,21 @@ async function deliverTerminal(
 	}
 	record.pushError = undefined;
 	const previousDelivery = record.delivery;
+	const previousPending = record.paneClosePending;
+	const previousAuthorization = record.paneCloseAuthorization;
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
-	record.paneClosePending = Boolean(record.paneId);
+	record.paneClosePending = !!record.paneId;
 	if (record.paneId) record.paneCloseAuthorization = { agentId: record.agentId, runId: record.runId, paneId: record.paneId };
-	const owner = deps.sessionPath ?? currentOrchestratorSession();
-	if (owner && !deps.registry) {
-		try { (deps.writeRegistry ?? writePersistedRegistry)(owner, [...spawnRecords().values()]); }
-		catch (error) {
-			record.delivery = previousDelivery;
-			record.paneClosePending = false;
-			record.pushError = `own registry persistence failed: ${String(error)}`;
-			throw new Error(record.pushError);
-		}
+	const persist = () => persistOwnDelivery(deps);
+	try { persist(); }
+	catch (error) {
+		record.delivery = previousDelivery;
+		record.paneClosePending = previousPending;
+		record.paneCloseAuthorization = previousAuthorization;
+		record.pushError = error instanceof Error ? error.message : String(error);
+		throw error;
 	}
-	await closeRecordPane(deps, record, paneLive);
-	persistPendingClose(deps, record);
+	await closeDeliveredPane(deps, record, paneLive, persist);
 }
 
 /**
@@ -838,72 +822,102 @@ async function deliverAdopted(
 	}
 	record.pushError = undefined;
 	const previousDelivery = record.delivery;
+	const previousPending = record.paneClosePending;
+	const previousAuthorization = record.paneCloseAuthorization;
 	markTerminal(record, kind, deps.now ?? (() => Date.now()));
 	record.paneClosePending = !!record.paneId;
 	if (record.paneId) record.paneCloseAuthorization = { agentId: record.agentId, runId: record.runId, paneId: record.paneId };
-	try { deps.persistAdopted?.(); }
+	const persist = () => deps.persistAdopted?.();
+	try { persist(); }
 	catch (error) {
 		record.delivery = previousDelivery;
-		record.pushError = `adopted registry persistence failed: ${String(error)}`;
-		throw new Error(record.pushError);
+		record.paneClosePending = previousPending;
+		record.paneCloseAuthorization = previousAuthorization;
+		record.pushError = error instanceof Error ? error.message : String(error);
+		throw error;
 	}
-	await closeDeliveredPane(deps, record, paneLive);
-	deps.persistAdopted?.();
+	await closeDeliveredPane(deps, record, paneLive, persist);
 }
 
-/** Same guards as closeRecordPane, but the rejection is visible on the record. */
 async function closeDeliveredPane(
 	deps: DeliveryDeps,
 	record: SpawnRecord,
 	paneLive: boolean,
+	persist: () => void,
 ): Promise<void> {
-	if (!record.paneId) return;
-	if (record.paneCloseAuthorization && (
-		record.paneCloseAuthorization.runId !== record.runId ||
-		record.paneCloseAuthorization.agentId !== record.agentId ||
-		record.paneCloseAuthorization.paneId !== record.paneId
-	)) return;
+	if (!record.paneId) {
+		record.paneClosePending = false;
+		record.paneCloseAuthorization = undefined;
+		record.paneCloseError = undefined;
+		persist();
+		return;
+	}
+	const authorization = record.paneCloseAuthorization;
+	if (authorization && (
+		authorization.runId !== record.runId ||
+		authorization.agentId !== record.agentId ||
+		authorization.paneId !== record.paneId
+	)) {
+		record.paneClosePending = false;
+		record.paneCloseError = "stale close authorization refused";
+		persist();
+		return;
+	}
 	if (paneLive) {
 		record.paneClosePending = true;
+		persist();
 		return;
 	}
 	if (!deps.closePane && record.runId) {
 		const fresh = await fleetList();
-		if (!fresh.ok) { record.paneClosePending = true; record.paneCloseError = "cannot verify pane ownership"; return; }
+		if (!fresh.ok) {
+			record.paneClosePending = true;
+			record.paneCloseError = "cannot verify pane ownership";
+			persist();
+			return;
+		}
 		const occupant = fresh.data.find(agent => agent.paneId === record.paneId);
-		if (occupant) { record.paneClosePending = true; record.paneCloseError = "pane still has a live agent"; return; }
+		if (occupant) {
+			record.paneClosePending = true;
+			record.paneCloseError = "pane still has a live agent";
+			persist();
+			return;
+		}
 		const owner = record.lineage?.ownerSession;
 		if (owner) {
 			try {
 				const current = readPersistedRegistry(owner).find(candidate => candidate.agentId === record.agentId);
-				if (!current || current.runId !== record.runId || current.paneId !== record.paneId) { record.paneClosePending = false; record.paneCloseError = "stale close ownership refused"; return; }
-			} catch (error) { record.paneClosePending = true; record.paneCloseError = String(error); return; }
+				if (!current || current.runId !== record.runId || current.paneId !== record.paneId) {
+					record.paneClosePending = false;
+					record.paneCloseError = "stale close ownership refused";
+					persist();
+					return;
+				}
+			} catch (error) {
+				record.paneClosePending = true;
+				record.paneCloseError = `cannot verify pane ownership: ${error instanceof Error ? error.message : String(error)}`;
+				persist();
+				return;
+			}
 		}
 	}
-	record.paneClosePending = false;
 	try {
 		const closed = await (deps.closePane ?? defaultClosePane)(record.paneId);
-		if (
-			closed &&
-			typeof closed === "object" &&
-			"ok" in closed &&
-			(closed as { ok: boolean }).ok === false
-		) {
-			const error = (closed as { error?: { message?: string } }).error;
-			record.paneClosePending = true;
-			record.paneCloseError = error?.message ?? "pane close failed";
-			return;
+		if (closed && typeof closed === "object" && "ok" in closed && closed.ok === false) {
+			const error = (closed as { error?: { code?: string; message?: string; details?: { code?: string } } }).error;
+			// 仅精确的 pane_not_found 可作为幂等关闭成功，其他 NOT_FOUND 仍须重试。
+			if (error?.code !== "pane_not_found" && error?.details?.code !== "pane_not_found") {
+				throw new Error(error?.message ?? "pane close failed");
+			}
 		}
-		if (closed && typeof closed === "object" && "ok" in closed && (closed as { ok: boolean }).ok === true) {
-			// Explicit success.
-		}
-		record.paneCloseError = undefined;
 		record.paneClosePending = false;
+		record.paneCloseError = undefined;
 		record.paneCloseAuthorization = undefined;
-	} catch (err) {
+	} catch (error) {
 		record.paneClosePending = true;
-		record.paneCloseError = err instanceof Error ? err.message : String(err);
+		record.paneCloseError = error instanceof Error ? error.message : String(error);
 	}
+	persist();
 }
 
 function notifications(deps: DeliveryDeps): HerdrSettings["notifications"] {
@@ -1086,7 +1100,7 @@ function sidecarWrittenAt(sessionPath: string): number | undefined {
 }
 
 function debugLine(deps: DeliveryDeps, line: string): void {
-	(deps.debug ?? ((text) => process.stderr.write(`${text}\n`)))(line);
+	deps.debug?.(line);
 }
 
 /**
@@ -1215,14 +1229,20 @@ export function registerDelivery(pi: ExtensionAPI): void {
 					const intentPath = `${record.sessionPath}.recycle.json`;
 					const intent = JSON.parse(readFileSync(intentPath, "utf8"));
 					if (!intent.pending || intent.runId !== record.runId || intent.agentId !== record.agentId || intent.paneId !== record.paneId) continue;
-					const worker = spawn(process.execPath, [fileURLToPath(new URL("./recycle-worker.mjs", import.meta.url)), intentPath, process.env.HERDR_BIN_PATH ?? "herdr"], { detached: true, stdio: "ignore" });
+					const worker = spawn(process.execPath, [fileURLToPath(new URL("./recycle-worker.mjs", import.meta.url)), intentPath, resolveHerdrBin()], { detached: true, stdio: "ignore" });
 					worker.on("error", error => { record.paneCloseError = String(error); });
 					worker.unref();
 				} catch { /* legacy records have no independent close intent */ }
 			}
 		}
 	});
-	const push = makeDeliverySink(pi);
+	let parent: ReturnType<typeof registerParentDelivery>;
+	const pushSink = makeDeliverySink(pi, undefined, {
+		allowCommit: (details) => parent.allowCommit(details),
+	});
+	parent = registerParentDelivery(pi, pushSink, () => defaultLoad().notifications);
+	rememberParentDeliverySink(pi, (message) => parent.accept(message));
+	const push = (message: SteeredMessage): void => parent.accept(message);
 	const busy = trackOrchestratorBusy(pi);
 	const tick = async (): Promise<void> => {
 		try {

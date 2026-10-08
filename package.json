@@ -37,6 +37,7 @@
   "files": [
     "src/**/*.ts",
     "src/**/*.mjs",
+    "src/**/*.d.mts",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"

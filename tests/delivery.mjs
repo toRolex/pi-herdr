@@ -123,6 +123,89 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		};
 	}
 
+	for (const pushFails of [false, true]) {
+		const r = rec("quiet-debug", { sessionPath: "/offline/quiet.jsonl" });
+		const w = world([r]);
+		w.deps.readSidecar = () => ({ state: "ok", sidecar: { type: "done", text: "quiet letter" } });
+		w.deps.extract = () => null;
+		w.deps.sidecarWrittenAt = () => 999_960;
+		let attempts = 0;
+		w.deps.push = (msg) => { attempts++; if (pushFails) throw new Error("push unavailable"); w.pushes.push(msg); };
+		const stderr = [];
+		const stdout = [];
+		const oldErr = process.stderr.write;
+		const oldOut = process.stdout.write;
+		try {
+			process.stderr.write = (text) => { stderr.push(String(text)); return true; };
+			process.stdout.write = (text) => { stdout.push(String(text)); return true; };
+			for (let tick = 0; tick < 6; tick++) await w.tick();
+		} finally { process.stderr.write = oldErr; process.stdout.write = oldOut; }
+		assert(stderr.length === 0 && stdout.length === 0 && attempts === (pushFails ? 6 : 1) &&
+			(pushFails ? r.pushError === "push unavailable" : r.delivery?.kind === "done"),
+			`default debug writes neither stream with ${pushFails ? "repeated push failures" : "successful delivery"}`);
+	}
+
+	for (const adopted of [false, true]) {
+		function closeWorld(over = {}) {
+			const root = "/offline/root.jsonl";
+			const mid = "/offline/mid.jsonl";
+			const child = rec("close-child", { sessionPath: "/offline/child.jsonl", lineage: { rootSession: root, ownerSession: mid }, ...over });
+			const owner = rec("close-owner", { sessionPath: mid, tookNotified: true, delivery: { kind: "done", at: 1 } });
+			const w = world(adopted ? [owner] : [child]);
+			let saved;
+			w.deps.sessionPath = root;
+			w.deps.readRegistry = (path) => path === mid ? (saved ? JSON.parse(saved) : [child]) : [];
+			w.deps.writeRegistry = (_path, records) => { saved = JSON.stringify(records); };
+			w.deps.readSidecar = () => ({ state: "ok", sidecar: { type: "done", text: "close letter", ...(over.rearm ? { rearm: true } : {}) } });
+			w.deps.extract = () => null;
+			return { w, record: () => adopted && saved ? JSON.parse(saved)[0] : child };
+		}
+		const label = adopted ? "adopted" : "ordinary";
+		for (const rejected of [false, true]) {
+			const { w, record } = closeWorld();
+			let attempts = 0;
+			w.deps.closePane = async () => {
+				await sleep(5);
+				if (++attempts === 1) { if (rejected) throw new Error("close unavailable"); return { ok: false, error: { message: "close unavailable" } }; }
+				return { ok: true };
+			};
+			await w.tick();
+			assert(record().delivery?.kind === "done" && record().paneClosePending === true && record().paneCloseError === "close unavailable", `${label} awaits ${rejected ? "reject" : "resolved failure"} and retains close failure`);
+			for (const status of ["working", "blocked"]) {
+				w.setFleet([{ paneId: record().paneId, status }]);
+				await w.tick();
+				assert(attempts === 1 && record().paneClosePending === true, `${label} pending close holds while ${status}`);
+			}
+			w.setFleet([]);
+			await w.tick();
+			await w.tick();
+			assert(attempts === 2 && w.pushes.length === 1 && record().paneClosePending === false && record().paneCloseError === undefined, `${label} retries only close and clears error on success`);
+		}
+		for (const error of [
+			{ code: "pane_not_found", message: "missing" },
+			{ code: "NOT_FOUND", message: "missing", details: { code: "pane_not_found" } },
+			{ code: "NOT_FOUND", message: "pane not found" },
+			{ code: "OTHER", message: "pane not found" },
+		]) {
+			const { w, record } = closeWorld();
+			let attempts = 0;
+			w.deps.closePane = async () => { attempts++; return { ok: false, error }; };
+			await w.tick();
+			await w.tick();
+			const missing = error.code === "pane_not_found" || error.details?.code === "pane_not_found";
+			assert(w.pushes.length === 1 && attempts === (missing ? 1 : 2) && record().paneClosePending === !missing &&
+				(missing ? record().paneCloseError === undefined : record().paneCloseError === error.message), `${label} accepts only exact pane_not_found as idempotent close success (${error.code}, ${!!error.details})`);
+		}
+		if (adopted) {
+			const { w, record } = closeWorld();
+			let attempts = 0;
+			w.deps.closePane = async () => { attempts++; return { ok: true }; };
+			w.deps.writeRegistry = () => { throw new Error("pre-close write failed"); };
+			await w.tick().catch(() => {});
+			assert(attempts === 0 && w.pushes.length === 1 && record().delivery === undefined, "adopted pre-close persistence failure keeps pane open");
+		}
+	}
+
 	// --- route 1: the typed sidecar --------------------------------------
 	{
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-"));
@@ -179,7 +262,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		assert(
 			w.pushes[0]?.content === "re-armed result" &&
 				w.pushes[0]?.details.rearm === undefined,
-			"rearm sidecar → full final body; auto-delivery label stays in details", 
+			"旧 rearm 字段不改变完整结果或关闭授权",
 		);
 		assert(
 			closed.length === 1 && closed[0] === r.paneId,
@@ -777,23 +860,22 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 
 	// --- pane-close guards + the auto-exit race (manual e2e F2) -------------
 	{
-		// A taken-over pane that has NOT re-arm-delivered: agent_done declared
-		// under a human — delivered, but the pane stays (the human is driving).
+		// 旧 takeover 与 rearm 字段不参与新的 run/pane 关闭授权。
 		const dir = mkdtempSync(join(tmpdir(), "pi-herdr-dlv-to2-"));
 		const sess = join(dir, "s.jsonl");
 		writeSession(sess, [assistantMsg("declared done under a human")]);
 		const r = rec("scout", { sessionPath: sess, takenOver: true });
 		const w = world([r]);
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done" }));
+		writeFileSync(`${sess}.takeover`, JSON.stringify({ at: Date.now() }));
 		await w.tick();
 		assert(
 			w.pushes.length === 1 &&
 				w.closes.length === 1 &&
 				r.delivery?.kind === "done",
-			"a taken-over pane that has NOT re-arm-delivered is never closed",
+			"旧 takeover 标记不影响终态关闭",
 		);
-		// The same situation ON the re-arm delivery: the settings copy promises
-		// "auto-delivered ... and its pane closes" — so it does.
+		// 旧 rearm 字段也不改变正文。
 		const r2 = rec("scout-2", { sessionPath: sess, takenOver: true });
 		const w2 = world([r2]);
 		writeFileSync(`${sess}.exit`, JSON.stringify({ type: "done", rearm: true }));
@@ -803,7 +885,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				w2.pushes[0].content === "declared done under a human" &&
 				w2.pushes[0].details.rearm === undefined &&
 				w2.closes.includes(r2.paneId),
-			"the rearm delivery keeps its label in details and closes the taken-over pane", 
+			"旧 rearm 字段不改变正文及关闭行为",
 		);
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -1479,17 +1561,17 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 			"a successful restored retry clears the persisted close failure",
 		);
 
-		// A human may take over between failure and retry, without registry writes.
+		// 旧 takeover 标记不能撤销当前 run 的关闭授权。
 		writeFileSync(`${mid}.registry.json`, JSON.stringify([savedFailure]));
 		writeFileSync(`${leaf}.takeover`, JSON.stringify({ at: 1_000_001 }));
 		const beforeRetryTakeover = closes.length;
 		await delivery.deliverOnce(depsFor(restoredRoot()));
 		assert(
 			closes.length === beforeRetryTakeover + 1 && pushes.length === 1,
-			"a fresh-memory close retry rereads the takeover marker and holds the pane",
+			"恢复后关闭重试忽略已废弃的 takeover 标记",
 		);
 
-		// takeover: the letter can be delivered, the pane is not recycled
+		// 旧 takeover 标记也不影响孤儿 pane 回收。
 		const held = join(dir, "held.jsonl");
 		writeSession(held, [assistantMsg("human is driving")]);
 		writeFileSync(
@@ -1522,7 +1604,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 				pushes.at(-1).content.includes("human is driving") &&
 				closes.length === beforeClose + 1 &&
 				existsSync(held),
-			"a taken-over orphan pane is not recycled after its result is delivered",
+			"旧 takeover 标记不阻止孤儿结果投递后回收 pane",
 		);
 
 		rmSync(dir, { recursive: true, force: true });

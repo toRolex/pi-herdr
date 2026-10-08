@@ -30,6 +30,7 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { registerQueueOnlyReceiver } from "./queue-only-inbox.js";
+import { resolveHerdrBin } from "./herdr-transport.mjs";
 import { resetCompletionEvent } from "./completion-event.js";
 import { parseTriggerTurn } from "./agent-message.js";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -483,7 +484,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		if (!paneId || !identity.runId || !identity.agentId) return;
 		const intentPath = `${session}.recycle.json`;
 		writeDurable(intentPath, JSON.stringify({ ...identity, eventId: completionEventId, sessionPath: session, name: childName, paneId, ownerSession: process.env.PI_HERDR_OWNER_SESSION, pending: true }));
-		const worker = spawn(process.execPath, [fileURLToPath(new URL("./recycle-worker.mjs", import.meta.url)), intentPath, process.env.HERDR_BIN_PATH ?? "herdr"], { detached: true, stdio: "ignore" });
+		const worker = spawn(process.execPath, [fileURLToPath(new URL("./recycle-worker.mjs", import.meta.url)), intentPath, resolveHerdrBin()], { detached: true, stdio: "ignore" });
 		worker.on("error", error => {
 			writeFileSync(intentPath, JSON.stringify({ ...identity, eventId: completionEventId, sessionPath: session, name: childName, paneId, ownerSession: process.env.PI_HERDR_OWNER_SESSION, pending: true, error: String(error) }));
 		});
