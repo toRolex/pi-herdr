@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {mkdtempSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {pathToFileURL} from 'node:url';
 import {createJiti} from 'jiti';
 const root=new URL('../',import.meta.url).pathname;
@@ -13,7 +14,7 @@ const {AgentSession}=await imp('core/agent-session.js');
 const {SessionManager}=await imp('core/session-manager.js');
 const {loadExtensions}=await imp('core/extensions/loader.js');
 const {ExtensionRunner}=await imp('core/extensions/runner.js');
-const dir=mkdtempSync('/tmp/closed-quiet-reload-');
+const dir=mkdtempSync(join(tmpdir(),'closed-quiet-reload-'));
 const manager=new SessionManager(dir,dir,undefined,true);
 manager.appendMessage({role:'user',content:[{type:'text',text:'initial'}],timestamp:1});
 const extension=join(dir,'sink.ts');

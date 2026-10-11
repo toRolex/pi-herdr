@@ -48,6 +48,7 @@ import {
 	claimAgentExecution,
 	spawnRecords,
 	startRecordNow,
+	submitIdleFollowup,
 	validateKindEnforcement,
 	type SpawnDeps,
 	type SpawnRecord,
@@ -62,8 +63,6 @@ import {
 import { resolveRouting, validateRouting } from "../launchplan.js";
 import { clearSidecars } from "../sessionfile.js";
 import { randomUUID } from "node:crypto";
-import { writeFileSync } from "node:fs";
-import { completionEventPath } from "../completion-event.js";
 import { defaultAgentGet, type AgentView } from "./message.js";
 import type {
 	HerdrErrorCode,
@@ -72,14 +71,6 @@ import type {
 } from "../env.js";
 
 // ---- small helpers ------------------------------------------------------------
-
-function persistCompletionRun(sessionPath: string, runId: string): void {
-	try {
-		writeFileSync(completionEventPath(sessionPath), runId, { mode: 0o600 });
-	} catch {
-		/* The child's env identity remains authoritative on restart. */
-	}
-}
 
 function err(
 	code: HerdrErrorCode,
@@ -244,11 +235,6 @@ export interface TriggerTurnReceipt {
 	started: boolean;
 }
 
-async function defaultFollowupSubmit(paneId: string, text: string, signal?: AbortSignal): Promise<Result<true>> {
-	const sent = await herdr(["agent", "prompt", paneId, text], { signal, timeoutMs: 10_000 });
-	return sent.ok ? { ok: true, data: true } : sent;
-}
-
 /** Accept a new followup run; only launch immediately when the pane is idle. */
 export async function triggerTurn(
 	params: TriggerTurnParams,
@@ -277,8 +263,6 @@ export async function triggerTurn(
 			return err("VALIDATION_ERROR", `"${record.name}" is blocked on user input; answer the question before triggering a followup.`);
 		}
 		const wasBusyQueue = (record.pendingFollowups?.length ?? 0) > 0;
-		const oldRunId = record.runId;
-		const oldSequence = record.sequence;
 		const runId = randomUUID();
 		if (busy) {
 			record.pendingFollowups = [...(record.pendingFollowups ?? []), { runId, text: params.text }];
@@ -294,36 +278,11 @@ export async function triggerTurn(
 			return { ok: true, data: { name: record.name, agentId, runId, sequence: 1, status: "queued", started: false } };
 		}
 		if (live && live.paneId && !wasBusyQueue && (!record.delivery || record.delivery.kind === "blocked")) {
-			const previousCloseAuthorization = record.paneCloseAuthorization;
 			record.pendingFollowups = [{ runId, text: params.text }];
-			record.pendingRunId = runId;
-			record.runId = runId;
-			record.sequence = 1;
-			record.prompt = params.text;
-			record.resumeSilent = false;
-			record.paneClosePending = false;
-			record.paneCloseAuthorization = undefined;
-			record.delivery = undefined;
-			persistSpawnRegistry(deps);
-			clearSidecars(record.sessionPath);
-			persistCompletionRun(record.sessionPath, runId);
-			const envelope = `<herdr-followup runId="${runId}">\n${params.text}\n</herdr-followup>`;
-			const result = await (deps.submit ? deps.submit(live.paneId, envelope, 30_000, deps.signal) : defaultFollowupSubmit(live.paneId, envelope, deps.signal));
-			if (result && !result.ok) {
-				record.pendingFollowups = [{ runId, text: params.text }];
-				record.runId = oldRunId;
-				record.sequence = oldSequence;
-				record.pendingRunId = undefined;
-				if (record.sessionPath) persistCompletionRun(record.sessionPath, oldRunId);
-				record.paneCloseAuthorization = previousCloseAuthorization;
-				record.startError = result.error.message;
-				persistSpawnRegistry(deps);
+			const result = await submitIdleFollowup(record, deps);
+			if (!result.ok) {
 				return { ok: false, error: { ...result.error, details: { name: record.name, agentId, runId, status: "start-error", started: false } } };
 			}
-			record.pendingFollowups = [];
-			record.pendingRunId = undefined;
-			record.submitted = true;
-			persistSpawnRegistry(deps);
 			return { ok: true, data: { name: record.name, agentId, runId, sequence: 1, status: "starting", paneId: live.paneId, started: false } };
 		}
 		record.paneId = live?.paneId;
@@ -541,6 +500,7 @@ async function resumeAgentSerial(
 	record.prompt = params.message ?? record.prompt;
 	record.resumeSilent = params.message === undefined;
 	record.paneId = undefined;
+	record.startBeganAt = undefined;
 	record.startedAt = undefined;
 	record.submitted = false;
 	record.sawWorking = false;

@@ -17,6 +17,8 @@ export interface DeliveryRecord extends EventReference {
 	updatedAt: number;
 	diagnostic?: string;
 	identityReviewRequired?: boolean;
+	/** Only queued SDK memory belongs to this process; pending outcomes are never released by death. */
+	queueOwner?: { pid: number; incarnation: string };
 }
 export interface DeliveryProof {
 	eventId: string;
@@ -26,6 +28,14 @@ export interface DeliveryProof {
 	bodyCommitted: true;
 }
 export const deliveryLedgerPath = (hostFile: string): string => `${hostFile}.herdr-delivery-ledger.json`;
+const queueOwnerKey = Symbol.for("pi-herdr.delivery-sdk-queue-owner");
+const processHost = globalThis as typeof globalThis & { [queueOwnerKey]?: { pid: number; incarnation: string } };
+const queueOwner = processHost[queueOwnerKey] ??= { pid: process.pid, incarnation: randomUUID() };
+function queueProcessExited(owner: DeliveryRecord["queueOwner"]): boolean {
+	if (!owner || !Number.isInteger(owner.pid) || owner.pid <= 0 || owner.pid === process.pid || !owner.incarnation) return false;
+	try { process.kill(owner.pid, 0); return false; }
+	catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
+}
 
 /** All decisions are synchronous, durable-before-body, and scoped to a receiver session. */
 export class DeliveryLedger {
@@ -55,24 +65,30 @@ export class DeliveryLedger {
 			try { unlinkSync(temporary); } catch { /* successful rename removed temporary */ }
 		}
 	}
-	private durableEvidence(eventId: string, record?: DeliveryRecord): { committed: boolean; unknown?: string } {
+	private durableEvidence(eventId: string, record?: DeliveryRecord): { committed: boolean; withdrawn?: boolean; unknown?: string } {
 		try {
 			const text = readFileSync(this.hostFile, "utf8");
+			if (text && !text.endsWith("\n")) return { committed: false, unknown: "host outcome unknown: incomplete host JSONL tail" };
+			let withdrawn = false;
 			for (const line of text.split("\n")) {
 				if (!line) continue;
 				let row;
 				try { row = JSON.parse(line); } catch { return { committed: false, unknown: "incomplete or invalid host JSONL" }; }
 				const details = row.type === "custom_message" && row.customType === "herdr-delivery" ? row.details : row.type === "message" && row.message?.role === "toolResult" ? row.message.details : undefined;
-				if (!details || details.deliveryHostWithdrawn) continue;
+				if (!details) continue;
+				if (details.deliveryHostWithdrawn === true) {
+					if (row.type === "custom_message" && record?.channel === "push" && record.token && details.eventId === eventId && details.deliveryToken === record.token) withdrawn = true;
+					continue;
+				}
 				const proof = details.delivery;
 				if (proof?.eventId === eventId && proof.hostFile === this.hostFile && proof.bodyCommitted === true && (!record?.token || (proof.token === record.token && proof.channel === record.channel)) && (proof.channel !== "pull" || !record?.toolCallId || row.message?.toolCallId === record.toolCallId)) return { committed: true };
 				// Existing persisted push rows predate body proof metadata. Never replay them.
 				if (!proof && row.type === "custom_message" && details.eventId === eventId) return { committed: true };
 			}
-			return { committed: false };
+			return { committed: false, withdrawn };
 		} catch (error) { return { committed: false, unknown: `host outcome unknown: ${String(error)}` }; }
 	}
-	reconcile(eventId: string): DeliveryRecord | undefined {
+	reconcile(eventId: string, options: { readOnly?: boolean } = {}): DeliveryRecord | undefined {
 		const events = this.load();
 		const record = events[eventId];
 		const evidence = this.durableEvidence(eventId, record);
@@ -80,9 +96,18 @@ export class DeliveryLedger {
 			if (record?.status === "delivered" || record?.status === "acked") return record;
 			const repaired: DeliveryRecord = { ...record, eventId, status: "delivered", updatedAt: Date.now() };
 			delete repaired.diagnostic;
-			events[eventId] = repaired; this.save(events); return repaired;
+			if (!options.readOnly) { events[eventId] = repaired; this.save(events); }
+			return repaired;
 		}
 		if (record && evidence.unknown) return { ...record, diagnostic: evidence.unknown };
+		if (record?.channel === "push" && (record.status === "queued" || record.status === "pending") &&
+			(evidence.withdrawn || (record.status === "queued" && queueProcessExited(record.queueOwner)))) {
+			const retryable: DeliveryRecord = { ...record, status: "available", updatedAt: Date.now(),
+				diagnostic: evidence.withdrawn ? "matching host receipt proves queued body withdrawn" : "SDK queue owner exited; readable host proves no body commit" };
+			delete retryable.token; delete retryable.channel; delete retryable.queueOwner;
+			if (!options.readOnly) { events[eventId] = retryable; this.save(events); }
+			return retryable;
+		}
 		return record;
 	}
 	ensure(ref: EventReference): DeliveryRecord {
@@ -97,7 +122,7 @@ export class DeliveryLedger {
 	queuePush(ref: EventReference): { bodyAllowed: boolean; record: DeliveryRecord } {
 		const record = this.ensure(ref);
 		if (record.status !== "available") return { bodyAllowed: false, record };
-		const queued: DeliveryRecord = { ...record, status: "queued", token: randomUUID(), channel: "push", updatedAt: Date.now(), diagnostic: "SDK queue acceptance is not body delivery; no timeout retry" };
+		const queued: DeliveryRecord = { ...record, status: "queued", token: randomUUID(), channel: "push", queueOwner, updatedAt: Date.now(), diagnostic: "SDK queue acceptance is not body delivery; no timeout retry" };
 		const events = this.load(); events[ref.eventId] = queued; this.save(events);
 		return { bodyAllowed: true, record: queued };
 	}

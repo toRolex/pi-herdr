@@ -200,7 +200,7 @@ try {
 
 	// ---------------------------------------------------- FM4: registered tool, actual SDK commit, lost ACK
 	{
-		const eventId = 'event-fm4';
+		const eventId = 'run-fm4';
 		const childSession = join(root, 'fm4-child.jsonl');
 		writeFileSync(childSession, '');
 		writeFileSync(`${childSession}.exit`, JSON.stringify({ type: 'done', text: 'FM4 REGISTERED PULL BODY', eventId, agentId: 'agent-fm4', runId: 'run-fm4', sequence: 1 }));
@@ -220,6 +220,12 @@ try {
 				return originalSave.call(this, events);
 			};
 			await fx.session.prompt('consume FM4 with registered tool', { expandPromptTemplates: false });
+			const persistedPull = SessionManager.open(fx.hostFile).getBranch().find(row => row.message?.toolCallId === 'sdk-pull-fm4')?.message;
+			assert.ok(persistedPull, 'FM4 重开宿主后有注册工具结果');
+			assert.notEqual(persistedPull.isError, true, '治理错误不等于完成正文已提交');
+			assert.equal(persistedPull.details.result, 'FM4 REGISTERED PULL BODY');
+			assert.ok(persistedPull.content.some(part => part.type === 'text' && part.text.includes('FM4 REGISTERED PULL BODY')), 'FM4 实际工具文本包含原始完整正文，不能只存在于 details');
+			assert.equal(persistedPull.details.eventId, eventId); assert.equal(persistedPull.details.delivery.eventId, eventId);
 			assert.equal(inspectToolResultReceipt(() => fx.hostFile, 'sdk-pull-fm4').status, 'persisted', 'FM4 SDK persisted the registered tool result before ACK');
 			assert.equal(JSON.parse(readFileSync(deliveryLedgerPath(fx.hostFile), 'utf8')).events[eventId].status, 'pending', 'FM4 failed ledger ACK retains pending claim');
 			assert.ok(confirmations.length >= 1, 'FM4 reports the ACK failure rather than swallowing it');
@@ -233,7 +239,7 @@ try {
 
 	// ---------------------------------------------------- FM5: real push queue drains before registered pull
 	{
-		const eventId = 'event-fm5';
+		const eventId = 'run-fm5';
 		const childSession = join(root, 'fm5-child.jsonl');
 		writeFileSync(childSession, '');
 		writeFileSync(`${childSession}.exit`, JSON.stringify({ type: 'done', text: 'FM5 DRAINED PUSH BODY', eventId, agentId: 'agent-fm5', runId: 'run-fm5', sequence: 1 }));
@@ -261,6 +267,12 @@ try {
 		assert.ok(['queued', 'pending'].includes(beforeDrain.status), 'FM5 SDK queue acceptance is not durable body commitment');
 		await fx.session.prompt('natural run drains queued push then registered pull', { expandPromptTemplates: false });
 		const rows = fx.manager.getBranch();
+		const registeredPull = SessionManager.open(fx.hostFile).getBranch().find(row => row.message?.toolCallId === 'sdk-pull-fm5')?.message;
+		assert.ok(registeredPull, 'FM5 重开宿主后仍有注册工具回执');
+		assert.notEqual(registeredPull.isError, true, 'FM5 治理错误不能冒充正常去重引用');
+		assert.equal(registeredPull.details.status, 'done'); assert.equal(registeredPull.details.result, undefined);
+		assert.equal(registeredPull.details.eventId, eventId); assert.equal(registeredPull.details.runId, record.runId);
+		assert.equal(registeredPull.details.delivery.eventId, eventId); assert.equal(registeredPull.details.delivery.status, 'delivered');
 		const pushed = rows.filter(row => row.type === 'custom_message' && row.customType === 'herdr-delivery' && row.content === message.content && !row.details?.deliveryHostWithdrawn);
 		const pulled = rows.filter(row => row.message?.role === 'toolResult' && JSON.stringify(row.message.content).includes(message.content));
 		assert.equal(pushed.length, 1, 'FM5 actual SDK drain persisted one push body');

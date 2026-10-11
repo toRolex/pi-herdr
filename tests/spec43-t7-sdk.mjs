@@ -205,8 +205,8 @@ try {
  production.save({ parentClosingSnapshot, automaticFinishedRequests: 1, afterNaturalRun: 2, afterExplicitWake: 3, oneShotSubscriptions: 0 });
  production.session.dispose();
 
- // Production holds every busy arrival until the next user-initiated natural run.
- // toolResults do not expose terminate; no test assumes tool completion guarantees continuation.
+ // Normal busy delivery uses durable SDK turn_end drafts only when the finalized
+ // tool batch naturally continues. A terminating batch must never manufacture a turn.
  for (const terminate of [false, true]) {
   let busyParent, productionToolFinished = false, productionToolAborts = 0;
   const productionEntered = latch(), productionRelease = latch();
@@ -232,10 +232,15 @@ try {
   assert.equal(productionToolFinished, true); assert.equal(productionToolAborts, 0);
   const afterToolRequests = terminate ? 1 : 2;
   assert.equal(productionBusy.requests.length, afterToolRequests, 'busy notification must not manufacture a continuation');
-  assert.equal(productionBusy.requests.some(request => JSON.stringify(request).includes(body)), false);
-  assert.equal(readFileSync(productionBusy.manager.getSessionFile(), 'utf8').includes(body), false);
+  assert.equal(productionBusy.requests.some(request => JSON.stringify(request).includes(body)), !terminate,
+   'non-terminating tool must receive normal notification in the current run next provider request');
+  assert.equal(readFileSync(productionBusy.manager.getSessionFile(), 'utf8').includes(body), !terminate);
   assert.equal(new ParentNotifyStore(productionBusy.manager.getSessionFile()).pending().filter(message => message.content === body).length, 1);
-  assert.equal(new DeliveryLedger(productionBusy.manager.getSessionFile()).reconcile(eventId), undefined);
+  assert.equal(new DeliveryLedger(productionBusy.manager.getSessionFile()).reconcile(eventId)?.status, terminate ? undefined : 'delivered');
+  if (!terminate) {
+   assert.equal(productionBusy.requests[1].messages.filter(message => JSON.stringify(message.content).includes(body)).length, 1);
+   assert.equal(SessionManager.open(productionBusy.manager.getSessionFile()).getBranch().filter(row => row.type === 'custom_message' && row.content === body).length, 1);
+  }
   await productionBusy.session.prompt('natural next user run consumes held completion', { expandPromptTemplates: false });
   assert.equal(productionBusy.requests.length, afterToolRequests + 1);
   assert.equal(productionBusy.requests.at(-1).messages.filter(message => JSON.stringify(message.content).includes(body)).length, 1);

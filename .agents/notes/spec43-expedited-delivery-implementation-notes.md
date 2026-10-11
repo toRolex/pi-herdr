@@ -1,0 +1,9 @@
+# Accepted-start failure Windows publication
+
+The accepted-start failure writer opened and flushed a directory after publishing its archive even on Windows. A simulated Windows directory-open EISDIR reached the real saveAcceptedStartFailure and failed before bridge publication. The existing child writer already excludes unsupported Windows directory sync.
+
+The fix excludes only Windows directory open/fsync. File open/write/fsync, hard-link and bridge rename errors still throw. POSIX directory sync remains strict. New Windows error events carry file-flushed/process-restart in the existing ExitSidecar error shape. Parsing retains that label on retries. Existing immutable archives retain their original bytes, including events without the label.
+
+Validation used the existing lifecycle suite with forwarding filesystem hooks installed before Jiti imports. RED `node tests/spec43-pr56-lifecycle.mjs STARTFAIL` exited 1 with injected directory EISDIR in publishStartFailure. GREEN `node tests/spec43-pr56-lifecycle.mjs` exited 0 with 13 passing cases. `npm run typecheck` exited 0. Logs are in ignored `.artifacts/verification/pr56-startfailure-20261011-usknuokp/`. The regression checks file faults, POSIX directory rejection, archive preservation and recovery after bridge rename failure. This is a platform simulation, not native Windows validation or a full gate.
+
+Only the owned JJ workspace changed. The supervisor authorized its missing ignored node_modules symlink to the supplied dependency directory. No dependency installation, protected workspace edits, bookmark changes or publication occurred. Model the Domain kept the existing error-event shape. Laziness Protocol limited source changes to the platform guard and capability field. Test Behavior, Not Implementation and Prove It Works required a real writer RED/GREEN run. Independent review and PR publication remain with the parent.

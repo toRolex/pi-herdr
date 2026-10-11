@@ -10,10 +10,17 @@ import { createJiti } from "jiti";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createSmokeFixture, pinSmokeBinary, installSmokeSpawn } from "./smoke-fixture.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const NODE = process.execPath;
-const jiti = createJiti(import.meta.url);
+const fixture = createSmokeFixture();
+const restoreSpawn = installSmokeSpawn(fixture);
+const { resolveHerdrBin } = await import("../src/herdr-transport.mjs");
+const NODE = fixture.binary;
+pinSmokeBinary(NODE);
+if (resolveHerdrBin() !== NODE) throw new Error("Smoke fixture binary pin failed");
+console.log(`SMOKE_FIXTURE ${JSON.stringify(fixture)}`);
+const jiti = createJiti(import.meta.url, { fsCache: false });
 
 let passed = 0;
 let failed = 0;
@@ -337,7 +344,7 @@ console.log("\n[3] herdr() unavailable path (AC5)");
 const herdrMod = await jiti.import(join(ROOT, "src/herdr.ts"), {
 	parent: ROOT,
 });
-process.env.HERDR_BIN = "Z:\\nonexistent\\herdr-binary.exe";
+pinSmokeBinary(fixture.missing);
 const unavailable = await herdrMod.herdr(["agent", "list"], {
 	timeoutMs: 3_000,
 });
@@ -349,7 +356,7 @@ assert(
 // ---------------------------------------------------------------------------
 console.log("\n[4] herdr() envelope parse + error mapping + raw text");
 // Use node.exe (native, shell:false-safe) as a fake herdr via -e scripts.
-process.env.HERDR_BIN = NODE;
+pinSmokeBinary(NODE);
 
 const okOut = await herdrMod.herdr(
 	[
@@ -415,25 +422,21 @@ assert(
 assert(elapsed < 4_000, "timeout fires promptly (no hang)");
 
 // ---------------------------------------------------------------------------
-console.log("\n[6] Real herdr binary: parse real JSON output");
-delete process.env.HERDR_BIN;
+console.log("\n[6] Owned CLI fixture: native spawn + schema envelope parse");
 const cfg = await jiti.import(join(ROOT, "src/config.ts"), { parent: ROOT });
-process.env.HERDR_BIN = cfg.resolveHerdrBin();
+pinSmokeBinary(NODE);
+if (cfg.resolveHerdrBin() !== NODE) throw new Error("Schema fixture pin failed");
 const schemaOut = await herdrMod.herdr(["api", "schema", "--json"], {
 	timeoutMs: 10_000,
 });
 if (!schemaOut.ok && schemaOut.error?.code === "HERDR_UNAVAILABLE") {
-	// The offline gate runs where herdr is not installed (CI). The native
-	// spawn + parse check only applies where the binary exists.
-	console.log(
-		"  - real herdr binary absent; skipping the native spawn + parse check",
-	);
+	assert(false, "owned schema fixture must exist (no silent skip)");
 } else {
 	assert(
 		schemaOut.ok &&
 			typeof schemaOut.data === "object" &&
 			schemaOut.data?.schemas,
-		"real herdr.exe 'api schema --json' parsed as JSON (validates native spawn + parse)",
+		"owned fixture 'api schema --json' parsed as JSON (native spawn + parse, not host AC)",
 	);
 }
 
@@ -443,7 +446,7 @@ console.log(
 );
 // probe state machine: "ok" when herdr runs, "missing" when the binary is
 // absent. Use node as a fake herdr (its --version prints "vMAJOR.MINOR.PATCH").
-process.env.HERDR_BIN = NODE;
+pinSmokeBinary(NODE);
 const okProbe = await herdrMod.refreshHerdrProbe();
 assert(
 	okProbe.state === "ok" && typeof okProbe.version?.major === "number",
@@ -453,7 +456,7 @@ assert(
 	typeof versionMod.formatVersion(okProbe.version) === "string",
 	"formatVersion returns a string",
 );
-process.env.HERDR_BIN = "Z:\\nonexistent\\herdr-binary.exe";
+pinSmokeBinary(fixture.missing);
 const missingProbe = await herdrMod.refreshHerdrProbe();
 assert(
 	missingProbe.state === "missing",
@@ -461,7 +464,7 @@ assert(
 );
 // The GATE: every herdr() call is refused below the floor — the call below
 // would "work" (node fake prints a valid envelope) but must not run at all.
-process.env.HERDR_BIN = NODE;
+pinSmokeBinary(NODE);
 herdrMod.setProbeForTests({
 	state: "ok",
 	version: { major: 0, minor: 8, patch: 2 },
@@ -496,7 +499,7 @@ assert(
 );
 // Missing binary -> NOT gated: the natural HERDR_UNAVAILABLE stays the error.
 herdrMod.setProbeForTests({ state: "missing" });
-process.env.HERDR_BIN = "Z:\\nonexistent\\herdr-binary.exe";
+pinSmokeBinary(fixture.missing);
 const missingCall = await herdrMod.herdr(["agent", "list"], {
 	timeoutMs: 3_000,
 });
@@ -509,7 +512,7 @@ herdrMod.setProbeForTests({
 	state: "ok",
 	version: { major: 0, minor: 9, patch: 0 },
 });
-process.env.HERDR_BIN = NODE;
+pinSmokeBinary(NODE);
 const passThrough = await herdrMod.herdr(
 	["-e", 'console.log(JSON.stringify({result:{agents:[]},id:"x"}))'],
 	{ timeoutMs: 5_000 },
@@ -651,7 +654,7 @@ assert(
 // getAgentKinds falls back to the hardcoded list when herdr is unavailable, and
 // caches the result per session (same reference on the 2nd call, no re-fetch).
 configMod.resetAgentKindsCache();
-process.env.HERDR_BIN = "Z:\\nonexistent\\herdr-binary.exe";
+pinSmokeBinary(fixture.missing);
 const fbKinds = await configMod.getAgentKinds();
 assert(
 	Array.isArray(fbKinds) && eq(fbKinds, [...configMod.AGENT_KINDS_FALLBACK]),
@@ -662,7 +665,7 @@ assert(
 	"getAgentKinds caches per session (same array reference on 2nd call)",
 );
 configMod.resetAgentKindsCache();
-delete process.env.HERDR_BIN;
+pinSmokeBinary(NODE);
 
 // kindError: the pure, offline-testable unknown-kind error path.
 assert(
@@ -904,6 +907,10 @@ assert(
 );
 
 // ---------------------------------------------------------------------------
+const fixtureCalls = readFileSync(fixture.log, "utf8").trim().split("\n").map(JSON.parse);
+assert(fixtureCalls.length > 0 && fixtureCalls.every(call => call.binary === NODE && call.script === fixture.script),
+	"every logged CLI call used the owned script and native fixture binary");
+restoreSpawn();
 console.log(
 	`\n${failed === 0 ? "✅ ALL PASS" : "❌ SOME FAILED"} (${passed} passed, ${failed} failed)`,
 );

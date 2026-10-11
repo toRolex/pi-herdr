@@ -164,6 +164,14 @@ Completion notifications carry the full final message of the run that produced t
 
 The circular-wait fix affects **internal foreground result waits only**. New input lets that internal wait return an interim snapshot with `interruptedByInput`. It does not abort unrelated tools. Public result inspection remains single-shot. Background workflow waits explicitly use `inputWake: null` and still await child completion.
 
+### Completion publication: platform capability
+
+The child flushes the completion tempfile before publishing its immutable archive with a same-directory, no-clobber hard link. An existing event must match exactly; a conflicting body is an error, not a replacement. The legacy completion bridge and recycle intent also flush their tempfiles before rename. Any actual file write, link, rename or required fsync failure keeps the child open and prevents normal recycle until recovery.
+
+On POSIX, each publication additionally fsyncs the parent directory before successful completion/recycle (subject to the filesystem/device's fsync guarantees). On Windows, Node's file fsync uses `FlushFileBuffers`; this does **not** flush the parent directory entry. Windows completion records therefore carry `persistenceCapability: "file-flushed/process-restart"`: published results are recoverable after process restart, but directory-entry survival across power loss is **not guaranteed**. The child and accepted-start failure writer do not attempt unsupported directory-descriptor fsync on Windows. Newly published accepted-start failure events carry the same capability label; retries preserve existing immutable event bytes. Tempfile fsync plus link/rename alone is not a directory power-loss guarantee.
+
+This capability applies only to child completion archive, bridge and recycle-intent publication, and accepted-start failure archive and bridge publication. It is not a repository-wide Windows durability guarantee: existing parent-notify/session-file directory-sync paths are outside this fix. Windows capability tests run as explicitly labeled simulations on Darwin; native Windows end-to-end validation remains outstanding.
+
 ### Background workflows
 
 `herdr_run_workflow` returns immediately. The script runs in a sandbox, and the parent receives one aggregated result when the run finishes. Child completion bodies are never separately pushed — the run reports once, so migration to the once-per-event delivery contract cannot duplicate child prose. Blocked children still request attention (respecting the notification setting).

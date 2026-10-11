@@ -88,6 +88,7 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 		const registry = new Map(records.map((r) => [r.name, r]));
 		const deps = {
 			registry: () => registry,
+			sessionPath: opts.sessionPath,
 			load: () => ({ notifications: opts.notifications ?? "normal" }),
 			list: opts.failList
 				? async () => ({ ok: false, error: { code: "TIMEOUT", message: "herdr down" } })
@@ -549,10 +550,24 @@ console.log("\n[3] Delivery loop — detection routes + wake flags");
 
 	// --- never-started / queued / non-pi / live-idle ------------------------
 	{
-		const failed = rec("fizz", { startError: "boot gate timed out", paneId: undefined });
+		const legacyFailure = rec("legacy-fizz", { startError: "boot gate timed out", paneId: undefined });
+		const review = world([legacyFailure]); await review.tick();
+		assert(legacyFailure.delivery === undefined && review.closes.length === 0 &&
+			review.pushes[0]?.details.kind === "persistence-error" &&
+			!review.pushes[0].content.includes('Agent "legacy-fizz" never started: boot gate timed out') &&
+			legacyFailure.startFailurePersistenceError?.includes("owner unavailable"),
+			"missing acceptance owner/identity stays governance-only, not a typed final or close");
+		const owner = join(tmp, "failed-owner.jsonl"), substrate = join(tmp, "failed-child.jsonl");
+		writeFileSync(owner, ""); writeFileSync(substrate, "");
+		const failed = rec("fizz", { startError: "boot gate timed out", paneId: undefined,
+			agentId: "fizz-agent", runId: "fizz-run", sequence: 1, submitted: false, startAttemptPhase: "prelaunch", sessionPath: substrate,
+			lineage: { ownerSession: owner, rootSession: owner } });
 		const queued = rec("queued-one", { paneId: undefined });
-		const w = world([failed, queued]);
+		const w = world([failed, queued], { sessionPath: owner });
 		await w.tick();
+		const savedFailure = JSON.parse(readFileSync(substrate + ".completion-fizz-run.json", "utf8"));
+		assert(savedFailure.eventId === "fizz-run" && savedFailure.runId === "fizz-run" && savedFailure.agentId === "fizz-agent" && savedFailure.sequence === 1 && savedFailure.type === "error",
+			"accepted deferred failure owns a real durable archive with its exact identity");
 		assert(
 			w.pushes.length === 1 &&
 				w.pushes[0].content.includes('Agent "fizz" never started: boot gate timed out'),

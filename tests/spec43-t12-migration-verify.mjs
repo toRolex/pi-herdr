@@ -89,7 +89,7 @@ function makePi() {
 
 const sidecar = (sessionPath, over = {}) => writeFileSync(`${sessionPath}.exit`, JSON.stringify({
 	type: 'done', agentId: 'agent-1', runId: 'run-1', sequence: 1,
-	eventId: 'event-1', text: 'WORKER FINAL BODY', ...over,
+	eventId: 'run-1', text: 'WORKER FINAL BODY', ...over,
 }));
 
 // ==============================================================================
@@ -150,7 +150,7 @@ try {
 	await check('AC1c message_agent cannot bypass completion arbitration for a second body', async () => {
 		const sessionPath = join(dir, 'arb.jsonl');
 		writeFileSync(sessionPath, '');
-		sidecar(sessionPath); // durable completion event-1 already saved
+		sidecar(sessionPath); // 已保存 eventId/runId 均为 run-1 的完成桥记录
 		const hostFile = join(dir, 'arb-host.jsonl');
 		writeFileSync(hostFile, '');
 		const ledger = new DeliveryLedger(hostFile);
@@ -221,10 +221,10 @@ try {
 	await check('AC2b no infinite re-read: normal repeat is a reference, reread is explicit', async () => {
 		const sessionPath = join(dir, 'reread.jsonl');
 		writeFileSync(sessionPath, '');
-		sidecar(sessionPath, { eventId: 'event-reread' });
+		sidecar(sessionPath, { eventId: 'run-reread', runId: 'run-reread' });
 		const hostFile = join(dir, 'reread-host.jsonl');
 		writeFileSync(hostFile, '');
-		const rec = record({ name: 'reread', paneId: 'pane-rr', sessionPath, runId: 'run-1' });
+		const rec = record({ name: 'reread', paneId: 'pane-rr', sessionPath, runId: 'run-reread' });
 		const call = (extra = {}, toolCallId) => getAgentResult(
 			{ target: 'reread', ...extra },
 			{ hostFile, toolCallId, registry: () => new Map([['reread', rec]]) },
@@ -334,6 +334,38 @@ try {
 		sawGovernance = pushes.map(m => m.details?.kind);
 		writeFileSync(join(evidenceDir, 'ac4a-identity-review.json'), JSON.stringify({ record: { name: rec.name, identityReviewRequired: rec.identityReviewRequired }, pushes: pushes.map(p => p.details?.kind ?? p.content?.slice(0, 60)) }, null, 2));
 		sp.clearSpawnRegistry();
+		// 历史事件自身身份必须合法；不要求等于 current，非法记录保留治理，合法旧 run 仍可读取。
+		const historySession = join(dir, 'migration-history.jsonl'), historyHost = join(dir, 'migration-history-host.jsonl');
+		writeFileSync(historySession, ''); writeFileSync(historyHost, '');
+		const current = record({ name: 'known-history', sessionPath: historySession, paneId: undefined, runId: 'current-run', sequence: 9 });
+		const registry = () => new Map([[current.name, current]]);
+		const invalid = { type: 'done', eventId: 'history-invalid', runId: 'foreign-run', agentId: current.agentId, sequence: 2, text: 'ILLEGAL MIGRATION BODY' };
+		const invalidPath = `${historySession}.completion-${invalid.eventId}.json`, invalidBytes = JSON.stringify(invalid);
+		writeFileSync(invalidPath, invalidBytes);
+		const refusedViews = [];
+		for (const extra of [{}, { reread: true }, { ack: { eventId: invalid.eventId, runId: invalid.runId, agentId: invalid.agentId, sequence: invalid.sequence, hostFile: historyHost } }]) {
+			const returned = await getAgentResult({ target: invalid.eventId, ...extra }, { hostFile: historyHost, toolCallId: `invalid-history-${refusedViews.length}`, registry });
+			refusedViews.push({ extra, returned });
+			assert.equal(returned.data?.result, undefined, '非法迁移历史不返回完成正文');
+			if (extra.reread || extra.ack) assert.equal(returned.ok, false, '事件自身身份冲突拒绝显式 reread/ACK');
+			else { assert.equal(returned.ok, true); assert.match(returned.data.note, /identity.*invalid/); }
+			assert.equal(new DeliveryLedger(historyHost).reconcile(invalid.eventId), undefined, '非法历史不能 claim/ACK 对应事件键');
+			assert.equal(new DeliveryLedger(historyHost).reconcile(invalid.runId), undefined);
+		}
+		assert.equal(readFileSync(invalidPath, 'utf8'), invalidBytes, '迁移读取不修补或覆写非法历史');
+		const historical = { type: 'done', eventId: 'history-valid', runId: 'history-valid', agentId: current.agentId, sequence: 7, text: 'LEGITIMATE MIGRATED FINAL' };
+		const historicalPath = `${historySession}.completion-${historical.eventId}.json`, historicalBytes = JSON.stringify(historical);
+		const bridgeBytes = JSON.stringify({ type: 'done', eventId: current.runId, runId: current.runId, agentId: current.agentId, sequence: current.sequence, text: 'CURRENT BRIDGE' });
+		writeFileSync(historicalPath, historicalBytes); writeFileSync(`${historySession}.exit`, bridgeBytes);
+		const first = await getAgentResult({ target: historical.eventId }, { hostFile: historyHost, toolCallId: 'valid-history-first', registry });
+		assert.equal(first.data.result, historical.text); assert.equal(first.data.runId, historical.runId); assert.equal(first.data.sequence, 7);
+		assert.equal(current.runId, 'current-run'); assert.equal(current.sequence, 9, '合法历史不要求等于 current 的 run/sequence');
+		const repeat = await getAgentResult({ target: historical.eventId }, { hostFile: historyHost, toolCallId: 'valid-history-repeat', registry });
+		assert.equal(repeat.data.result, undefined); assert.equal(repeat.data.delivery.eventId, historical.eventId);
+		const reread = await getAgentResult({ target: historical.eventId, reread: true }, { hostFile: historyHost, toolCallId: 'valid-history-reread', registry });
+		assert.equal(reread.data.result, historical.text); assert.equal(reread.data.reread, true);
+		assert.equal(readFileSync(historicalPath, 'utf8'), historicalBytes); assert.equal(readFileSync(`${historySession}.exit`, 'utf8'), bridgeBytes);
+		writeFileSync(join(evidenceDir, 'ac4a-history-self-identity.json'), JSON.stringify({ current, invalid, refusedViews, historical, first, repeat, reread }, null, 2));
 	});
 
 	await check('AC4b already-delivered historical notifications are not replayed after reload', async () => {

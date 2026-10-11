@@ -3,9 +3,12 @@ import { createJiti } from 'jiti';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-const jiti = createJiti(import.meta.url);
+// ACK write-failure injection must patch the ledger instance used by the registered tool.
+// Disabling the transform cache is safe; disabling module identity is not.
+const jiti = createJiti(import.meta.url, { moduleCache: true });
 const { getAgentResult, registerResultTool } = await jiti.import('../src/tools/result.ts');
 const { DeliveryLedger, deliveryLedgerPath } = await jiti.import('../src/delivery-ledger.ts');
+assert.equal((await jiti.import('../src/delivery-ledger.ts')).DeliveryLedger, DeliveryLedger, 'ACK failure injection requires the same ledger module instance as registered consumption');
 const { SessionManager } = await jiti.import('../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js');
 const { AgentSession } = await jiti.import('../node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js');
 const { Agent } = await jiti.import('../node_modules/@earendil-works/pi-agent-core/dist/agent.js');
@@ -256,7 +259,7 @@ try {
   evidenceCases.push({ scenario, sessionSnapshot: rows, actualProviderContexts: providerContexts, persistedBodyMessages: bodyPushes.length + bodyPulls.length, providerBodyCounts, simultaneousBoundary, ledger: f.ledger.reconcile(f.eventId), parentJSONL: readFileSync(f.hostFile, 'utf8') });
   cases.push(scenario);
  }
- const evidenceDir = new URL('../.agents/evidence/spec43-t3/', import.meta.url);
+ const evidenceDir = new URL(process.env.SPEC43_T3_RESULT_EVIDENCE_DIR ?? '../.agents/evidence/spec43-t3/', import.meta.url);
  mkdirSync(evidenceDir, { recursive: true });
  for (const entry of evidenceCases) {
   writeFileSync(new URL(`result-${entry.scenario}-parent.jsonl`, evidenceDir), entry.parentJSONL);

@@ -563,7 +563,7 @@ export async function listAgentsView(
 		return new ParentNotifyStore(hostFile).pending().filter(msg => {
 			if (record.agentId ? msg.details.agentId !== record.agentId : msg.details.name !== record.name) return false;
 			const eventId = typeof msg.details.eventId === "string" ? msg.details.eventId : `parent-notice:${pendingMessageKey(msg)}`;
-			const status = new DeliveryLedger(hostFile).reconcile(eventId)?.status;
+			const status = new DeliveryLedger(hostFile).reconcile(eventId, { readOnly: true })?.status;
 			return status !== "delivered" && status !== "acked";
 		}).length;
 	};

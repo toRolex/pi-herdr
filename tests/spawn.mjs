@@ -22,12 +22,16 @@ import {
 	readFileSync,
 	writeFileSync,
 	mkdirSync,
+	realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+// Match transitive imports' real paths when an owned runner symlinks src.
+// Otherwise Jiti can load the mutable registry through two module paths.
+const SOURCE = realpathSync(join(ROOT, "src"));
 const jiti = createJiti(import.meta.url);
 
 let passed = 0;
@@ -45,11 +49,11 @@ function eq(a, b) {
 	return JSON.stringify(a) === JSON.stringify(b);
 }
 
-const spawn = await jiti.import(join(ROOT, "src/spawn.ts"), { parent: ROOT });
-const agentsTool = await jiti.import(join(ROOT, "src/tools/agents.ts"), {
+const spawn = await jiti.import(join(SOURCE, "spawn.ts"), { parent: ROOT });
+const agentsTool = await jiti.import(join(SOURCE, "tools/agents.ts"), {
 	parent: ROOT,
 });
-const settingsMod = await jiti.import(join(ROOT, "src/settings.ts"), {
+const settingsMod = await jiti.import(join(SOURCE, "settings.ts"), {
 	parent: ROOT,
 });
 const { mkdtempSync: mkRegistryTemp } = await import("node:fs");
@@ -1230,7 +1234,12 @@ console.log("\n[16] Tool registration surface");
 	);
 	assert(first.ok && first.data.status === "starting", "under cap: accepted as starting");
 	// occupy the slot the way the drain counts it: a live registry pane
-	const held = spawn.spawnRecords().get("holds-slot");
+	const held = spawn.spawnRecords().get(first.data.name);
+	assert(
+		held?.agentId === first.data.agentId && held?.runId === first.data.runId && held?.sequence === first.data.sequence,
+		"tool acceptance is visible in the shared registry with the same logical run identity",
+	);
+	if (!held) throw new Error("accepted tool spawn missing from shared registry");
 	held.paneId = "p-held";
 	capped.live.push({ name: "holds-slot", paneId: "p-held", agent_status: "working" });
 	const second = await agentsTool.spawnFromTool(

@@ -57,3 +57,74 @@ try {
  const out=new URL('../.agents/evidence/spec43-t3/ledger.json',import.meta.url);writeFileSync(out,JSON.stringify({result:'passed',checks:evidence,scope:'state machine and disk evidence; host provider proof is separate'},null,2)+'\n');
  console.log('spec43-t3-ledger: passed');
 } finally {rmSync(dir,{recursive:true,force:true});}
+
+// AC5: list projects unread from durable evidence without consuming or repairing delivery.
+{
+ const {createHash}=await import('node:crypto');
+ const transport=await jiti.import('../src/herdr.ts');
+ const originalFleet=Object.getOwnPropertyDescriptor(transport,'fleetList');
+ const originalHerdr=Object.getOwnPropertyDescriptor(transport,'herdr');
+ let fleetCalls=0;
+ Object.defineProperty(transport,'fleetList',{value:async()=>{fleetCalls++;return {ok:true,data:[]};},configurable:true});
+ Object.defineProperty(transport,'herdr',{value:async()=>{throw new Error('unexpected real herdr command');},configurable:true});
+ const sp=await jiti.import('../src/spawn.ts');
+ const push=await jiti.import('../src/push.ts');
+ const {ParentNotifyStore,parentNotifyPath}=await jiti.import('../src/parent-notify-store.ts');
+ const {registerOrchestration}=await jiti.import('../src/tools/orchestration.ts');
+ const listDir=mkdtempSync(join(tmpdir(),'spec44-list-'));
+ const listHost=join(listDir,'host.jsonl');
+ const previousRegistry=[...sp.spawnRecords()];
+ const previousHost=push.currentOrchestratorSession();
+ const listeners=new Map();
+ push.rememberOrchestratorSession({on:(event,callback)=>listeners.set(event,callback)});
+ const setHost=host=>listeners.get('session_start')({}, {sessionManager:{getSessionFile:()=>host}});
+ try {
+  setHost(listHost);writeFileSync(listHost,'');sp.clearSpawnRegistry();
+  const record={name:'queued-worker',kind:'pi',agentId:'agent-fixture',runId:'run-fixture',sequence:1,prompt:'SECRET TASK',agentArgs:[],depth:1,isolated:false,spawnedAt:1,submitted:false,sawWorking:false,stance:'autonomous',unread:3};
+  sp.spawnRecords().set(record.name,record);sp.writePersistedRegistry(listHost,[record]);
+  const ledger=new DeliveryLedger(listHost),store=new ParentNotifyStore(listHost),queued={};
+  const ref=eventId=>({eventId,agentId:record.agentId,runId:record.runId,sequence:record.sequence});
+  for(const eventId of ['body-proof','withdrawn','still-queued']) {
+   store.put({content:`SECRET BODY ${eventId}`,wake:false,details:{...ref(eventId),name:record.name}});
+   queued[eventId]=ledger.queuePush(ref(eventId)).record;
+  }
+  writeFileSync(listHost,[
+   {type:'custom_message',customType:'herdr-delivery',content:'SECRET BODY body-proof',details:{eventId:'body-proof',delivery:ledger.proof(queued['body-proof'])}},
+   {type:'custom_message',customType:'herdr-delivery',content:'',details:{eventId:'withdrawn',deliveryToken:queued.withdrawn.token,deliveryHostWithdrawn:true}},
+  ].map(row=>JSON.stringify(row)).join('\n')+'\n');
+  const paths={ledger:deliveryLedgerPath(listHost),registry:sp.registryPathFor(listHost),host:listHost,outbox:parentNotifyPath(listHost)};
+  const snapshot=()=>({
+   files:Object.fromEntries(Object.entries(paths).map(([key,path])=>{const bytes=readFileSync(path);return [key,{bytes:bytes.toString('utf8'),hash:createHash('sha256').update(bytes).digest('hex')}];})),
+   registry:JSON.stringify([...sp.spawnRecords()]),
+   states:Object.fromEntries(Object.entries(JSON.parse(readFileSync(paths.ledger,'utf8')).events).map(([id,row])=>[id,row.status])),
+  });
+  const before=snapshot();
+  assert.deepEqual(before.states,{'body-proof':'queued',withdrawn:'queued','still-queued':'queued'});
+  const tools=new Map();registerOrchestration({registerTool:tool=>tools.set(tool.name,tool)});
+  const list=tools.get('herdr_list_agents');assert.ok(list);
+  for(let call=0;call<2;call++) {
+   const result=await list.execute(`list-${call}`,{},undefined);
+   assert.ok(!result.isError);assert.equal(result.details.rows.length,1);
+   assert.equal(result.details.rows[0].state,'queued');assert.equal(result.details.rows[0].unread,2);
+   assert.ok(!JSON.stringify(result).includes('SECRET'),'list never exposes task or body');
+   const after=snapshot();
+   assert.deepEqual(after.files.ledger,before.files.ledger,'list preserves ledger bytes and SHA256');
+   assert.deepEqual(after.states,before.states,'list preserves delivery and ACK states');
+   assert.deepEqual(after,before,'list preserves Registry memory/disk, host and outbox');
+  }
+  assert.equal(fleetCalls,2,'both reads traverse the public fleet transport boundary');
+  assert.equal(ledger.reconcile('body-proof').status,'delivered');
+  assert.equal(JSON.parse(readFileSync(paths.ledger,'utf8')).events['body-proof'].status,'delivered','default reconcile persists delivered before queuePush');
+  assert.equal(ledger.queuePush(ref('body-proof')).bodyAllowed,false,'committed body cannot replay');
+  assert.equal(ledger.reconcile('withdrawn').status,'available');
+  assert.equal(JSON.parse(readFileSync(paths.ledger,'utf8')).events.withdrawn.status,'available','default reconcile persists available before queuePush');
+  assert.equal(ledger.queuePush(ref('withdrawn')).bodyAllowed,true,'withdrawn body remains retryable');
+  assert.equal(ledger.queuePush(ref('still-queued')).bodyAllowed,false,'accepted queue without proof cannot replay');
+  console.log('spec44-list: repeated public list is read-only; default durable repair and retry guards passed');
+ } finally {
+  sp.clearSpawnRegistry();for(const [name,record] of previousRegistry)sp.spawnRecords().set(name,record);
+  setHost(previousHost);
+  Object.defineProperty(transport,'fleetList',originalFleet);Object.defineProperty(transport,'herdr',originalHerdr);
+  rmSync(listDir,{recursive:true,force:true});
+ }
+}

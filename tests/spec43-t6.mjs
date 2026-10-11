@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createJiti } from 'jiti';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 const jiti = createJiti(import.meta.url);
@@ -8,13 +8,25 @@ const { waitForAgentEvent, createEventAvailability } = await jiti.import('../src
 const dir = mkdtempSync(join(tmpdir(), 'spec43-t6-'));
 try {
  const session = join(dir, 'child.jsonl');
- const sidecar = (id, text='SECRET BODY') => { const data=JSON.stringify({type:'done', eventId:id, agentId:'a1', runId:'r1', sequence:1, text}); writeFileSync(`${session}.completion-${id}.json`, data); writeFileSync(`${session}.exit`, data); };
- const registry=()=>new Map([['worker', {name:'worker',agentId:'a1',runId:'r1',sequence:1,sessionPath:session}]]);
+ const current={name:'worker',agentId:'a1',runId:'r1',sequence:1,sessionPath:session};
+ const sidecar = (id, text='SECRET BODY', sequence=1) => { const data=JSON.stringify({type:'done', eventId:id, agentId:'a1', runId:id, sequence, text}); writeFileSync(`${session}.completion-${id}.json`, data); writeFileSync(`${session}.exit`, data); current.runId=id;current.sequence=sequence; };
+ const registry=()=>new Map([['worker', current]]);
  const available = createEventAvailability({ registry, pollMs:2 });
  sidecar('evt-first');
- assert.deepEqual(await waitForAgentEvent({target:'evt-first',timeout:10}, { availability:available }), { ok:true, data:{ status:'available', eventId:'evt-first', agentId:'a1', runId:'r1', sequence:1, target:'worker' } });
+ assert.deepEqual(await waitForAgentEvent({target:'evt-first',timeout:10}, { availability:available }), { ok:true, data:{ status:'available', eventId:'evt-first', agentId:'a1', runId:'evt-first', sequence:1, target:'worker' } });
  assert.equal(JSON.stringify(await waitForAgentEvent({target:'worker',timeout:2},{availability:available})).includes('SECRET BODY'),false);
- sidecar('evt-later');
+ const illegalPath=`${session}.completion-evt-illegal.json`;
+ const illegal=JSON.stringify({type:'done',eventId:'evt-illegal',agentId:'a1',runId:'r1',sequence:1,text:'SECRET BODY'});
+ writeFileSync(illegalPath,illegal);
+ assert.equal((await waitForAgentEvent({target:'evt-illegal',timeout:0},{availability:available})).data.status,'timeout','archive self runId/eventId conflict is not a terminal event');
+ assert.equal(readFileSync(illegalPath,'utf8'),illegal,'wait does not repair or consume an illegal archive');
+ sidecar('evt-later','SECRET BODY',2);
+ const historicalBytes=readFileSync(`${session}.completion-evt-first.json`,'utf8');
+ const bridgeBytes=readFileSync(`${session}.exit`,'utf8');
+ assert.deepEqual(await waitForAgentEvent({target:'evt-first',timeout:0},{availability:available}),{ok:true,data:{status:'available',eventId:'evt-first',agentId:'a1',runId:'evt-first',sequence:1,target:'worker'}},'valid retained run/sequence may differ from current');
+ assert.equal(current.runId,'evt-later');assert.equal(current.sequence,2);
+ assert.equal(readFileSync(`${session}.completion-evt-first.json`,'utf8'),historicalBytes);
+ assert.equal(readFileSync(`${session}.exit`,'utf8'),bridgeBytes,'retained wait preserves another run bridge');
  const waiting = waitForAgentEvent({target:'worker',timeout:5000},{availability:available});
  await new Promise(resolve=>setTimeout(resolve,5)); available.notify();
  const result = await waiting;

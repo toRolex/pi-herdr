@@ -7,9 +7,8 @@ const lifecycle = await jiti.import(join(ROOT, "src/tools/lifecycle.ts"), { pare
 const spawn = await jiti.import(join(ROOT, "src/spawn.js"), { parent: ROOT });
 const delivery = await jiti.import(join(ROOT, "src/delivery.ts"), { parent: ROOT });
 const settings = await jiti.import(join(ROOT, "src/settings.ts"), { parent: ROOT });
-const { writeFileSync, rmSync } = await import("node:fs");
+const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
 const { parseTriggerTurn } = await jiti.import(join(ROOT, "src/agent-message.ts"), { parent: ROOT });
-const { randomUUID } = await import("node:crypto");
 const { tmpdir } = await import("node:os");
 let passed = 0;
 let failed = 0;
@@ -22,28 +21,34 @@ function record(overrides = {}) {
     name: "scout", agentId: "agent-1", runId: "old-run", sequence: 1,
     kind: "pi", type: "Explore", prompt: "old task", agentArgs: [], depth: 1,
     isolated: false, spawnedAt: 1, paneId: "pane-old", submitted: true,
-    sawWorking: true, stance: "autonomous", sessionPath: "/tmp/scout-session.jsonl",
-    definition: { name: "scout", kind: "pi" }, ...overrides,
+    sawWorking: true, stance: "autonomous", sessionPath,
+    definition: { name: "scout", kind: "pi" }, lineage: { ownerSession: parentSession, rootSession: parentSession }, ...overrides,
   };
 }
 const deps = (r, over = {}) => ({
   fleet: async () => ({ ok: true, data: r.paneId ? [{ paneId: r.paneId, name: r.name, agentStatus: r.name.startsWith("busy") ? "working" : "idle" }] : [] }),
   load: () => ({ ...settings.DEFAULT_SETTINGS, max_parallel_agents: 1 }), env: {},
-  childExtension: "child.ts", autodrain: false,
+  childExtension: "child.ts", autodrain: false, parentSession,
   registry: { find: (provider, id) => ({ provider, id }), hasConfiguredAuth: () => true },
   start: async () => ({ ok: true, data: { agent: { pane_id: "pane-new" } } }),
   boot: async () => ({ ok: true, data: true }), submit: async () => ({ ok: true, data: true }),
   status: async () => ({ ok: true, data: "working" }), ...over,
 });
 spawn.clearSpawnRegistry();
-const sessionPath = `${tmpdir()}/spec43-t5-${randomUUID()}.jsonl`;
+const fixtureRoot = mkdtempSync(join(tmpdir(),'spec43-t5-'));
+const parentSession = join(fixtureRoot,'parent.jsonl');writeFileSync(parentSession,'');
+const sessionPath = join(fixtureRoot,'child.jsonl');
 writeFileSync(sessionPath, "");
 writeFileSync(`${sessionPath}.completion-event`, "old-run");
 const rec = record({ sessionPath });
-spawn.putSpawnRecordForTests(rec);
+spawn.putSpawnRecordForTests(rec);spawn.writePersistedRegistry(parentSession,[rec]);
 assert(typeof lifecycle.triggerTurn === "function", "triggerTurn engine is exported");
 assert(parseTriggerTurn('<herdr-followup runId="123e4567-e89b-12d3-a456-426614174000">\ntask\n</herdr-followup>')?.body === "task", "followup envelope parser extracts the durable body");
-const result = await lifecycle.triggerTurn({ target: "scout", text: "continue" }, deps(rec));
+const result = await lifecycle.triggerTurn({ target: "scout", text: "continue" }, deps(rec,{submit:async()=>{
+  const saved=spawn.readPersistedRegistry(parentSession).find(row=>row.name===rec.name);
+  assert(saved?.runId===rec.runId && saved.promptSubmission==='uncertain' && saved.startOutcomeUnknown,'resident submit observes durable uncertain accepted identity before executor contact');
+  return{ok:true,data:true};
+}}));
 assert(result.ok, `idle followup accepted (${result.ok ? "" : result.error.message})`);
 assert(rec.agentId === "agent-1", "logical agent identity is preserved");
 assert(rec.runId !== "old-run", "followup receives a distinct run identity");
@@ -122,13 +127,24 @@ assert(!duplicate.ok && starts === 1, 'resume and followup share a single execut
 releaseStart(); await firstStart;
 spawn.clearSpawnRegistry();
 const failedRecord = record({ name: 'failed', sessionPath }); spawn.putSpawnRecordForTests(failedRecord);
-const failedStart = await lifecycle.triggerTurn({ target: failedRecord.name, text: 'fail' }, deps(failedRecord, { submit: async () => ({ ok: false, error: { code: 'AGENT_START_FAILED', message: 'fixture start failure' } }) }));
-assert(!failedStart.ok && failedStart.error.details.runId && failedStart.error.details.status === 'start-error', 'startup failure receipt carries accepted run and explicit failure status');
+let submitCalls = 0;
+const failedStart = await lifecycle.triggerTurn({ target: failedRecord.name, text: 'fail' }, deps(failedRecord, { submit: async () => {
+  submitCalls++;
+  const saved = spawn.readPersistedRegistry(parentSession).find(row => row.name === failedRecord.name);
+  assert(saved?.runId === failedRecord.runId && saved.promptSubmission === 'uncertain' && saved.startOutcomeUnknown, 'rejected submission was actually contacted after durable uncertain precommit');
+  return { ok: false, error: { code: 'AGENT_START_FAILED', message: 'fixture start failure' } };
+} }));
+assert(submitCalls === 1 && !failedStart.ok && failedStart.error.code === 'AGENT_START_FAILED' && failedStart.error.message === 'fixture start failure' && failedStart.error.details.runId && failedStart.error.details.status === 'start-error', 'real injected submission rejection, not an owner gate, carries accepted run and explicit failure status');
+spawn.clearSpawnRegistry();
+const ownerless = record({name:'ownerless',sessionPath,lineage:undefined});spawn.putSpawnRecordForTests(ownerless);
+let ownerlessContacts=0;
+const ownerRefusal=await lifecycle.triggerTurn({target:ownerless.name,text:'no owner'},deps(ownerless,{parentSession:undefined,submit:async()=>{ownerlessContacts++;return{ok:true,data:true};}}));
+assert(!ownerRefusal.ok && ownerlessContacts===0 && ownerRefusal.error.message.includes('owner unavailable'),'ownerless dispatch remains a no-executor-contact refusal');
 const reclaimed = record({ name: 'reclaimed', sessionPath, pendingFollowups: [{ runId: 'reclaimed-next', text: 'recover queue' }] }); spawn.clearSpawnRegistry(); spawn.putSpawnRecordForTests(reclaimed);
 rmSync(`${sessionPath}.exit`, { force: true });
 await delivery.deliverOnce({ registry: spawn.spawnRecords, fleet: { ok: true, data: [] }, push: () => {} });
 const reclaimedDrain = await spawn.drainQueueOnce(deps(reclaimed, { list: async () => [], fleet: async () => ({ ok: true, data: [] }) }));
 assert(reclaimedDrain === 1 && reclaimed.runId === 'reclaimed-next', 'queued request survives pane reclamation without a prior terminal sidecar');
-rmSync(sessionPath, { force: true });
+rmSync(fixtureRoot, { recursive: true, force: true });
 console.log(`\n[done] ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

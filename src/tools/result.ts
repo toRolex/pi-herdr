@@ -22,7 +22,7 @@
 // session file (and its result) remains readable — only the live pane is
 // lost.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { validEventId } from "../completion-event.js";
 import { DeliveryLedger, type DeliveryProof, type DeliveryRecord } from "../delivery-ledger.js";
 import { inspectToolResultReceipt } from "../delivery-host.js";
@@ -48,11 +48,14 @@ import {
 	extractSessionResult,
 	minedAssistantError,
 	readExitSidecar,
+	resolveAcceptedFailureOwner,
+	saveAcceptedStartFailure,
 	type ExtractedResult,
 	type ReadSidecarResult,
 	type ExitSidecar,
 } from "../sessionfile.js";
-import { spawnRecords, type SpawnRecord } from "../spawn.js";
+import { spawnRecords, readPersistedRegistry, writePersistedRegistry, type SpawnRecord } from "../spawn.js";
+import { currentOrchestratorSession } from "../push.js";
 import {
 	defaultInputWake,
 	registerResultInputWake,
@@ -477,7 +480,8 @@ async function consumeResult(params: GetResultParams, deps: GetResultDeps): Prom
 	try { readFileSync(deps.hostFile!, "utf8"); }
 	catch { return err("VALIDATION_ERROR", "completion consumption requires a readable host session file; no body was claimed"); }
 	const registry = (deps.registry ?? spawnRecords)();
-	const record = registry.get(params.target) ?? [...registry.values()].find(r => r.paneId === params.target);
+	const record = registry.get(params.target) ?? [...registry.values()].find(r => r.paneId === params.target) ??
+		[...registry.values()].find(r => r.startError && r.runId === params.target);
 	if (!record && validEventId(params.target)) {
 		for (const candidate of registry.values()) {
 			if (candidate.kind.toLowerCase() !== "pi" || !candidate.sessionPath) continue;
@@ -495,6 +499,38 @@ async function consumeResult(params: GetResultParams, deps: GetResultDeps): Prom
 		return { ok: true, data: await inspectAdopted(params.target, deps, params.lines ?? 80, record ? viewBase(params.target, record) : undefined) };
 	}
 	const base = { ...viewBase(params.target, record), agentId: record.agentId, runId: record.runId, sequence: record.sequence };
+	if (record.startError && !record.identityReviewRequired) {
+		if (record.sessionPath && !record.startFailurePersistenceError) {
+			try {
+				// A parseable stale registry is not publication proof. Ownerless immutable reads need no seeding.
+				const owner = record.lineage?.ownerSession ?? deps.hostFile!;
+				if (record.lineage?.ownerSession || existsSync(`${owner}.registry.json`)) {
+					const published = readPersistedRegistry(owner).some(row => row.agentId === record.agentId &&
+						row.runId === record.runId && row.sequence === record.sequence && row.sessionPath === record.sessionPath &&
+						row.startError && !row.startFailurePersistenceError);
+					if (!published) throw new Error("accepted start failure is not published in its owner registry");
+				}
+				const saved = parseExitSidecar(readFileSync(`${record.sessionPath}.completion-${record.runId}.json`, "utf8"));
+				if (saved.ok && saved.sidecar.type !== "persistence-error" && saved.sidecar.eventId === record.runId &&
+					saved.sidecar.runId === record.runId && saved.sidecar.agentId === record.agentId && saved.sidecar.sequence === record.sequence) {
+					return consumeSidecar(params.target, record, saved.sidecar, deps, params);
+				}
+			} catch { /* No canonical archive; guarded recovery below. */ }
+		}
+		try {
+			const owner = resolveAcceptedFailureOwner(record, deps.hostFile, currentOrchestratorSession());
+			const failure = saveAcceptedStartFailure(record);
+			record.startFailurePersistenceError = undefined;
+			writePersistedRegistry(owner, [...registry.values()]);
+			if (failure) return consumeSidecar(params.target, record, failure, deps, params);
+		} catch (error) {
+			record.startFailurePersistenceError = error instanceof Error ? error.message : String(error);
+			const note = `governance failure: start failure persistence failed: ${record.startFailurePersistenceError}`;
+			record.pushError = note;
+			if (params.ack || params.reread) return err("VALIDATION_ERROR", note);
+			return { ok: true, data: { ...base, status: "error", note } };
+		}
+	}
 	if (!record.sessionPath) return { ok: true, data: { ...base, status: "error", note: "governance failure: spawned pi child has no session substrate" } };
 	const read = (): ExitSidecar | undefined => {
 		const result = (deps.readSidecar ?? readExitSidecar)(record.sessionPath!);
@@ -535,6 +571,23 @@ function consumeSidecar(target: string, record: SpawnRecord, sidecar: ExitSideca
 	}
 	const ledger = new DeliveryLedger(deps.hostFile!);
 	const ref = { eventId: sidecar.eventId, agentId: sidecar.agentId, runId: sidecar.runId, sequence: sidecar.sequence, sessionPath: record.sessionPath };
+	if (record.identityReviewRequired) {
+		if (params.ack || params.reread) return err("VALIDATION_ERROR", "legacy completion identity requires review before explicit reread/ACK");
+		const existing = ledger.reconcile(ref.eventId);
+		return { ok: true, data: { ...base, status: sidecar.type,
+			...(existing && existing.status !== "available" ? { delivery: { eventId: ref.eventId, hostFile: ledger.hostFile, status: existing.status, channel: existing.channel, token: existing.token } } : {}),
+			note: "legacy completion identity requires review; no new body was claimed" } };
+	}
+	let validBody = true;
+	if (!sidecar.text?.trim() && sidecar.type === "done") {
+		try { JSON.parse(body); } catch { validBody = false; }
+	}
+	if (!sidecar.agentId || (record.agentId && sidecar.agentId !== record.agentId) ||
+		sidecar.runId !== sidecar.eventId || !Number.isInteger(sidecar.sequence) || sidecar.sequence! < 1 || !validBody) {
+		const note = "governance failure: completion archive identity or final body is invalid";
+		if (params.ack || params.reread) return err("VALIDATION_ERROR", note);
+		return { ok: true, data: { ...base, status: "error", note } };
+	}
 	if (params.reread) return { ok: true, data: { ...base, status: sidecar.type, source: "session-jsonl", result: body, reread: true, note: "explicit reread of the original completion; not a new delivery" } };
 	if (params.ack) {
 		const ack = params.ack;
@@ -710,7 +763,6 @@ function render(view: ResultView): ToolReturn {
 
 function renderStatus(view: ResultView): ToolReturn {
 	const label = view.name ?? view.target;
-	const where = view.sessionPath ? ` (session: ${view.sessionPath})` : "";
 	switch (view.status) {
 		case "done":
 			return {
@@ -719,7 +771,7 @@ function renderStatus(view: ResultView): ToolReturn {
 						type: "text",
 						text: view.result
 							? `Agent "${label}" finished — exact final message:\n\n${view.result}`
-							: `Agent "${label}" finished, but no assistant message was found in its session file.${where}`,
+							: `Agent "${label}" finished, but no assistant message was found in its session file.`,
 					},
 				],
 				details: view,
@@ -730,7 +782,7 @@ function renderStatus(view: ResultView): ToolReturn {
 				content: [
 					{
 						type: "text",
-						text: `Agent "${label}" FAILED: ${msg}${where}${view.result ? `\n\n${view.result}` : ""}`,
+						text: `Agent "${label}" FAILED: ${msg}${view.result ? `\n\n${view.result}` : ""}`,
 					},
 				],
 				details: view,

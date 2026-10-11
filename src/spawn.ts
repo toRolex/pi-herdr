@@ -41,7 +41,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { seedSessionFile } from "./sessionfile.js";
 import { completionEventPath } from "./completion-event.js";
-import { clearSidecars } from "./sessionfile.js";
+import { clearSidecars, parseExitSidecar, resolveAcceptedFailureOwner, saveAcceptedStartFailure } from "./sessionfile.js";
 import { currentOrchestratorSession } from "./push.js";
 import {
 	type Err,
@@ -691,6 +691,12 @@ export interface SpawnRecord {
 	lastStatus?: string;
 	/** Set when a deferred (queued) start failed — status reads "gone". */
 	startError?: string;
+	/** Failure event/registry persistence is retryable, never the failed launch. */
+	startFailurePersistenceError?: string;
+	/** Creation/submission may have happened even if the response was lost. */
+	startAttemptPhase?: "prelaunch" | "creating" | "executor" | "submitting";
+	/** Unknown creation/submission must be reconciled, never automatically replayed. */
+	startOutcomeUnknown?: string;
 	worktreePath?: string;
 	/** Parent-owned pi session file (pi children only; seeded before launch). */
 	sessionPath?: string;
@@ -735,6 +741,8 @@ export interface SpawnRecord {
 	definition?: SpawnSpec;
 	/** Queued followups accepted while a run was busy; drained serially after settle. */
 	pendingFollowups?: { runId: string; text: string }[];
+	/** Definite resident prompt rejection; diagnostic only, the accepted head remains retryable. */
+	followupSubmitError?: string;
 	/** When set, the next startRecordNow runs this accepted execution identity. */
 	pendingRunId?: string;
 	/** Workflow run id (v0.6 issue 12): the child belongs to a herdr_run_workflow
@@ -816,7 +824,7 @@ export function readPersistedRegistry(sessionPath: string): SpawnRecord[] {
 	return parsed as SpawnRecord[];
 }
 
-export function restoreSpawnRegistry(sessionPath: string): void {
+export function restoreSpawnRegistry(sessionPath: string, deps: SpawnDeps = {}): void {
 	const records = readPersistedRegistry(sessionPath);
 	for (const record of records) {
 		if (!record || typeof record.name !== "string" || !record.name || typeof record.kind !== "string") {
@@ -829,7 +837,9 @@ export function restoreSpawnRegistry(sessionPath: string): void {
 	}
 	spawnRegistry.clear();
 	for (const record of records) spawnRegistry.set(record.name, record);
-	if (records.some(record => record.pendingFollowups?.length)) ensureDrainLoop({});
+	if (queuedRecords().length || records.some(record => record.pendingFollowups?.length)) {
+		ensureDrainLoop({ ...deps, parentSession: sessionPath });
+	}
 }
 
 export function writePersistedRegistry(
@@ -854,6 +864,47 @@ export function persistSpawnRegistry(deps: SpawnDeps = {}): void {
 	if (owner) writePersistedRegistry(owner, [...spawnRegistry.values()]);
 }
 
+/** Persist a definitive accepted launch failure; persistence errors never restart it. */
+function finalizeAcceptedStartFailure(record: SpawnRecord, message: string, deps: SpawnDeps): boolean {
+	record.startError = message;
+	if (record.pendingFollowups?.[0]?.runId === record.runId) record.pendingFollowups.shift();
+	let owner: string | undefined;
+	try {
+		owner = resolveAcceptedFailureOwner(record, deps.parentSession, currentOrchestratorSession());
+		saveAcceptedStartFailure(record);
+		record.startFailurePersistenceError = undefined;
+		persistSpawnRegistry({ ...deps, parentSession: owner });
+		return true;
+	} catch (error) {
+		record.startFailurePersistenceError = error instanceof Error ? error.message : String(error);
+		record.pushError = `accepted start failure persistence: ${record.startFailurePersistenceError}`;
+		console.error(`[herdr] ${record.name}: ${record.pushError}`);
+		try {
+			if (!owner) throw new Error("accepted failure registry owner unavailable");
+			persistSpawnRegistry({ ...deps, parentSession: owner });
+		} catch (registryError) { console.error(`[herdr] failure registry persistence: ${String(registryError)}`); }
+		return false;
+	}
+}
+
+function recordAcceptedStartFailure(record: SpawnRecord, message: string, deps: SpawnDeps): void {
+	if (record.startAttemptPhase === "prelaunch" && !record.paneId && !record.submitted && record.promptSubmission !== "uncertain") {
+		finalizeAcceptedStartFailure(record, message, deps);
+		return;
+	}
+	if (record.startAttemptPhase === "submitting") record.promptSubmission = "uncertain";
+	record.startOutcomeUnknown = message;
+	record.pushError = `start outcome unknown: ${message}`;
+	console.error(`[herdr] ${record.name}: ${record.pushError}`);
+	try {
+		const owner = resolveAcceptedFailureOwner(record, deps.parentSession, currentOrchestratorSession());
+		persistSpawnRegistry({ ...deps, parentSession: owner });
+	} catch (error) {
+		record.startFailurePersistenceError = error instanceof Error ? error.message : String(error);
+		console.error(`[herdr] unknown start registry persistence: ${record.startFailurePersistenceError}`);
+	}
+}
+
 /** Terminal (or one-shot) events the delivery loop steers to the
  * orchestrator (issue 06). `blocked` is an episode wake, not terminal — the
  * record stays watchable; the rest mark `delivery` and end the watch. */
@@ -876,7 +927,12 @@ export function putSpawnRecordForTests(record: SpawnRecord): void {
 
 /** Records accepted but not yet started (the queue, in accept order). */
 function queuedRecords(): SpawnRecord[] {
-	return [...spawnRegistry.values()].filter((r) => (!r.paneId || (r.pendingFollowups?.length ?? 0) > 0) && !r.startError && !(r.startBeganAt && !r.startedAt));
+	return [...spawnRegistry.values()].filter((r) => {
+		const next = r.pendingFollowups?.[0];
+		if (r.identityReviewRequired || r.startOutcomeUnknown || (!next && r.delivery)) return false;
+		if (r.startError) return !r.paneId && !r.startFailurePersistenceError && Boolean(next && next.runId !== r.runId);
+		return (!r.paneId || Boolean(next)) && !(r.startBeganAt && !r.startedAt);
+	});
 }
 
 const executionLocks = new Set<string>();
@@ -1195,7 +1251,16 @@ export async function startRecordNow(
 	deps: SpawnDeps = {},
 ): Promise<Result<{ paneId: string }>> {
 	record.startBeganAt = Date.now();
+	record.startAttemptPhase = "prelaunch";
+	record.startOutcomeUnknown = undefined;
 	const signal = deps.signal;
+	const activatingRun = record.pendingRunId;
+	if (activatingRun) {
+		record.runId = activatingRun;
+		record.sequence = 1;
+		record.pendingRunId = undefined;
+	}
+
 
 	// 1. isolated → herdr-side worktree (auto branch+path via the existing
 	//    worktree machinery). The pane itself stays in the current workspace.
@@ -1219,13 +1284,9 @@ export async function startRecordNow(
 	//    full argv is composed by buildLaunchPlan — the substrate flags ahead
 	//    of the spec's own. Non-pi kinds get the same builder's passthrough
 	//    branch (plain argv, no substrate).
-	if (record.pendingRunId) {
-		record.runId = record.pendingRunId;
-		record.pendingRunId = undefined;
-		if (record.sessionPath) {
-			clearSidecars(record.sessionPath);
-			writeFileSync(completionEventPath(record.sessionPath), record.runId, { mode: 0o600 });
-		}
+	if (activatingRun && record.sessionPath) {
+		clearSidecars(record.sessionPath);
+		writeFileSync(completionEventPath(record.sessionPath), activatingRun, { mode: 0o600 });
 	}
 	if (isPiKind(record.kind)) {
 		const seedErr = seedRecordSession(record, cwd ?? process.cwd(), deps);
@@ -1294,6 +1355,8 @@ export async function startRecordNow(
 				}
 			}
 			const splitPlan = placed ? undefined : await nextSplitFor(record, deps);
+			record.startAttemptPhase = "creating";
+			persistOwnRegistry(deps);
 			const startR = await start({
 				name: record.name,
 				agent: record.kind,
@@ -1312,8 +1375,10 @@ export async function startRecordNow(
 			});
 			if (!startR.ok) {
 				record.gridClaim = undefined;
+				// Once creation was requested, an error code alone cannot prove no side effect.
 				return startR;
 			}
+			record.startAttemptPhase = "executor";
 			const paneId = normalizeAgent(startR.data.agent).paneId;
 			record.paneId = paneId;
 			persistOwnRegistry(deps);
@@ -1376,6 +1441,8 @@ export async function startRecordNow(
 		record.submitted = true;
 		return { ok: true, data: { paneId: record.paneId } };
 	}
+	record.startAttemptPhase = "submitting";
+	persistOwnRegistry(deps);
 	await submitRecordPrompt(record, deps);
 	persistOwnRegistry(deps);
 	const status = await currentStatus(record, deps);
@@ -1702,10 +1769,11 @@ let drainTimer: NodeJS.Timeout | null = null;
  */
 export function ensureDrainLoop(deps: SpawnDeps): void {
 	if (drainTimer || deps.autodrain === false) return;
+	const backgroundDeps = { ...deps, signal: undefined };
 	const tick = async (): Promise<void> => {
 		drainTimer = null;
 		try {
-			await drainQueueOnce(deps);
+			await drainQueueOnce(backgroundDeps);
 		} catch {
 			/* best-effort */
 		}
@@ -1724,7 +1792,126 @@ export function ensureDrainLoop(deps: SpawnDeps): void {
  * THIS SESSION's spawned agents (the watch-scope decision from ticket 04:
  * hand-spawned panes stay the human's business).
  */
+/** Submit the accepted head run to an already-settled executor. Caller owns the execution claim. */
+export async function submitIdleFollowup(record: SpawnRecord, deps: SpawnDeps = {}): Promise<Result<true>> {
+	const followup = record.pendingFollowups?.[0];
+	if (!followup || !record.paneId || !record.sessionPath) return spawnErr("VALIDATION_ERROR", "followup has no resident executor");
+	const previous = {
+		runId: record.runId, sequence: record.sequence, prompt: record.prompt,
+		delivery: record.delivery, paneClosePending: record.paneClosePending,
+		paneCloseAuthorization: record.paneCloseAuthorization,
+		promptSubmission: record.promptSubmission, startAttemptPhase: record.startAttemptPhase,
+	};
+	record.pendingRunId = followup.runId;
+	record.runId = followup.runId;
+	record.sequence = 1;
+	record.prompt = followup.text;
+	record.resumeSilent = false;
+	record.paneClosePending = false;
+	record.paneCloseAuthorization = undefined;
+	record.delivery = undefined;
+	persistOwnRegistry(deps);
+	clearSidecars(record.sessionPath);
+	writeFileSync(completionEventPath(record.sessionPath), followup.runId, { mode: 0o600 });
+	const envelope = `<herdr-followup runId="${followup.runId}">\n${followup.text}\n</herdr-followup>`;
+	// Persist uncertainty before contacting the executor; our marker is not a consumption receipt.
+	record.startAttemptPhase = "submitting";
+	record.promptSubmission = "uncertain";
+	record.startOutcomeUnknown = "resident followup submission pending reconciliation";
+	try {
+		const owner = resolveAcceptedFailureOwner(record, deps.parentSession, currentOrchestratorSession());
+		persistSpawnRegistry({ ...deps, parentSession: owner });
+	} catch (error) {
+		// No executor contact occurred: retain the accepted head for a storage-only retry.
+		Object.assign(record, previous);
+		record.pendingRunId = undefined;
+		record.startOutcomeUnknown = undefined;
+		writeFileSync(completionEventPath(record.sessionPath), previous.runId, { mode: 0o600 });
+		record.followupSubmitError = `followup submission registry persistence failed: ${String(error)}`;
+		return spawnErr("VALIDATION_ERROR", record.followupSubmitError);
+	}
+	let result;
+	try {
+		result = deps.submit
+			? await deps.submit(record.paneId, envelope, 30_000, deps.signal)
+			: await herdr(["agent", "prompt", record.paneId, envelope], { signal: deps.signal, timeoutMs: 10_000 });
+	} catch (error) {
+		recordAcceptedStartFailure(record, error instanceof Error ? error.message : String(error), deps);
+		return spawnErr("TIMEOUT", record.startOutcomeUnknown!);
+	}
+	if (result && !result.ok) {
+		const details = result.error.details as { code?: string; exitCode?: unknown; stdout?: unknown; stderr?: unknown } | undefined;
+		const rejected = ["VALIDATION_ERROR", "CLI_ERROR", "NOT_FOUND", "PANE_GONE", "AGENT_START_FAILED"].includes(result.error.code) &&
+			(!details || (typeof details.code === "string" && details.exitCode === undefined && details.stdout === undefined && details.stderr === undefined));
+		if (!rejected) {
+			recordAcceptedStartFailure(record, result.error.message, deps);
+			return { ok: false, error: result.error };
+		}
+		Object.assign(record, previous);
+		record.startOutcomeUnknown = undefined;
+		record.pendingRunId = undefined;
+		writeFileSync(completionEventPath(record.sessionPath), previous.runId, { mode: 0o600 });
+		record.followupSubmitError = result.error.message;
+		persistOwnRegistry(deps);
+		return { ok: false, error: result.error };
+	}
+	record.followupSubmitError = undefined;
+	record.startOutcomeUnknown = undefined;
+	record.startAttemptPhase = undefined;
+	record.promptSubmission = "confirmed";
+	record.pendingFollowups?.shift();
+	record.pendingRunId = undefined;
+	record.submitted = true;
+	persistOwnRegistry(deps);
+	return { ok: true, data: true };
+}
+
 export async function drainQueueOnce(deps: SpawnDeps = {}): Promise<number> {
+	for (const record of spawnRegistry.values()) {
+		if (record.startOutcomeUnknown && (!record.paneId || record.stance === "interactive") && !record.paneClosePending && record.sessionPath &&
+			record.agentId && record.runId && Number.isInteger(record.sequence) && record.sequence! > 0 &&
+			(record.delivery?.kind === "done" || record.delivery?.kind === "error")) {
+			const release = claimAgentExecution(record);
+			if (!release) continue;
+			try {
+				const parsed = parseExitSidecar(readFileSync(`${record.sessionPath}.completion-${record.runId}.json`, "utf8"));
+				if (parsed.ok && parsed.sidecar.type !== "persistence-error") {
+					const event = parsed.sidecar;
+					let hasBody = Boolean(event.text?.trim());
+					if (!hasBody && event.type === "done" && event.structured?.trim()) {
+						JSON.parse(event.structured); hasBody = true;
+					}
+					if (event.eventId === record.runId && event.runId === record.runId && event.agentId === record.agentId &&
+						event.sequence === record.sequence && hasBody && !record.identityReviewRequired) {
+						const previous = { unknown: record.startOutcomeUnknown, followups: record.pendingFollowups,
+							startBeganAt: record.startBeganAt, phase: record.startAttemptPhase, persistenceError: record.startFailurePersistenceError };
+						if (record.pendingFollowups?.[0]?.runId === record.runId) record.pendingFollowups = record.pendingFollowups.slice(1);
+						record.startOutcomeUnknown = undefined;
+						record.startBeganAt = undefined;
+						record.startAttemptPhase = undefined;
+						record.startFailurePersistenceError = undefined;
+						try {
+							const owner = resolveAcceptedFailureOwner(record, deps.parentSession, currentOrchestratorSession());
+							persistSpawnRegistry({ ...deps, parentSession: owner });
+						} catch (error) {
+							record.startOutcomeUnknown = previous.unknown;
+							record.pendingFollowups = previous.followups;
+							record.startBeganAt = previous.startBeganAt;
+							record.startAttemptPhase = previous.phase;
+							record.startFailurePersistenceError = previous.persistenceError;
+							throw error;
+						}
+					}
+				}
+			} catch (error) { console.error(`[herdr] unknown start reconciliation: ${String(error)}`); }
+			finally { release(); }
+		}
+		if (!record.startError || !record.startFailurePersistenceError) continue;
+		const release = claimAgentExecution(record);
+		if (!release) continue;
+		try { finalizeAcceptedStartFailure(record, record.startError, deps); }
+		finally { release(); }
+	}
 	const queued = queuedRecords();
 	if (!queued.length) return 0;
 	const live = await (deps.list ?? defaultList)();
@@ -1738,11 +1925,22 @@ export async function drainQueueOnce(deps: SpawnDeps = {}): Promise<number> {
 	let free = Math.max(0, cap - running);
 	let started = 0;
 	for (const record of queued) {
-		if (free <= 0) break;
-		free--;
 		const followup = record.pendingFollowups?.[0];
-		// An idle pane may still have a live executor. Delivery retires it.
-		if (followup && record.paneId && (livePaneIds.has(record.paneId) || !record.delivery)) { free++; continue; }
+		const resident = record.paneId ? live.find(agent => agent.paneId === record.paneId) : undefined;
+		if (followup && resident && record.stance === "interactive" && !record.paneClosePending &&
+			(resident.agentStatus === "idle" || resident.agentStatus === "done")) {
+			const release = claimAgentExecution(record);
+			if (!release) continue;
+			try {
+				const result = await submitIdleFollowup(record, deps);
+				if (result.ok) started++;
+			} finally { release(); }
+			continue;
+		}
+		if (free <= 0) continue;
+		free--;
+		// Autonomous terminal executors are retired before launching their next run.
+		if (followup && record.paneId && (resident || !record.delivery)) { free++; continue; }
 		if (!followup && record.delivery) { free++; continue; }
 		const release = claimAgentExecution(record);
 		if (!release) { free++; continue; }
@@ -1756,15 +1954,23 @@ export async function drainQueueOnce(deps: SpawnDeps = {}): Promise<number> {
 				record.paneCloseAuthorization = undefined;
 				record.delivery = undefined;
 				record.startError = undefined;
+				record.startFailurePersistenceError = undefined;
+				record.promptSubmission = undefined;
+				record.promptSubmissionNotified = undefined;
+				record.followupSubmitError = undefined;
 				record.submitted = false;
 				record.sawWorking = false;
 				record.startedAt = undefined;
 				record.goneAt = undefined;
 			}
-			const r = await startRecordNow(record, deps);
+			let r: Awaited<ReturnType<typeof startRecordNow>>;
+			try { r = await startRecordNow(record, deps); }
+			catch (error) {
+				recordAcceptedStartFailure(record, error instanceof Error ? error.message : String(error), deps);
+				continue;
+			}
 			if (!r.ok) {
-				record.startError = r.error.message;
-				persistOwnRegistry(deps);
+				recordAcceptedStartFailure(record, r.error.message, deps);
 				continue;
 			}
 			if (followup) record.pendingFollowups?.shift();
@@ -2031,6 +2237,8 @@ export async function spawnAgent(
 	const badKind = kindError(merged.kind, kinds);
 	if (badKind) return { ok: false, error: badKind.error };
 
+	if (deps.signal?.aborted) return spawnErr("TIMEOUT", "spawn cancelled before acceptance");
+
 	// 7. side effects start here: handle, record, session registration
 	const taken = new Set([
 		...live.map((a) => a.name).filter((n): n is string => Boolean(n)),
@@ -2125,15 +2333,12 @@ export async function spawnAgent(
 				},
 			};
 		}
-		void startRecordNow(record, deps).then(
+		const backgroundDeps = { ...deps, signal: undefined };
+		void startRecordNow(record, backgroundDeps).then(
 			(startR) => {
-				if (!startR.ok && !record.startError) {
-					record.startError = startR.error.message;
-				}
+				if (!startR.ok) recordAcceptedStartFailure(record, startR.error.message, backgroundDeps);
 			},
-			() => {
-				if (!record.startError) record.startError = "start failed";
-			},
+			(error) => recordAcceptedStartFailure(record, error instanceof Error ? error.message : String(error), backgroundDeps),
 		);
 		return {
 			ok: true,

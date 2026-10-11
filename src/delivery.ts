@@ -25,10 +25,12 @@
 
 import { readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { basename, dirname } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readCompletionEvent } from "./completion-event.js";
+import { DeliveryLedger } from "./delivery-ledger.js";
 import { fleetList, herdr } from "./herdr.js";
 import { resolveHerdrBin } from "./herdr-transport.mjs";
 import { extractText, type NormalizedAgent, type Result } from "./env.js";
@@ -41,6 +43,8 @@ import {
 	extractSessionResult,
 	minedAssistantError,
 	readExitSidecar,
+	resolveAcceptedFailureOwner,
+	saveAcceptedStartFailure,
 	sidecarPathFor,
 	type ExtractedResult,
 	type ReadSidecarResult,
@@ -53,6 +57,7 @@ import {
 } from "./status.js";
 import { fleetWidgetOnce } from "./widget.js";
 import {
+	claimAgentExecution,
 	readPersistedRegistry,
 	restoreSpawnRegistry,
 	spawnRecords,
@@ -299,7 +304,10 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 				if (record.paneId && record.paneClosePending) {
 					const persist = () => persistOwnDelivery(deps);
 					persist();
+					const closingRun = record.runId;
+					const closingPane = record.paneId;
 					await closeDeliveredPane(deps, record, false, persist);
+					if (record.runId !== closingRun || record.paneId !== closingPane) continue;
 					if (record.paneClosePending || record.paneCloseAuthorization) continue;
 				}
 				record.paneId = undefined;
@@ -325,11 +333,26 @@ async function deliverOnceSerial(deps: DeliveryDeps): Promise<void> {
 		// --- never started (a queued record failed in the drain loop, after
 		// the spawn tool had already returned "queued")
 		if (record.startError) {
-			await deliverTerminal(deps, record, "start-error", {
-				content: `Agent "${record.name}" never started: ${record.startError}`,
-				details: { name: record.name, kind: "start-error" },
-				wake: terminalWake(notifications(deps)),
-			});
+			if (record.kind.toLowerCase() === "pi") {
+				let failure;
+				try {
+					const owner = resolveAcceptedFailureOwner(record, deps.sessionPath, currentOrchestratorSession());
+					failure = saveAcceptedStartFailure(record);
+					record.startFailurePersistenceError = undefined;
+					(deps.writeRegistry ?? writePersistedRegistry)(owner, [...registry.values()]);
+				} catch (error) {
+					record.startFailurePersistenceError = error instanceof Error ? error.message : String(error);
+					await reportCompletionGovernanceError(deps, record, `start failure persistence failed: ${record.startFailurePersistenceError}`);
+					continue; // storage recovery retries the same accepted run next tick
+				}
+				if (failure) await deliverSidecar(record, failure, deps, paneLive(record.paneId), false, true);
+			} else {
+				await deliverTerminal(deps, record, "start-error", {
+					content: `Agent "${record.name}" never started: ${record.startError}`,
+					details: { name: record.name, kind: "start-error" },
+					wake: terminalWake(notifications(deps)),
+				});
+			}
 			continue;
 		}
 		if (!record.paneId) continue; // still queued — nothing to watch yet
@@ -605,17 +628,24 @@ async function reportCompletionGovernanceError(
 	record: SpawnRecord,
 	message: string,
 ): Promise<void> {
-	if (record.pushError === message) return;
+	// A persisted diagnostic is not evidence that the receiver accepted a
+	// notification. Retry acceptance; the durable receiver owns deduplication.
 	record.pushError = message;
 	const owner = deps.sessionPath ?? currentOrchestratorSession();
 	if (owner && !deps.registry) {
 		try { (deps.writeRegistry ?? writePersistedRegistry)(owner, [...spawnRecords().values()]); }
 		catch (error) { record.pushError = `${message}; registry persistence failed: ${String(error)}`; }
 	}
+	const completionEventId = (record.sessionPath ? readCompletionEvent(record.sessionPath) : undefined) ?? record.runId;
+	const noticeId = `parent-notice:completion-governance:${createHash("sha256").update(JSON.stringify([
+		record.agentId ?? record.sessionPath ?? record.name, record.runId, record.sequence, completionEventId, message,
+	])).digest("hex")}`;
 	(deps.push ?? (() => {}))({
 		content: `Agent "${record.name}" completion is not recoverable as a saved result: ${record.pushError}`,
-		details: { name: record.name, kind: "persistence-error", agentId: record.agentId, runId: record.runId, sequence: record.sequence, eventId: record.sessionPath ? readCompletionEvent(record.sessionPath) : undefined },
-		wake: true,
+		// Governance has its own receiver arbitration namespace. The original
+		// completion reference is metadata only and cannot consume its body claim.
+		details: { name: record.name, kind: "persistence-error", agentId: record.agentId, runId: record.runId, sequence: record.sequence, eventId: noticeId, noticeId, completionEventId },
+		wake: terminalWake(notifications(deps)),
 	});
 }
 
@@ -764,6 +794,17 @@ async function deliverTerminal(
 	paneLive = false,
 	adopted = false,
 ): Promise<void> {
+	if (record.identityReviewRequired) {
+		const host = deps.sessionPath ?? currentOrchestratorSession();
+		const eventId = msg.details.eventId;
+		const existing = host && typeof eventId === "string" ? new DeliveryLedger(host).reconcile(eventId) : undefined;
+		// Durable historical acceptance is a hold/reference, never permission to
+		// mint a fresh completion or recycle a pane with an unverified identity.
+		if (!existing || existing.status === "available") {
+			await reportCompletionGovernanceError(deps, record, "legacy completion identity requires review; no new body delivery");
+		}
+		return;
+	}
 	msg = { ...msg, details: { ...msg.details, name: record.name, agentId: record.agentId, runId: record.runId, sequence: record.sequence } };
 	if (adopted) {
 		await deliverAdopted(deps, record, kind, msg, paneLive);
@@ -845,7 +886,21 @@ async function closeDeliveredPane(
 	paneLive: boolean,
 	persist: () => void,
 ): Promise<void> {
-	if (!record.paneId) {
+	const release = claimAgentExecution(record);
+	if (!release) return;
+	try { await closeDeliveredPaneSerial(deps, record, paneLive, persist); }
+	finally { release(); }
+}
+
+async function closeDeliveredPaneSerial(
+	deps: DeliveryDeps,
+	record: SpawnRecord,
+	paneLive: boolean,
+	persist: () => void,
+): Promise<void> {
+	const target = { agentId: record.agentId, runId: record.runId, paneId: record.paneId };
+	const stillOwnsTarget = () => record.agentId === target.agentId && record.runId === target.runId && record.paneId === target.paneId;
+	if (!target.paneId) {
 		record.paneClosePending = false;
 		record.paneCloseAuthorization = undefined;
 		record.paneCloseError = undefined;
@@ -870,13 +925,14 @@ async function closeDeliveredPane(
 	}
 	if (!deps.closePane && record.runId) {
 		const fresh = await fleetList();
+		if (!stillOwnsTarget()) return;
 		if (!fresh.ok) {
 			record.paneClosePending = true;
 			record.paneCloseError = "cannot verify pane ownership";
 			persist();
 			return;
 		}
-		const occupant = fresh.data.find(agent => agent.paneId === record.paneId);
+		const occupant = fresh.data.find(agent => agent.paneId === target.paneId);
 		if (occupant) {
 			record.paneClosePending = true;
 			record.paneCloseError = "pane still has a live agent";
@@ -886,8 +942,8 @@ async function closeDeliveredPane(
 		const owner = record.lineage?.ownerSession;
 		if (owner) {
 			try {
-				const current = readPersistedRegistry(owner).find(candidate => candidate.agentId === record.agentId);
-				if (!current || current.runId !== record.runId || current.paneId !== record.paneId) {
+				const current = readPersistedRegistry(owner).find(candidate => candidate.agentId === target.agentId);
+				if (!current || current.runId !== target.runId || current.paneId !== target.paneId) {
 					record.paneClosePending = false;
 					record.paneCloseError = "stale close ownership refused";
 					persist();
@@ -902,7 +958,8 @@ async function closeDeliveredPane(
 		}
 	}
 	try {
-		const closed = await (deps.closePane ?? defaultClosePane)(record.paneId);
+		const closed = await (deps.closePane ?? defaultClosePane)(target.paneId);
+		if (!stillOwnsTarget()) return;
 		if (closed && typeof closed === "object" && "ok" in closed && closed.ok === false) {
 			const error = (closed as { error?: { code?: string; message?: string; details?: { code?: string } } }).error;
 			// 仅精确的 pane_not_found 可作为幂等关闭成功，其他 NOT_FOUND 仍须重试。
@@ -914,6 +971,7 @@ async function closeDeliveredPane(
 		record.paneCloseError = undefined;
 		record.paneCloseAuthorization = undefined;
 	} catch (error) {
+		if (!stillOwnsTarget()) return;
 		record.paneClosePending = true;
 		record.paneCloseError = error instanceof Error ? error.message : String(error);
 	}

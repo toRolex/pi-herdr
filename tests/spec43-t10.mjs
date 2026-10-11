@@ -37,9 +37,18 @@ try {
  live='working'; assert.equal((await waitForAgentEvent({target:'worker',timeout:2},{availability})).data.status,'timeout');
  deps.fleet.data[0].agentStatus='blocked'; await deliverOnce(deps);
  assert.notEqual(pushes.at(-1).details.noticeId,firstId,'new blocked episode has a distinct receiver notice');
- const event={type:'error',text:'[completion error: retries exhausted]',errorMessage:'retries exhausted',eventId:'failure-event',agentId:'agent',runId:'run',sequence:1};
+ const event={type:'error',text:'[completion error: retries exhausted]',errorMessage:'retries exhausted',eventId:'run',agentId:'agent',runId:'run',sequence:1};
+ const invalid={...event,eventId:'failure-event'};
+ writeFileSync(child+'.exit',JSON.stringify(invalid));
+ assert.equal((await waitForAgentEvent({target:'worker',timeout:0},{availability})).data.status,'timeout','own failure event/run conflict is not an available terminal event');
+ const {DeliveryLedger}=await jiti.import('../src/delivery-ledger.ts');
+ for(const params of [{},{reread:true},{ack:{eventId:'run',agentId:'agent',runId:'run',sequence:1,hostFile:host}}]) {
+  const refused=await call(params);assert.equal(refused.isError,true);assert.equal(refused.details.result,undefined);
+  assert.equal(new DeliveryLedger(host).reconcile('run'),undefined,'invalid failure cannot claim/ACK the accepted run');
+  assert.equal(new DeliveryLedger(host).reconcile('failure-event'),undefined);
+ }
  writeFileSync(child+'.exit',JSON.stringify(event));
- const waiting=await waitForAgentEvent({target:'worker',timeout:5},{availability});assert.equal(waiting.data.eventId,'failure-event');
+ const waiting=await waitForAgentEvent({target:'worker',timeout:5},{availability});assert.equal(waiting.data.eventId,'run');
  const failure=await call({});assert.equal(failure.details.status,'error');assert.equal(failure.details.result,event.text);assert.equal(failure.details.delivery.eventId,event.eventId);
  assert.equal((await call({})).details.result,undefined,'terminal failure body uses the same exclusive ledger claim as success');
  writeFileSync(child+'.exit',JSON.stringify({...event,runId:'stale-run'}));

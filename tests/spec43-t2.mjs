@@ -1,11 +1,24 @@
 import assert from 'node:assert/strict';
 import {createJiti} from 'jiti';
-import {mkdtempSync,writeFileSync,readFileSync,rmSync,existsSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chmodSync} from 'node:fs';
 import {spawn} from 'node:child_process';
-const jiti=createJiti(import.meta.url);
+import fs from 'node:fs';
+import childProcess from 'node:child_process';
+import {syncBuiltinESMExports} from 'node:module';
+// Install forwarding system-boundary hooks before Jiti captures builtin exports.
+const nativeIO={openSync:fs.openSync,writeFileSync:fs.writeFileSync,fsyncSync:fs.fsyncSync,linkSync:fs.linkSync,renameSync:fs.renameSync,spawn:childProcess.spawn};
+const io={...nativeIO};
+fs.openSync=(...args)=>io.openSync(...args);
+fs.writeFileSync=(...args)=>io.writeFileSync(...args);
+fs.fsyncSync=(...args)=>io.fsyncSync(...args);
+fs.linkSync=(...args)=>io.linkSync(...args);
+fs.renameSync=(...args)=>io.renameSync(...args);
+childProcess.spawn=(...args)=>io.spawn(...args);
+syncBuiltinESMExports();
+const jiti=createJiti(import.meta.url,{fsCache:false});
 const packageFiles=JSON.parse(readFileSync(new URL('../package.json',import.meta.url),'utf8')).files;
 assert.ok(packageFiles.includes('src/**/*.mjs'),'published package includes native worker and shared transport');
 assert.ok(packageFiles.includes('src/**/*.d.mts'),'published package includes strict TypeScript declarations for the shared transport');
@@ -136,10 +149,202 @@ try {
  assert.equal(pushes.length,1,'restored retry does not redeliver');assert.equal(restored.paneClosePending,false);
  const stale={...bad,runId:'new-run'};
  await deliverOnce({...deps,registry:()=>new Map([['child',stale]])});assert.equal(closes,2,'stale close cannot close new run');
+ const {ParentNotifyStore,parentNotifyPath}=await jiti.import('../src/parent-notify-store.ts');
+ const receiver=join(dir,'governance-parent.jsonl');writeFileSync(receiver,'');
  const missing={...record,delivery:undefined};const notices=[];
- await deliverOnce({...deps,registry:()=>new Map([['child',missing]]),readSidecar:()=>({state:'ok',sidecar:{type:'done',eventId:'run'}}),push:p=>notices.push(p)});
+ const noticeDeps={...deps,sessionPath:receiver,registry:()=>new Map([['child',missing]]),
+  readSidecar:()=>({state:'ok',sidecar:{type:'done',eventId:'run'}}),
+  push:p=>{notices.push(p);new ParentNotifyStore(receiver).put(p);}};
+ await deliverOnce(noticeDeps);
  assert.equal(missing.delivery,undefined);assert.equal(closes,2);assert.equal(notices[0].details.kind,'persistence-error');
- await deliverOnce({...deps,registry:()=>new Map([['child',missing]]),readSidecar:()=>({state:'ok',sidecar:{type:'done',eventId:'run'}}),push:p=>notices.push(p)});
- assert.equal(notices.length,1,'governance notification is deduplicated');
- console.log('spec43-t2: stable durable event, recovery, close reload/retry and stale guards passed');
-}finally{keys.forEach((k,i)=>old[i]===undefined?delete process.env[k]:process.env[k]=old[i]);rmSync(dir,{recursive:true,force:true});}
+ await deliverOnce(noticeDeps);
+ assert.equal(notices.length,2,'a saved diagnostic is not evidence of receiver acceptance; retry admission');
+ assert.equal(notices[1].details.eventId,notices[0].details.eventId,'retry retains the governance notice identity');
+ assert.equal(notices[1].content,notices[0].content);
+ const pending=new ParentNotifyStore(receiver).pending();
+ assert.equal(pending.length,1,'disk-reopened durable receiver accepts the same notice once');
+ assert.equal(pending[0].content,notices[0].content);
+ assert.equal(pending[0].details.eventId,notices[0].details.eventId);
+ assert.notEqual(pending[0].details.eventId,'run','governance cannot consume the completion identity');
+ assert.notEqual(pending[0].details.eventId,pending[0].details.completionEventId,'notice identity stays separate from the referenced completion');
+ // Acceptance is not host delivery. Real SDK/SessionManager commitment is verified separately.
+ for(const failure of ['acceptance-eio','store-unreadable']) {
+  const failedReceiver=join(dir,failure+'-parent.jsonl');writeFileSync(failedReceiver,'');
+  const failedRecord={...record,delivery:undefined};const attempts=[];
+  if(failure==='store-unreadable')mkdirSync(parentNotifyPath(failedReceiver));
+  const retryDeps={...noticeDeps,sessionPath:failedReceiver,registry:()=>new Map([['child',failedRecord]]),push:p=>{
+   attempts.push(p);
+   if(failure==='acceptance-eio'&&attempts.length===1)throw Object.assign(new Error('injected receiver acceptance EIO'),{code:'EIO'});
+   new ParentNotifyStore(failedReceiver).put(p);
+  }};
+  await assert.rejects(deliverOnce(retryDeps),error=>error.code===(failure==='acceptance-eio'?'EIO':'EISDIR'));
+  assert.ok(failedRecord.pushError,'persisted diagnostic survives the rejected acceptance');
+  if(failure==='store-unreadable')rmSync(parentNotifyPath(failedReceiver),{recursive:true});
+  assert.equal(new ParentNotifyStore(failedReceiver).pending().length,0,'rejected acceptance saved no notice');
+  await deliverOnce(retryDeps);await deliverOnce(retryDeps);
+  assert.equal(attempts.length,3,'storage recovery retries acceptance despite the same saved diagnostic');
+  assert.equal(new Set(attempts.map(p=>p.details.eventId)).size,1);
+  const recoveredNotices=new ParentNotifyStore(failedReceiver).pending();
+  assert.equal(recoveredNotices.length,1,'recovered receiver durably deduplicates successful retries');
+  assert.equal(recoveredNotices[0].content,attempts[0].content);
+  assert.equal(recoveredNotices[0].details.eventId,attempts[0].details.eventId);
+  assert.equal(failedRecord.delivery,undefined);assert.equal(closes,2);
+ }
+ // Real extension registration; only filesystem, process and UI boundaries are controlled.
+ function completionFixture(name,autoExit=true) {
+  const session=join(dir,`${name}.jsonl`);
+  writeFileSync(session,'');
+  Object.assign(process.env,{PI_HERDR_SESSION:session,PI_HERDR_AGENT_ID:'agent',PI_HERDR_RUN_ID:'run',PI_HERDR_SEQUENCE:'1',PI_HERDR_AUTO_EXIT:autoExit?'1':'0',HERDR_PANE_ID:'offline-pane'});
+  const callbacks={},registered=[],notices=[];
+  let shutdowns=0;
+  const ctx={shutdown:()=>shutdowns++,ui:{notify:(message,level)=>notices.push({message,level})}};
+  registerChildExtension({on:(name,handler)=>(callbacks[name]??=[]).push(handler),registerTool:tool=>registered.push(tool),registerShortcut(){}});
+  return {session,ctx,notices,get shutdowns(){return shutdowns;},
+   emit:async(name,event={})=>{for(const handler of callbacks[name]??[])await handler(event,ctx);},
+   done:()=>registered.find(tool=>tool.name==='agent_done').execute('done',{},undefined,undefined,ctx),
+   final:()=>writeFileSync(session,JSON.stringify({type:'message',message:{role:'assistant',content:[{type:'text',text:'FULL FINAL RESULT'}]}})+'\n')};
+ }
+ async function doubleFailure(autoExit) {
+  const f=completionFixture(`double-failure-${autoExit}`,autoExit);
+  await f.emit('agent_start');f.final();
+  await f.emit('agent_end',{messages:[{role:'assistant',stopReason:'stop'}]});
+  const originals={...io};
+  let eventFailures=0,diagnosticFailures=0,recycles=0;
+  io.openSync=(path,...args)=>{
+   if(String(path).startsWith(f.session+'.completion-run.json')){eventFailures++;throw new Error('injected completion ENOSPC');}
+   return originals.openSync(path,...args);
+  };
+  io.writeFileSync=(path,...args)=>{
+   if(path===f.session+'.exit.run.tmp'){diagnosticFailures++;throw new Error('injected diagnostic EIO');}
+   return originals.writeFileSync(path,...args);
+  };
+  io.spawn=()=>{recycles++;return {on(){},unref(){}};};
+  syncBuiltinESMExports();
+  try {
+   await f.emit('agent_settled');
+   if(autoExit) {
+    assert.equal(eventFailures,1,'fault reached the actual completion publication');assert.equal(diagnosticFailures,1,'diagnostic publication also failed');
+    assert.ok(f.notices.some(n=>n.level==='error'&&/completion.*persist/i.test(n.message)&&/ENOSPC/.test(n.message)), 'autonomous double failure must remain visible even without a diagnostic file');
+   } else {
+    assert.equal(eventFailures,0,'interactive natural settle must not persist/exit');
+    assert.deepEqual(f.notices,[]);
+   }
+   const result=await f.done();
+   assert.equal(result.isError,true,'explicit done reports persistence failure');
+   assert.match(result.content[0].text,/not persisted/);
+   assert.equal(f.shutdowns,0);assert.equal(recycles,0);
+   assert.equal(existsSync(f.session+'.recycle.json'),false);
+  } finally {Object.assign(io,originals);}
+ }
+ await doubleFailure(true);
+ await doubleFailure(false);
+ async function directoryDurability(failedStage) {
+  const f=completionFixture(`directory-sync-${failedStage||'success'}`);
+  await f.emit('agent_start');f.final();
+  const originals={...io},trace=[];
+  let stage,failed=false,recycles=0;
+  const eventPath=f.session+'.completion-run.json';
+  const classify=path=>path===eventPath?'completion':path===f.session+'.exit'?'legacy':path===f.session+'.recycle.json'?'recycle':undefined;
+  io.linkSync=(source,target)=>{
+   try {return originals.linkSync(source,target);} finally {stage=classify(target);if(stage)trace.push(`publish:${stage}`);}
+  };
+  io.renameSync=(source,target)=>{
+   const result=originals.renameSync(source,target);stage=classify(target);if(stage)trace.push(`publish:${stage}`);return result;
+  };
+  io.fsyncSync=fd=>{
+   if(fs.fstatSync(fd).isDirectory()) {
+    trace.push(`sync:${stage}`);
+    if(stage===failedStage&&!failed){failed=true;throw new Error(`injected ${stage} directory fsync EIO`);}
+   }
+   return originals.fsyncSync(fd);
+  };
+  io.spawn=()=>{trace.push('recycle-worker');recycles++;return {on(){},unref(){}};};
+  try {
+   const result=await f.done();
+   if(failedStage) {
+    assert.equal(failed,true,`${failedStage} must reach directory fsync`);
+    assert.equal(result.isError,true,'dirfsync failure must not claim durable success');
+    assert.equal(f.shutdowns,0);assert.equal(recycles,0,'unsynced publication must not launch recycle');
+    const archived=readFileSync(eventPath,'utf8');
+    trace.length=0;
+    const retry=await f.done();
+    assert.notEqual(retry.isError,true,'same-run completion recovers when fsync recovers');
+    assert.deepEqual(trace,['publish:completion','sync:completion','publish:legacy','sync:legacy','publish:recycle','sync:recycle','recycle-worker'],'retry must immediately sync every publication before worker launch');
+    assert.equal(readFileSync(eventPath,'utf8'),archived,'retry preserves the already published event and full final');
+    const completionFiles=fs.readdirSync(dir).filter(name=>name.startsWith(`directory-sync-${failedStage}.jsonl.completion-`)&&name.endsWith('.json'));
+    assert.equal(completionFiles.length,1,'recovery does not mint another completion event');
+    assert.equal(f.shutdowns,1);assert.equal(recycles,1);
+   } else {
+    assert.notEqual(result.isError,true);
+    assert.deepEqual(trace,['publish:completion','sync:completion','publish:legacy','sync:legacy','publish:recycle','sync:recycle','recycle-worker'],'all publications must be directory-synced before recycle and completion success');
+    assert.equal(f.shutdowns,1);assert.equal(recycles,1);
+   }
+  } finally {Object.assign(io,originals);}
+ }
+ // Simulation only: real file/link/rename I/O on Darwin, Windows platform capability.
+ async function windowsCapability(settled=false) {
+  const platform=Object.getOwnPropertyDescriptor(process,'platform'),originals={...io};
+  Object.defineProperty(process,'platform',{...platform,value:'win32'});
+  const f=completionFixture(`windows-simulation-${settled}`);
+  let fileFlushes=0,recycles=0;
+  io.openSync=(path,...args)=>{
+   if(String(path)===dir)throw Object.assign(new Error('Windows directory open unsupported'),{code:'EISDIR'});
+   return originals.openSync(path,...args);
+  };
+  io.fsyncSync=fd=>{assert.equal(fs.fstatSync(fd).isDirectory(),false,'Windows branch must not fsync directory descriptors');fileFlushes++;return originals.fsyncSync(fd);};
+  io.spawn=()=>{recycles++;return {on(){},unref(){}};};
+  try {
+   await f.emit('agent_start');f.final();
+   if(settled){await f.emit('agent_end',{messages:[{role:'assistant',stopReason:'stop'}]});await f.emit('agent_settled');}
+   else assert.notEqual((await f.done()).isError,true,'Windows completion must succeed with file-flushed capability');
+   const event=JSON.parse(readFileSync(f.session+'.completion-run.json','utf8'));
+   assert.equal(event.persistenceCapability,'file-flushed/process-restart');
+   assert.equal(event.text,'FULL FINAL RESULT');
+   assert.ok(fileFlushes>=3,'archive, bridge and recycle intent files are flushed');
+   assert.equal(f.shutdowns,1);assert.equal(recycles,1);
+   const archived=readFileSync(f.session+'.completion-run.json','utf8');
+   await f.done();
+   assert.equal(readFileSync(f.session+'.completion-run.json','utf8'),archived);
+   assert.equal(recycles,1,'retry cannot launch another recycle');
+  } finally {Object.assign(io,originals);Object.defineProperty(process,'platform',platform);}
+ }
+ await windowsCapability();await windowsCapability(true);
+ async function actualIOFailure(platformName,operation) {
+  const platform=Object.getOwnPropertyDescriptor(process,'platform'),originals={...io};
+  Object.defineProperty(process,'platform',{...platform,value:platformName});
+  const f=completionFixture(`io-${platformName}-${operation}`);
+  let failed=false,recycles=0;
+  const fail=()=>{failed=true;throw Object.assign(new Error(`injected ${operation} EIO`),{code:'EIO'});};
+  io.writeFileSync=(target,...args)=>{
+   if(operation==='write'&&!failed&&typeof target==='number')fail();
+   return originals.writeFileSync(target,...args);
+  };
+  io.fsyncSync=fd=>{
+   if(operation==='file-fsync'&&!failed&&!fs.fstatSync(fd).isDirectory())fail();
+   return originals.fsyncSync(fd);
+  };
+  io.linkSync=(source,target)=>{
+   if(operation==='link'&&!failed)fail();return originals.linkSync(source,target);
+  };
+  io.renameSync=(source,target)=>{
+   if(operation==='rename'&&!failed&&target===f.session+'.exit')fail();return originals.renameSync(source,target);
+  };
+  io.spawn=()=>{recycles++;return {on(){},unref(){}};};
+  try {
+   await f.emit('agent_start');f.final();
+   assert.equal((await f.done()).isError,true);
+   assert.equal(failed,true);assert.equal(f.shutdowns,0);assert.equal(recycles,0);
+   assert.match(JSON.parse(readFileSync(f.session+'.exit','utf8')).errorMessage,/EIO/);
+   const eventPath=f.session+'.completion-run.json';
+   const archived=existsSync(eventPath)?readFileSync(eventPath,'utf8'):undefined;
+   assert.notEqual((await f.done()).isError,true,'recovered I/O permits same-run retry');
+   if(archived)assert.equal(readFileSync(eventPath,'utf8'),archived,'EEXIST recovery never replaces the committed body');
+   assert.equal(JSON.parse(readFileSync(eventPath,'utf8')).text,'FULL FINAL RESULT');
+   assert.equal(f.shutdowns,1);assert.equal(recycles,1);
+  } finally {Object.assign(io,originals);Object.defineProperty(process,'platform',platform);}
+ }
+ for(const platformName of ['darwin','win32'])for(const operation of ['write','file-fsync','link','rename'])await actualIOFailure(platformName,operation);
+ await directoryDurability();
+ for(const stage of ['completion','legacy','recycle'])await directoryDurability(stage);
+ console.log('spec43-t2: stable durable event, recovery, close reload/retry, stale guards, visible failures and directory durability passed');
+}finally{Object.assign(fs,{openSync:nativeIO.openSync,writeFileSync:nativeIO.writeFileSync,fsyncSync:nativeIO.fsyncSync,linkSync:nativeIO.linkSync,renameSync:nativeIO.renameSync});childProcess.spawn=nativeIO.spawn;syncBuiltinESMExports();keys.forEach((k,i)=>old[i]===undefined?delete process.env[k]:process.env[k]=old[i]);rmSync(dir,{recursive:true,force:true});}

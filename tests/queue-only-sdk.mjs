@@ -40,4 +40,4 @@ try{
  cpSync(sp,join(artifacts,'sdk-session.jsonl'));
  writeFileSync(join(artifacts,'result.json'),JSON.stringify({exitCode:0,realAgentSession:true,busyToolContinues:true,idleNoModelCall:true,nextTurnConsumed:true,mailboxAcknowledged:true,streams:streams().length},null,2));
  console.log(`GREEN QueueOnly installed SDK ${artifacts}`);
-}finally{session?.dispose();rmSync(scratch,{recursive:true,force:true});const dest=join('/tmp/spec43-notes/evidence/spec43-t4',artifacts.split('/').at(-1));mkdirSync(dest,{recursive:true});cpSync(artifacts,dest,{recursive:true});}
+}finally{session?.dispose();rmSync(scratch,{recursive:true,force:true});const dest=join(tmpdir(),'spec43-notes/evidence/spec43-t4',artifacts.split('/').at(-1));mkdirSync(dest,{recursive:true});cpSync(artifacts,dest,{recursive:true});}

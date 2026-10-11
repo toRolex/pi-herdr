@@ -16,7 +16,7 @@ function fixture() {
  manager.appendMessage({ role: 'user', content: [{ type: 'text', text: 'start' }], timestamp: 1 });
  const hostFile = manager.getSessionFile(), child = join(folder, 'child.jsonl');
  writeFileSync(child, '');
- const event = { type: 'done', text: body, eventId: `event-${count}`, agentId: `agent-${count}`, runId: `run-${count}`, sequence: 1 };
+ const event = { type: 'done', text: body, eventId: `run-${count}`, agentId: `agent-${count}`, runId: `run-${count}`, sequence: 1 };
  const record = { name: 'child', kind: 'pi', paneId: 'w1:p1', sessionPath: child, ...event }; delete record.text;
  writeFileSync(child + '.exit', JSON.stringify(event)); writeFileSync(child + `.completion-${event.eventId}.json`, JSON.stringify(event));
  let tool;
@@ -106,8 +106,20 @@ try {
  try { DeliveryLedger.prototype.save = function(events) { if (this.hostFile === failed.hostFile && events[failed.event.eventId]?.status === 'acked') throw new Error('injected ACK write failure'); return originalSave.call(this, events); }; const reply = await failed.call({ ack: failed.ack }); assert.equal(reply.isError, true); noBody(reply); }
  finally { DeliveryLedger.prototype.save = originalSave; }
  assert.equal((await failed.call()).details.result, body);
+ const illegal = fixture();
+ const invalidEvent = { ...illegal.event, eventId: 'unmatched-event' };
+ writeFileSync(illegal.child + '.exit',JSON.stringify(invalidEvent));
+ writeFileSync(illegal.child + `.completion-${illegal.event.eventId}.json`,JSON.stringify(invalidEvent));
+ for(const params of [{},{reread:true},{ack:illegal.ack}]) {
+  const refused=await illegal.call(params);assert.equal(refused.isError,true);noBody(refused);
+  assert.equal(new DeliveryLedger(illegal.hostFile).reconcile(illegal.event.eventId),undefined,'invalid archive cannot claim or ACK the accepted run');
+  assert.equal(new DeliveryLedger(illegal.hostFile).reconcile(invalidEvent.eventId),undefined);
+ }
+ const {waitForAgentEvent,createEventAvailability}=await jiti.import('../src/tools/wait.ts');
+ const illegalAvailability=createEventAvailability({registry:()=>new Map([['child',illegal.record]]),status:async()=>({ok:true,data:'working'})});
+ assert.equal((await waitForAgentEvent({target:'child',timeout:0},{availability:illegalAvailability})).data.status,'timeout','own event/run conflict cannot become available');
  const old = fixture(); noBody(await old.call({ ack: old.ack })); old.record.runId = 'future-run'; old.record.sequence = 2;
- const next = { ...old.event, eventId: 'future-event', runId: 'future-run', sequence: 2 }; writeFileSync(old.child + '.exit', JSON.stringify(next));
+ const next = { ...old.event, eventId: 'future-run', runId: 'future-run', sequence: 2 }; writeFileSync(old.child + '.exit', JSON.stringify(next));
  assert.equal((await old.call()).details.result, body); assert.equal((await old.call({ target: old.event.eventId, reread: true })).details.runId, old.event.runId);
  await sdkDemo();
  console.log('spec43 T11: explicit reread/ACK + real SDK persisted body/UI receipts passed');

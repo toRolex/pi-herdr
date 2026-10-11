@@ -33,10 +33,11 @@ import { registerQueueOnlyReceiver } from "./queue-only-inbox.js";
 import { resolveHerdrBin } from "./herdr-transport.mjs";
 import { resetCompletionEvent } from "./completion-event.js";
 import { parseTriggerTurn } from "./agent-message.js";
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, fsyncSync, linkSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 import {
 	assistantText,
 	parseSessionEntries,
@@ -491,11 +492,23 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		worker.unref();
 	}
 
+	// Windows file fsync uses FlushFileBuffers, not a parent-directory flush.
+	// Keep publication recoverable across process restart without claiming
+	// directory-entry survival across power loss on that platform.
+	const directorySyncSupported = process.platform !== "win32";
+
+	function syncDirectory(path: string): void {
+		if (!directorySyncSupported) return;
+		const fd = openSync(dirname(path), "r");
+		try { fsyncSync(fd); } finally { closeSync(fd); }
+	}
+
 	function writeDurable(path: string, text: string): void {
 		const temporary = `${path}.${completionEventId}.tmp`;
 		const fd = openSync(temporary, "w", 0o600);
 		try { writeFileSync(fd, text); fsyncSync(fd); } finally { closeSync(fd); }
 		renameSync(temporary, path);
+		syncDirectory(path);
 	}
 
 	function writeSidecar(
@@ -509,6 +522,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 					eventId?: string;
 			  }
 			| { type: "persistence-error"; errorMessage: string; eventId?: string },
+		reportError?: (message: string) => void,
 	): boolean {
 		if (completionSaved) return true;
 		try {
@@ -536,15 +550,24 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 				...rootField,
 				...eventField,
 				...identity,
+				...(!directorySyncSupported ? { persistenceCapability: "file-flushed/process-restart" } : {}),
 			});
 			// Save the event first; the legacy bridge is never the only copy.
 			const eventPath = `${session}.completion-${completionEventId}.json`;
-			if (existsSync(eventPath)) {
-				if (readFileSync(eventPath, "utf8") !== encoded) throw new Error("completion event is already committed with different content");
-			} else {
-				const eventFd = openSync(eventPath, "wx", 0o600);
+			const temporary = `${eventPath}.${randomUUID()}.tmp`;
+			try {
+				const eventFd = openSync(temporary, "wx", 0o600);
 				try { writeFileSync(eventFd, encoded); fsyncSync(eventFd); } finally { closeSync(eventFd); }
+				// A same-directory hard link publishes the complete inode atomically
+				// without replacing another writer's already committed event.
+				try { linkSync(temporary, eventPath); } catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+					if (readFileSync(eventPath, "utf8") !== encoded) throw new Error("completion event is already committed with different content");
+				}
+			} finally {
+				try { unlinkSync(temporary); } catch { /* unpublished scratch is never a completion event */ }
 			}
+			syncDirectory(eventPath);
 			writeDurable(sidecarPath, encoded);
 			scheduleRecycle();
 			completionSaved = true;
@@ -561,7 +584,8 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 					...(rootSession ? { rootSession } : {}),
 				}));
 				renameSync(failurePath, sidecarPath);
-			} catch { /* surfaced through the missing declaration and retained pane */ }
+			} catch { /* UI/tool error remains visible even when diagnostic storage fails. */ }
+			reportError?.(`Completion persistence failed: ${message}; session remains open for recovery.`);
 			return false;
 		}
 	}
@@ -654,39 +678,55 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		}
 	}
 
+	function resetStructured(): void {
+		if (!structured) return;
+		// The registered tool holds this object; reset it in place, not by replacement.
+		structured.json = undefined;
+		structured.lastError = undefined;
+		structured.called = false;
+	}
+
 	let busy = false;
 	let started = false;
-	let followupAccepted = false;
 	const queuedInputs = new Set<string>();
 	pi.on("input", (event) => {
 		if (event.source === "extension" && queuedInputs.delete(event.text)) return { action: "continue" };
 		if (busy) {
 			queuedInputs.add(event.text);
-			pi.sendUserMessage(event.text, { deliverAs: "followUp" });
+			pi.sendUserMessage(event.images?.length ? [{ type: "text", text: event.text }, ...event.images] : event.text, { deliverAs: "followUp" });
 			return { action: "handled" };
 		}
 		// Any input stops a pending error-exit: the pane is about to be busy
 		// again, and the next settle reschedules.
 		cancelErrorExit();
-		const followup = parseTriggerTurn(event.text);
-		if (!followup) return;
-		followupAccepted = true;
+	});
+	// SDK followUp replays input when enqueuing, not when consuming it, and
+	// may drain within the same agent_start. Bind only at the real user boundary.
+	pi.on("message_start", (event) => {
+		if (event.message.role !== "user") return;
+		const content = event.message.content;
+		const text = typeof content === "string" ? content : content.filter(part => part.type === "text").map(part => part.text).join("\n");
+		const followup = parseTriggerTurn(text);
+		if (!followup || followup.runId === identity.runId) return;
 		identity = { ...identity, runId: followup.runId, sequence: 1 };
 		completionEventId = followup.runId;
 		completionSaved = false;
+		resetStructured();
 		latestMessages = undefined;
+		runStart = completionEntries(session).length;
+		cancelErrorExit();
 		try { writeFileSync(`${session}.completion-event`, completionEventId, { mode: 0o600 }); } catch { /* durable declaration carries identity */ }
 	});
 	pi.on("agent_start", () => {
 		busy = true;
-		if (started && completionSaved && !followupAccepted) {
+		if (started && completionSaved) {
 			completionEventId = randomUUID();
 			identity = { ...identity, runId: completionEventId, sequence: 1 };
 			completionSaved = false;
+			resetStructured();
 		}
 		started = true;
-		followupAccepted = false;
-		if (!identity.runId) { completionEventId = resetCompletionEvent(session); completionSaved = false; }
+		if (!identity.runId) { completionEventId = resetCompletionEvent(session); completionSaved = false; resetStructured(); }
 		else { try { writeFileSync(`${session}.completion-event`, completionEventId, { mode: 0o600 }); } catch { /* durable declaration carries identity */ } }
 		latestMessages = undefined;
 		runStart = completionEntries(session).length;
@@ -710,7 +750,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		if (!failed) {
 			// Clean completion: the definitive settle. Sidecar + exit.
 			cancelErrorExit();
-			if (writeSidecar(buildCompletionSidecar(latestMessages, completionEventId))) ctx.shutdown();
+			if (writeSidecar(buildCompletionSidecar(latestMessages, completionEventId), message => ctx.ui.notify(message, "error"))) ctx.shutdown();
 			return;
 		}
 		// Settled on an error: NOT yet exhaustion. Give pi's retry machine a
@@ -719,7 +759,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		cancelErrorExit();
 		errorExitTimer = setTimeout(() => {
 			errorExitTimer = null;
-			if (writeSidecar(buildCompletionSidecar(latestMessages, completionEventId))) ctx.shutdown();
+			if (writeSidecar(buildCompletionSidecar(latestMessages, completionEventId), message => ctx.ui.notify(message, "error"))) ctx.shutdown();
 		}, errorExitGraceMs());
 		errorExitTimer.unref?.();
 	});

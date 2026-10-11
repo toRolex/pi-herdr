@@ -19,14 +19,19 @@
 import { randomUUID } from "node:crypto";
 import { validEventId } from "./completion-event.js";
 import {
+	closeSync,
 	existsSync,
+	fsyncSync,
+	linkSync,
 	mkdirSync,
+	openSync,
 	readFileSync,
+	renameSync,
 	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 // ---- the pi-default sessions dir -------------------------------------------
@@ -417,6 +422,7 @@ export type ExitSidecar = { agentId?: string; runId?: string; sequence?: number 
 	  }
 	| {
 			type: "error";
+			persistenceCapability?: "file-flushed/process-restart";
 			errorMessage: string;
 			stopReason: string;
 			text?: string;
@@ -522,6 +528,7 @@ export function parseExitSidecar(
 			ok: true,
 			sidecar: {
 				type: "error",
+				...(o.persistenceCapability === "file-flushed/process-restart" ? { persistenceCapability: o.persistenceCapability } : {}),
 				...identity,
 				errorMessage: message,
 				stopReason,
@@ -532,6 +539,121 @@ export function parseExitSidecar(
 		};
 	}
 	return { ok: false };
+}
+
+export interface AcceptedStartFailureRecord {
+	name: string;
+	kind: string;
+	agentId?: string;
+	runId?: string;
+	pendingRunId?: string;
+	sequence?: number;
+	sessionPath?: string;
+	startError?: string;
+	identityReviewRequired?: boolean;
+	lineage?: { rootSession?: string; ownerSession?: string };
+	cwd?: string;
+	worktreePath?: string;
+	spawnedAt?: number;
+}
+
+/** Recovery may write only the agreeing, trusted acceptance registry owner. */
+export function resolveAcceptedFailureOwner(record: AcceptedStartFailureRecord, parentSession?: string, currentSession?: string): string {
+	const candidates = [parentSession, currentSession, record.lineage?.ownerSession].filter((owner): owner is string => Boolean(owner?.trim()));
+	if (!candidates.length) throw new Error("accepted failure registry owner unavailable");
+	if (new Set(candidates).size !== 1) throw new Error("accepted failure registry owner conflict");
+	const owner = candidates[0];
+	if (!parentSession && !currentSession) {
+		const saved: unknown = JSON.parse(readFileSync(`${owner}.registry.json`, "utf8"));
+		const belongs = Array.isArray(saved) && saved.some(row => row?.name === record.name && row?.agentId === record.agentId &&
+			(row.runId === record.runId || row.pendingRunId === record.runId ||
+				(Array.isArray(row.pendingFollowups) && row.pendingFollowups.some((item: { runId?: string }) => item?.runId === record.runId))));
+		if (!record.agentId || !record.runId || !belongs) throw new Error("accepted failure lineage owner does not own this acceptance");
+	}
+	return owner;
+}
+
+/** Save an accepted run's definitive launch failure, never a retry-in-flight error.
+ * Missing identity or any storage failure throws: a diagnostic is not a saved event. */
+export function saveAcceptedStartFailure(record: AcceptedStartFailureRecord): Extract<ExitSidecar, { type: "error" }> | undefined {
+	if (!record.startError || record.kind.toLowerCase() !== "pi") return undefined;
+	if (record.pendingRunId && record.pendingRunId !== record.runId) {
+		throw new Error("accepted start failure run identity is not activated");
+	}
+	if (record.identityReviewRequired || !record.agentId || !validEventId(record.runId) || !Number.isInteger(record.sequence) || record.sequence! < 1) {
+		throw new Error("accepted start failure identity requires review");
+	}
+	if (!record.sessionPath) {
+		// Completion lookup is indexed by sessionPath. An empty, resumable pi
+		// substrate stores the failed acceptance; it is not execution history.
+		// Stable acceptance time/run makes retries reconstruct the same path even
+		// if the registry write failed after seeding. Never overwrite a transcript.
+		const seeded = seedSessionFile(record.worktreePath ?? record.cwd ?? process.cwd(), {
+			now: () => new Date(record.spawnedAt ?? 0), uuid: () => record.runId!,
+			writeFile(path) {
+				try { writeFileSync(path, "", { flag: "wx", mode: 0o600 }); }
+				catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+					if (readFileSync(path, "utf8") !== "") throw new Error("accepted start failure substrate conflicts with an existing transcript");
+				}
+				const fd = openSync(path, "r");
+				try { fsyncSync(fd); } finally { closeSync(fd); }
+			},
+		});
+		record.sessionPath = seeded.path;
+	}
+	let sidecar: Extract<ExitSidecar, { type: "error" }> = {
+		type: "error", agentId: record.agentId, runId: record.runId, sequence: record.sequence,
+		...(process.platform === "win32" ? { persistenceCapability: "file-flushed/process-restart" as const } : {}),
+		eventId: record.runId, stopReason: "start-error", errorMessage: record.startError,
+		text: `Agent "${record.name}" never started: ${record.startError}`,
+		...(record.lineage?.rootSession ? { rootSession: record.lineage.rootSession } : {}),
+	};
+	const eventPath = `${record.sessionPath}.completion-${sidecar.eventId}.json`;
+	let encoded = JSON.stringify(sidecar);
+	if (existsSync(eventPath)) {
+		// The committed event, not a later mutable diagnostic, owns its body.
+		encoded = readFileSync(eventPath, "utf8");
+		const saved = parseExitSidecar(encoded);
+		if (!saved.ok || saved.sidecar.type !== "error" || saved.sidecar.stopReason !== "start-error" ||
+			saved.sidecar.eventId !== record.runId || saved.sidecar.agentId !== record.agentId ||
+			saved.sidecar.runId !== record.runId || saved.sidecar.sequence !== record.sequence || !saved.sidecar.text?.trim()) {
+			throw new Error("accepted start failure conflicts with a committed completion event");
+		}
+		sidecar = saved.sidecar;
+	}
+	publishStartFailure(eventPath, encoded, true);
+	const bridge = readExitSidecar(record.sessionPath);
+	// A delayed retry owns only its immutable event, not another run's latest
+	// declaration. Callers can consume the returned archive without the bridge.
+	if (bridge.state === "ok" && bridge.sidecar.type !== "persistence-error" &&
+		(bridge.sidecar.eventId !== sidecar.eventId || bridge.sidecar.agentId !== sidecar.agentId ||
+			bridge.sidecar.runId !== sidecar.runId || bridge.sidecar.sequence !== sidecar.sequence)) return sidecar;
+	publishStartFailure(sidecarPathFor(record.sessionPath), encoded, false);
+	return sidecar;
+}
+
+function publishStartFailure(path: string, encoded: string, immutable: boolean): void {
+	const temporary = `${path}.${randomUUID()}.tmp`;
+	let fd: number | undefined;
+	try {
+		fd = openSync(temporary, "wx", 0o600);
+		writeFileSync(fd, encoded); fsyncSync(fd); closeSync(fd); fd = undefined;
+		if (immutable) {
+			try { linkSync(temporary, path); }
+			catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+				if (readFileSync(path, "utf8") !== encoded) throw new Error("accepted start failure conflicts with a committed completion event");
+			}
+		} else renameSync(temporary, path);
+		if (process.platform !== "win32") {
+			fd = openSync(dirname(path), "r"); fsyncSync(fd);
+		}
+	} finally {
+		if (fd !== undefined) closeSync(fd);
+		try { unlinkSync(temporary); }
+		catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+	}
 }
 
 export type ReadSidecarResult =
