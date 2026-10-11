@@ -1,0 +1,13 @@
+{
+  "eventId": "event-pending",
+  "agentId": "agent-1",
+  "runId": "run-1",
+  "sequence": 1,
+  "sessionPath": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t12-migration-ZVW7BJ/worker.jsonl",
+  "token": "legacy-token-1",
+  "channel": "push",
+  "status": "pending",
+  "identityReviewRequired": false,
+  "diagnostic": "legacy pending outcome unknown; review host evidence; not retryable",
+  "updatedAt": 1791378986163
+}

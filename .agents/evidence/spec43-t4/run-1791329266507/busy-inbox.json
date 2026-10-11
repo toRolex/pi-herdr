@@ -1,0 +1,1 @@
+{"version":1,"messages":[{"from":"queue-demo-sender-026ae21d","to":"w8G:p1","body":"QUEUE_BUSY_PAYLOAD","text":"QUEUE_BUSY_PAYLOAD","id":"fd8e0950-4418-4b1b-84f1-c38caec04828","acceptedAt":1791329274536}],"arrivals":{"queue-demo-sender-026ae21d":[1791329274536]}}

@@ -1,0 +1,4 @@
+{
+  "message": "queue persisted only after legitimate user input",
+  "stack": "AssertionError [ERR_ASSERTION]: queue persisted only after legitimate user input\n    at file:///Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t4/tests/queue-only-live.mjs:72:2"
+}

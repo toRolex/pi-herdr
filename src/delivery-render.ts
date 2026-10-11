@@ -81,7 +81,7 @@ function eventIdOf(entry: NoticeEntry): string | undefined {
  * Present one notice per business event. A live agent-message and the
  * terminal completion that share `details.eventId` collapse to the
  * completion, whichever arrived first. Rows without that id (progress,
- * takeover, blocked) stay. Idempotent, so a reload of the same transcript
+ * legacy notices, blocked) stay. Idempotent, so a reload of the same transcript
  * does not grow a second copy. Content of what remains is unchanged.
  */
 export function presentNotices<T extends NoticeSessionEntry>(entries: readonly T[]): T[] {

@@ -1,0 +1,4 @@
+{
+  "feature": "spec43-t12-live-verify",
+  "boundary": "Production registered message/followup/workflow tool handlers; real Herdr CLI workspaces and real child pi TUIs; deterministic model provider only. Workflow host adapter launches a real pi child through the production spawn engine."
+}

@@ -1,0 +1,1 @@
+{"type":"error","errorMessage":"T10 unrecoverable failure","stopReason":"error","eventId":"t10-failed-7ea3d78c-8693-4336-a739-e07375b160a2","text":"[completion error: T10 unrecoverable failure]","agentId":"t10-failed-7ea3d78c-8693-4336-a739-e07375b160a2","runId":"t10-failed-7ea3d78c-8693-4336-a739-e07375b160a2","sequence":1}

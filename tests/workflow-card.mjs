@@ -808,6 +808,7 @@ process.on("exit", () => rmSync(tmp, { recursive: true, force: true }));
 		"herdr_message_agent",
 		"herdr_interrupt_agent",
 		"herdr_resume_agent",
+		"herdr_trigger_turn",
 		"herdr_list_agents",
 		"herdr_run_command",
 		"herdr_read_pane",

@@ -1,0 +1,200 @@
+{
+  "crossProcessQueueLoss": {
+    "before": {
+      "pid": 10149,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/queue/2026-10-08T14-56-25-620Z_01a11c03-fc14-7176-aba1-7a3be1318b64.jsonl",
+      "ledgerStatus": "queued",
+      "sdkQueue": 1,
+      "hostBodies": 0
+    },
+    "after": {
+      "pid": 10234,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/queue/2026-10-08T14-56-25-620Z_01a11c03-fc14-7176-aba1-7a3be1318b64.jsonl",
+      "ledgerStatus": "delivered",
+      "hostBodies": 1,
+      "firstRequestBodies": 1,
+      "requests": 2,
+      "outbox": 0,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true
+    }
+  },
+  "crossProcessUnknownPending": {
+    "before": {
+      "pid": 10888,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/pending-exit/2026-10-08T14-56-39-182Z_01a11c04-310e-7459-88d1-d8f0fa2b800e.jsonl",
+      "ledgerStatus": "pending",
+      "sdkQueue": 1,
+      "hostBodies": 0
+    },
+    "after": {
+      "pid": 10930,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/pending-exit/2026-10-08T14-56-39-182Z_01a11c04-310e-7459-88d1-d8f0fa2b800e.jsonl",
+      "ledgerStatus": "pending",
+      "hostBodies": 0,
+      "firstRequestBodies": 0,
+      "requests": 2,
+      "outbox": 1,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "neverUnlockedUnknownPending": true
+    }
+  },
+  "cases": {
+    "continuation": {
+      "pid": 10312,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/continuation/2026-10-08T14-56-27-811Z_01a11c04-04a3-73f0-8d70-406e6650f194.jsonl",
+      "ledgerStatus": "delivered",
+      "hostBodies": 1,
+      "firstRequestBodies": 0,
+      "requests": 3,
+      "outbox": 0,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "requestsAfterTool": 2,
+      "currentRunDelivered": true,
+      "aborts": 0,
+      "toolFinished": true
+    },
+    "terminate": {
+      "pid": 10323,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/terminate/2026-10-08T14-56-28-955Z_01a11c04-091a-73ca-9f65-3cef4e79d7c3.jsonl",
+      "ledgerStatus": "delivered",
+      "hostBodies": 1,
+      "firstRequestBodies": 0,
+      "requests": 2,
+      "outbox": 1,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "requestsAfterTool": 1,
+      "currentRunDelivered": false,
+      "aborts": 0,
+      "toolFinished": true
+    },
+    "mixed": {
+      "pid": 10343,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/mixed/2026-10-08T14-56-30-128Z_01a11c04-0db0-7132-9a37-851fc6624167.jsonl",
+      "ledgerStatus": "delivered",
+      "hostBodies": 1,
+      "firstRequestBodies": 0,
+      "requests": 3,
+      "outbox": 0,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "requestsAfterTool": 2,
+      "currentRunDelivered": true,
+      "aborts": 0,
+      "toolFinished": true
+    },
+    "quiet": {
+      "pid": 10355,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/quiet/2026-10-08T14-56-31-271Z_01a11c04-1227-714d-9834-e7d74b4058cf.jsonl",
+      "ledgerStatus": "delivered",
+      "hostBodies": 1,
+      "firstRequestBodies": 0,
+      "requests": 3,
+      "outbox": 1,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "requestsAfterTool": 2,
+      "currentRunDelivered": false,
+      "aborts": 0,
+      "toolFinished": true
+    },
+    "withdrawal": {
+      "pid": 10369,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/withdrawal/2026-10-08T14-56-32-665Z_01a11c04-1798-71fd-8e71-8e1d9ef18258.jsonl",
+      "ledgerStatus": "delivered",
+      "hostBodies": 1,
+      "firstRequestBodies": 0,
+      "requests": 3,
+      "outbox": 0,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "injectedClaimEIO": true,
+      "matchingWithdrawal": true,
+      "providerBodyCounts": [
+        0,
+        1,
+        1
+      ]
+    },
+    "batch-claim-failure": {
+      "pid": 10439,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/batch-claim-failure/2026-10-08T14-56-33-977Z_01a11c04-1cb8-7080-9951-ca4c16f5bd71.jsonl",
+      "ledgerStatus": "delivered",
+      "hostBodies": 1,
+      "firstRequestBodies": 0,
+      "requests": 4,
+      "outbox": 0,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "injectedSecondWriteEIO": true,
+      "failedState": "pending",
+      "firstDraftPreserved": true,
+      "secondProviderBodyCounts": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "aborts": 0
+    },
+    "batch-queue-failure": {
+      "pid": 10657,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/batch-queue-failure/2026-10-08T14-56-35-410Z_01a11c04-2252-77e4-ba75-c616c8c1dd21.jsonl",
+      "ledgerStatus": "delivered",
+      "hostBodies": 1,
+      "firstRequestBodies": 0,
+      "requests": 4,
+      "outbox": 0,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "injectedSecondWriteEIO": true,
+      "failedState": "queued",
+      "firstDraftPreserved": true,
+      "secondProviderBodyCounts": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "aborts": 0
+    },
+    "unknown-pending": {
+      "pid": 10768,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/unknown-pending/2026-10-08T14-56-36-779Z_01a11c04-27ab-7205-a035-9cd48fa676de.jsonl",
+      "ledgerStatus": "pending",
+      "hostBodies": 0,
+      "firstRequestBodies": 0,
+      "requests": 2,
+      "outbox": 1,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "neverUnlockedUnknownPending": true
+    },
+    "mismatch-receipt": {
+      "pid": 10816,
+      "hostFile": "/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/pr56-parent-sdk-C3EEUg/mismatch-receipt/2026-10-08T14-56-38-051Z_01a11c04-2ca3-76ec-992e-7905ac0d37c7.jsonl",
+      "ledgerStatus": "pending",
+      "hostBodies": 0,
+      "firstRequestBodies": 0,
+      "requests": 2,
+      "outbox": 1,
+      "realSDK": true,
+      "realSessionManager": true,
+      "productionRegisterDelivery": true,
+      "neverUnlockedUnknownPending": true
+    }
+  }
+}

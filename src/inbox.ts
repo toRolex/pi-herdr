@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, InputEvent, InputEventResult } from "@earendil-works/pi-coding-agent";
 import { herdr } from "./herdr.js";
 import { randomUUID } from "node:crypto";
+export { readQueueOnlyInbox, acknowledgeQueueOnlyInbox, enqueueQueueOnlyInbox, registerQueueOnlyReceiver } from "./queue-only-inbox.js";
 
 export interface InboundMessage {
 	from: string;
@@ -21,6 +22,8 @@ export interface InboxReceipt {
 }
 export interface ReceiverInboxDeps {
 	now?: () => number;
+	/** QueueOnly accepts are durably written by the caller before receive(). */
+	persist?: (message: InboundMessage) => void | Promise<void>;
 	deliver: (message: InboundMessage) => void | Promise<void>;
 	receipt: (receipt: InboxReceipt) => void | Promise<void>;
 }
@@ -77,6 +80,11 @@ export function createReceiverInbox(deps: ReceiverInboxDeps) {
 				if (bucket.times.length >= INBOUND_LIMIT) {
 					bucket.receipt = await emit("rate-limited", message.from, bucket.receipt);
 					return "refused" as const;
+				}
+				if (deps.persist) {
+					await deps.persist(message);
+					bucket.times.push(now);
+					return "pending" as const;
 				}
 				bucket.times.push(now);
 				pending.push(message);

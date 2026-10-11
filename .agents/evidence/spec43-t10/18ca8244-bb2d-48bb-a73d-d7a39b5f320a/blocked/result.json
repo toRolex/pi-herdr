@@ -1,0 +1,29 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Agent \"blocked\" finished — exact final message:\n\nT10_PERMISSION_RECOVERED"
+    }
+  ],
+  "details": {
+    "target": "blocked",
+    "name": "blocked",
+    "kind": "pi",
+    "source": "session-jsonl",
+    "sessionPath": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/blocked/child.jsonl",
+    "exitPath": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/blocked/child.jsonl.exit",
+    "agentId": "t10-blocked-f920a2d1-da3b-43e5-bf4d-50a72f4c33f6",
+    "runId": "t10-blocked-f920a2d1-da3b-43e5-bf4d-50a72f4c33f6",
+    "sequence": 1,
+    "eventId": "t10-blocked-f920a2d1-da3b-43e5-bf4d-50a72f4c33f6",
+    "status": "done",
+    "result": "T10_PERMISSION_RECOVERED",
+    "delivery": {
+      "eventId": "t10-blocked-f920a2d1-da3b-43e5-bf4d-50a72f4c33f6",
+      "token": "c5cbb0c4-3e78-4b9e-9a15-b64b94d470ba",
+      "channel": "pull",
+      "hostFile": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/blocked/receiver.jsonl",
+      "bodyCommitted": true
+    }
+  }
+}

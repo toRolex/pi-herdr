@@ -1,0 +1,10 @@
+{
+  "directBusyQueued": true,
+  "parentInputInert": true,
+  "interactiveResident": true,
+  "focusDraftNoProtection": true,
+  "explicitInterrupt": true,
+  "noMarkers": true,
+  "realCLI": true,
+  "realChildTUI": true
+}

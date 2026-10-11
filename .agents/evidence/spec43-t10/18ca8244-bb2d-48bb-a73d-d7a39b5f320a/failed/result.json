@@ -1,0 +1,34 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Agent \"failed\" FAILED: T10 unrecoverable failure (session: /Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/failed/child.jsonl)\n\n[completion error: T10 unrecoverable failure]"
+    }
+  ],
+  "details": {
+    "target": "failed",
+    "name": "failed",
+    "kind": "pi",
+    "source": "session-jsonl",
+    "sessionPath": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/failed/child.jsonl",
+    "exitPath": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/failed/child.jsonl.exit",
+    "agentId": "t10-failed-7ea3d78c-8693-4336-a739-e07375b160a2",
+    "runId": "t10-failed-7ea3d78c-8693-4336-a739-e07375b160a2",
+    "sequence": 1,
+    "eventId": "t10-failed-7ea3d78c-8693-4336-a739-e07375b160a2",
+    "status": "error",
+    "result": "[completion error: T10 unrecoverable failure]",
+    "delivery": {
+      "eventId": "t10-failed-7ea3d78c-8693-4336-a739-e07375b160a2",
+      "token": "d3282cdf-fa0c-4097-aa81-000ca94f8b89",
+      "channel": "pull",
+      "hostFile": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t10/.agents/evidence/spec43-t10/18ca8244-bb2d-48bb-a73d-d7a39b5f320a/failed/receiver.jsonl",
+      "bodyCommitted": true
+    },
+    "error": {
+      "stopReason": "error",
+      "errorMessage": "T10 unrecoverable failure"
+    }
+  },
+  "isError": true
+}

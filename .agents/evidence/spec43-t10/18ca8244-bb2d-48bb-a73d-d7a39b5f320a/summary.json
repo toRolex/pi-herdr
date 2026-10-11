@@ -1,0 +1,27 @@
+[
+  {
+    "scenario": "blocked",
+    "eventType": "done",
+    "stableIdentity": true,
+    "realTUI": true,
+    "realSDK": true,
+    "explicitPermission": "Allow",
+    "providerOnlyDeterministic": true
+  },
+  {
+    "scenario": "retry",
+    "eventType": "done",
+    "stableIdentity": true,
+    "realTUI": true,
+    "realSDK": true,
+    "providerOnlyDeterministic": true
+  },
+  {
+    "scenario": "failed",
+    "eventType": "error",
+    "stableIdentity": true,
+    "realTUI": true,
+    "realSDK": true,
+    "providerOnlyDeterministic": true
+  }
+]

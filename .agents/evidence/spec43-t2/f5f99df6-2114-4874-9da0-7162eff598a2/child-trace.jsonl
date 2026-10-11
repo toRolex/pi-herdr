@@ -1,0 +1,5 @@
+{"event":"boot","at":1791328799366,"pid":77745,"env":{"PI_HERDR_AGENT_ID":"agent-f5f99df6-2114-4874-9da0-7162eff598a2","PI_HERDR_RUN_ID":"t2-f5f99df6-2114-4874-9da0-7162eff598a2","PI_HERDR_SEQUENCE":"1","HERDR_PANE_ID":"w8A:p1","PI_HERDR_AUTO_EXIT":"1"}}
+{"event":"provider","at":1791328799427,"pid":77745}
+{"event":"agent_end","at":1791328804431,"pid":77745}
+{"event":"agent_settled","at":1791328804431,"pid":77745}
+{"event":"session_shutdown","at":1791328850601,"pid":77745}

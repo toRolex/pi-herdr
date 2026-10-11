@@ -1,0 +1,5 @@
+{"state":"provider","scenario":"blocked","attempt":0,"stopReason":"toolUse","sidecar":false}
+{"state":"blocked","sidecar":false}
+{"state":"recovered","answer":"Allow"}
+{"state":"provider","scenario":"blocked","attempt":0,"stopReason":"stop","sidecar":false}
+{"state":"settled"}

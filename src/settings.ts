@@ -154,7 +154,7 @@ export const SETTING_KEYS: readonly SettingKeyDef[] = [
 		values: ["none", "quiet", "normal"],
 		default: "normal",
 		path: ["notifications"],
-		description: "Verbosity of agent-completion notifications.",
+		description: "Completion delivery: normal = safe run boundaries, finished stays unread unless explicitly subscribed; quiet = next natural run, no wake; none = stored pull-only. Subscriptions never override quiet/none.",
 	},
 	{
 		key: "idle_rearm_minutes",
@@ -164,7 +164,7 @@ export const SETTING_KEYS: readonly SettingKeyDef[] = [
 		default: 15,
 		path: ["idle_rearm_minutes"],
 		description:
-			"After a user takeover, minutes of quiet before the agent's result is auto-delivered and its pane closes. Any keystroke resets the timer.",
+			"Legacy compatibility setting; ignored. Ordinary input does not change pane recycling.",
 	},
 	{
 		key: "workflows_enabled",
@@ -430,6 +430,7 @@ export function loadSettings(paths: SettingsPaths): ResolvedSettings {
 	];
 
 	for (const def of SETTING_KEYS) {
+		if (def.key === "idle_rearm_minutes") { sources[def.key] = "default"; continue; }
 		if (def.type === "record") {
 			// Merge per name across both files (project wins per name); the row's
 			// source is the highest-precedence file that contributed entries.

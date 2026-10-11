@@ -1,0 +1,45 @@
+                                                               ┃
+ ▀▀█  v1.0.4                                                   │
+ █▀ █ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands ┃
+ · ! bash · ctrl+o more                                        ┃
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it
+ how to use or extend Pi.
+
+
+[Context]
+  ~/.pi/agent/AGENTS.md,
+~/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t12-li
+ve-rescue/AGENTS.md
+
+[Extensions]
+  child.ts, spec43-t12-verify-child.ts
+
+
+ BUSY PANDA
+
+
+
+ fixture_wait
+ T12_BUSY_TOOL_FINISHED
+
+
+ T12_FINAL BUSY PANDA
+
+
+ <agent-message from="t12-parent" to="t12-legacy">
+ LEGACY PANDA
+ </agent-message>
+
+
+ T12_FINAL <agent-message from="t12-parent" to="t12-legacy">
+ LEGACY PANDA
+ </agent-message>
+
+ [t12-legacy] — 10 tools (Ctrl+H)
+────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────
+~/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t12...
+2.3%/128k (auto)                                   deterministic

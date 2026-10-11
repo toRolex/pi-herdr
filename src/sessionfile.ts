@@ -19,14 +19,19 @@
 import { randomUUID } from "node:crypto";
 import { validEventId } from "./completion-event.js";
 import {
+	closeSync,
 	existsSync,
+	fsyncSync,
+	linkSync,
 	mkdirSync,
+	openSync,
 	readFileSync,
+	renameSync,
 	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 // ---- the pi-default sessions dir -------------------------------------------
@@ -404,17 +409,11 @@ export function sidecarPathFor(sessionPath: string): string {
 	return `${sessionPath}.exit`;
 }
 
-/** A valid completion sidecar payload. `rearm` marks an idle-re-arm exit
- * (issue 06): the run completed AFTER a human takeover — the parent labels
- * the delivery "auto-delivered after user steer". `structured` (issue 14)
- * carries the validated StructuredOutput payload of a schema'd workflow
- * child — canonical JSON, captured child-side, verbatim here. `text`
- * (issue 33) is the final assistant body committed with a declared done;
- * old sidecars omit it and delivery falls back to the session JSONL. */
-export type ExitSidecar =
+/** A durable completion sidecar payload. Unknown legacy fields (including the
+ * retired idle-re-arm `rearm` flag) are ignored, never an error. */
+export type ExitSidecar = { agentId?: string; runId?: string; sequence?: number } & (
 	| {
 			type: "done";
-			rearm?: true;
 			structured?: string;
 			text?: string;
 			rootSession?: string;
@@ -423,13 +422,19 @@ export type ExitSidecar =
 	  }
 	| {
 			type: "error";
+			persistenceCapability?: "file-flushed/process-restart";
 			errorMessage: string;
 			stopReason: string;
-			rearm?: true;
 			text?: string;
 			rootSession?: string;
 			eventId?: string;
-	  };
+	  }
+	| {
+			type: "persistence-error";
+			errorMessage: string;
+			rootSession?: string;
+			eventId?: string;
+		});
 
 /**
  * Bare `agent_done` is refused when the session holds no assistant text.
@@ -456,9 +461,13 @@ export function parseExitSidecar(
 	}
 	if (!parsed || typeof parsed !== "object") return { ok: false };
 	const o = parsed as Record<string, unknown>;
-	// rearm is optional and tolerated on either type; anything else unknown
-	// is ignored (forward compatibility).
-	const rearm = o.rearm === true ? { rearm: true as const } : {};
+	// Unknown fields are ignored for legacy compatibility — including the
+	// retired idle-re-arm `rearm` flag on old sidecars.
+	const identity = {
+		...(typeof o.agentId === "string" ? { agentId: o.agentId } : {}),
+		...(typeof o.runId === "string" ? { runId: o.runId } : {}),
+		...(Number.isInteger(o.sequence) ? { sequence: o.sequence as number } : {}),
+	};
 	// The one unknown field we DO consume (issue 14) — only in the shape the
 	// child extension writes it: a JSON string of the validated payload.
 	const structured =
@@ -487,13 +496,28 @@ export function parseExitSidecar(
 			ok: true,
 			sidecar: {
 				type: "done",
-				...rearm,
+				...identity,
 				...structured,
 				...text,
 				...rootSession,
 				...eventId,
 			},
 		};
+	if (o.type === "persistence-error") {
+		const message = typeof o.errorMessage === "string" && o.errorMessage.trim()
+			? o.errorMessage
+			: "child completion persistence failed without details";
+		return {
+			ok: true,
+			sidecar: {
+				type: "persistence-error",
+				...identity,
+				errorMessage: message,
+				...rootSession,
+				...eventId,
+			},
+		};
+	}
 	if (o.type === "error") {
 		const message =
 			typeof o.errorMessage === "string" && o.errorMessage.trim()
@@ -504,10 +528,11 @@ export function parseExitSidecar(
 			ok: true,
 			sidecar: {
 				type: "error",
+				...(o.persistenceCapability === "file-flushed/process-restart" ? { persistenceCapability: o.persistenceCapability } : {}),
+				...identity,
 				errorMessage: message,
 				stopReason,
 				...text,
-				...rearm,
 				...rootSession,
 				...eventId,
 			},
@@ -516,81 +541,119 @@ export function parseExitSidecar(
 	return { ok: false };
 }
 
-// ---- takeover + steer markers (issue 06) -----------------------------------
-// `<session>.takeover` — written ONCE by the injected child extension when a
-// HUMAN types into the pane (input that is not the parent's own steering —
-// see the steer watermark below). The parent's delivery loop reads it to
-// send the quiet `user took over <agent>` note and to hold back
-// mid-conversation pushes for that record.
-// `<session>.steer` — stamped by the PARENT right before it drives the child
-// (spawn's initial submit, message_agent): the exact text about to be typed.
-// The child matches incoming input against it so the orchestrator's own
-// steering is never mistaken for a human takeover (both ride the same TTY).
-
-/** The takeover marker path for a session file. */
-export function takeoverPathFor(sessionPath: string): string {
-	return `${sessionPath}.takeover`;
+export interface AcceptedStartFailureRecord {
+	name: string;
+	kind: string;
+	agentId?: string;
+	runId?: string;
+	pendingRunId?: string;
+	sequence?: number;
+	sessionPath?: string;
+	startError?: string;
+	identityReviewRequired?: boolean;
+	lineage?: { rootSession?: string; ownerSession?: string };
+	cwd?: string;
+	worktreePath?: string;
+	spawnedAt?: number;
 }
 
-/** The steer-watermark path for a session file. */
-export function steerPathFor(sessionPath: string): string {
-	return `${sessionPath}.steer`;
-}
-
-export type ReadTakeoverResult = { taken: false } | { taken: true; at?: number };
-
-/** True when the child has reported a human takeover (marker present). */
-export function readTakeoverMarker(sessionPath: string): ReadTakeoverResult {
-	const path = takeoverPathFor(sessionPath);
-	if (!existsSync(path)) return { taken: false };
-	try {
-		return { taken: true, at: statSync(path).mtimeMs };
-	} catch {
-		return { taken: true };
+/** Recovery may write only the agreeing, trusted acceptance registry owner. */
+export function resolveAcceptedFailureOwner(record: AcceptedStartFailureRecord, parentSession?: string, currentSession?: string): string {
+	const candidates = [parentSession, currentSession, record.lineage?.ownerSession].filter((owner): owner is string => Boolean(owner?.trim()));
+	if (!candidates.length) throw new Error("accepted failure registry owner unavailable");
+	if (new Set(candidates).size !== 1) throw new Error("accepted failure registry owner conflict");
+	const owner = candidates[0];
+	if (!parentSession && !currentSession) {
+		const saved: unknown = JSON.parse(readFileSync(`${owner}.registry.json`, "utf8"));
+		const belongs = Array.isArray(saved) && saved.some(row => row?.name === record.name && row?.agentId === record.agentId &&
+			(row.runId === record.runId || row.pendingRunId === record.runId ||
+				(Array.isArray(row.pendingFollowups) && row.pendingFollowups.some((item: { runId?: string }) => item?.runId === record.runId))));
+		if (!record.agentId || !record.runId || !belongs) throw new Error("accepted failure lineage owner does not own this acceptance");
 	}
+	return owner;
 }
 
-/** Parent-side: stamp the exact text about to be typed into the child.
- * Best-effort — worst case the child reads a stale watermark. */
-export function writeSteerWatermark(sessionPath: string, text: string): void {
-	try {
-		writeFileSync(steerPathFor(sessionPath), text);
-	} catch {
-		/* best-effort */
+/** Save an accepted run's definitive launch failure, never a retry-in-flight error.
+ * Missing identity or any storage failure throws: a diagnostic is not a saved event. */
+export function saveAcceptedStartFailure(record: AcceptedStartFailureRecord): Extract<ExitSidecar, { type: "error" }> | undefined {
+	if (!record.startError || record.kind.toLowerCase() !== "pi") return undefined;
+	if (record.pendingRunId && record.pendingRunId !== record.runId) {
+		throw new Error("accepted start failure run identity is not activated");
 	}
-}
-
-/** Child-side: read (peek, no delete) the current steer watermark. */
-export function readSteerWatermark(sessionPath: string): string | null {
-	try {
-		return readFileSync(steerPathFor(sessionPath), "utf8");
-	} catch {
-		return null;
+	if (record.identityReviewRequired || !record.agentId || !validEventId(record.runId) || !Number.isInteger(record.sequence) || record.sequence! < 1) {
+		throw new Error("accepted start failure identity requires review");
 	}
-}
-
-/** Child-side: consume the watermark after a match. Best-effort. */
-export function clearSteerWatermark(sessionPath: string): void {
-	try {
-		unlinkSync(steerPathFor(sessionPath));
-	} catch {
-		/* already gone or raced — harmless */
+	if (!record.sessionPath) {
+		// Completion lookup is indexed by sessionPath. An empty, resumable pi
+		// substrate stores the failed acceptance; it is not execution history.
+		// Stable acceptance time/run makes retries reconstruct the same path even
+		// if the registry write failed after seeding. Never overwrite a transcript.
+		const seeded = seedSessionFile(record.worktreePath ?? record.cwd ?? process.cwd(), {
+			now: () => new Date(record.spawnedAt ?? 0), uuid: () => record.runId!,
+			writeFile(path) {
+				try { writeFileSync(path, "", { flag: "wx", mode: 0o600 }); }
+				catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+					if (readFileSync(path, "utf8") !== "") throw new Error("accepted start failure substrate conflicts with an existing transcript");
+				}
+				const fd = openSync(path, "r");
+				try { fsyncSync(fd); } finally { closeSync(fd); }
+			},
+		});
+		record.sessionPath = seeded.path;
 	}
+	let sidecar: Extract<ExitSidecar, { type: "error" }> = {
+		type: "error", agentId: record.agentId, runId: record.runId, sequence: record.sequence,
+		...(process.platform === "win32" ? { persistenceCapability: "file-flushed/process-restart" as const } : {}),
+		eventId: record.runId, stopReason: "start-error", errorMessage: record.startError,
+		text: `Agent "${record.name}" never started: ${record.startError}`,
+		...(record.lineage?.rootSession ? { rootSession: record.lineage.rootSession } : {}),
+	};
+	const eventPath = `${record.sessionPath}.completion-${sidecar.eventId}.json`;
+	let encoded = JSON.stringify(sidecar);
+	if (existsSync(eventPath)) {
+		// The committed event, not a later mutable diagnostic, owns its body.
+		encoded = readFileSync(eventPath, "utf8");
+		const saved = parseExitSidecar(encoded);
+		if (!saved.ok || saved.sidecar.type !== "error" || saved.sidecar.stopReason !== "start-error" ||
+			saved.sidecar.eventId !== record.runId || saved.sidecar.agentId !== record.agentId ||
+			saved.sidecar.runId !== record.runId || saved.sidecar.sequence !== record.sequence || !saved.sidecar.text?.trim()) {
+			throw new Error("accepted start failure conflicts with a committed completion event");
+		}
+		sidecar = saved.sidecar;
+	}
+	publishStartFailure(eventPath, encoded, true);
+	const bridge = readExitSidecar(record.sessionPath);
+	// A delayed retry owns only its immutable event, not another run's latest
+	// declaration. Callers can consume the returned archive without the bridge.
+	if (bridge.state === "ok" && bridge.sidecar.type !== "persistence-error" &&
+		(bridge.sidecar.eventId !== sidecar.eventId || bridge.sidecar.agentId !== sidecar.agentId ||
+			bridge.sidecar.runId !== sidecar.runId || bridge.sidecar.sequence !== sidecar.sequence)) return sidecar;
+	publishStartFailure(sidecarPathFor(record.sessionPath), encoded, false);
+	return sidecar;
 }
 
-/**
- * Whether an input event's text is the parent's steering echo: the typed
- * text is (whitespace-insensitively) part of the stamped watermark. Chunked
- * delivery and short option-list answers match; a human's own words don't.
- */
-export function inputMatchesSteer(
-	inputText: string | undefined,
-	watermark: string | null,
-): boolean {
-	if (!inputText || !watermark) return false;
-	const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
-	const i = norm(inputText);
-	return i.length > 0 && norm(watermark).includes(i);
+function publishStartFailure(path: string, encoded: string, immutable: boolean): void {
+	const temporary = `${path}.${randomUUID()}.tmp`;
+	let fd: number | undefined;
+	try {
+		fd = openSync(temporary, "wx", 0o600);
+		writeFileSync(fd, encoded); fsyncSync(fd); closeSync(fd); fd = undefined;
+		if (immutable) {
+			try { linkSync(temporary, path); }
+			catch (error) {
+				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+				if (readFileSync(path, "utf8") !== encoded) throw new Error("accepted start failure conflicts with a committed completion event");
+			}
+		} else renameSync(temporary, path);
+		if (process.platform !== "win32") {
+			fd = openSync(dirname(path), "r"); fsyncSync(fd);
+		}
+	} finally {
+		if (fd !== undefined) closeSync(fd);
+		try { unlinkSync(temporary); }
+		catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+	}
 }
 
 export type ReadSidecarResult =
@@ -602,8 +665,7 @@ export type ReadSidecarResult =
  * Drop the previous run's sidecars before a resume relaunch (issue 10).
  * The completion sidecar MUST go: a stale done/error would be re-delivered
  * instantly as the resumed run's result (the delivery loop reads it before
- * anything else). The takeover marker would suppress blocked wakes for the
- * new run; a stale activity snapshot would mis-age the first projected
+ * anything else). A stale activity snapshot would mis-age the first projected
  * state. The `<session>.activity.json` suffix mirrors spawn's construction
  * (`${seeded.path}.activity.json`). Best-effort throughout — an already-
  * gone file is fine.
@@ -611,7 +673,8 @@ export type ReadSidecarResult =
 export function clearSidecars(sessionPath: string): void {
 	for (const path of [
 		sidecarPathFor(sessionPath),
-		takeoverPathFor(sessionPath),
+		`${sessionPath}.takeover`,
+		`${sessionPath}.steer`,
 		`${sessionPath}.activity.json`,
 	]) {
 		try {

@@ -29,16 +29,19 @@
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { registerQueueOnlyReceiver } from "./queue-only-inbox.js";
+import { resolveHerdrBin } from "./herdr-transport.mjs";
 import { resetCompletionEvent } from "./completion-event.js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { parseTriggerTurn } from "./agent-message.js";
+import { closeSync, fsyncSync, linkSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 import {
 	assistantText,
-	clearSteerWatermark,
 	parseSessionEntries,
-	inputMatchesSteer,
-	readSteerWatermark,
 	refuseBareDone,
-	takeoverPathFor,
 } from "./sessionfile.js";
 import { compileJsonSchema, type CompiledSchema } from "./workflow/json-schema.js";
 import type { ActivitySnapshot } from "./status.js";
@@ -57,11 +60,6 @@ export const ENV_DENIED_TOOLS = "PI_HERDR_DENIED_TOOLS";
  * recorder, read by the orchestrator's poll loop (current tool, streaming —
  * what makes `active · bash 7m` possible). */
 export const ENV_ACTIVITY_FILE = "PI_HERDR_ACTIVITY_FILE";
-/** Idle re-arm window in ms (v0.6 issue 06), stamped by the parent from the
- * `idle_rearm_minutes` setting. After a human takeover: settle + this much
- * quiet → the final message auto-delivers (rearm-labeled) and the pane
- * closes. Unset = the 15-minute default. */
-export const ENV_IDLE_REARM_MS = "PI_HERDR_IDLE_REARM_MS";
 
 /** Schema file for a structured-output child (issue 14): the workflow host
  * writes the compiled JSON Schema to the workflow scratch dir and stamps this
@@ -297,18 +295,6 @@ export function errorExitGraceMs(): number {
 	return Number.isFinite(raw) && raw >= 0 ? raw : 30_000;
 }
 
-/**
- * The idle re-arm window (ms) — how long a TAKEN-OVER pane stays open after
- * a settle before it auto-delivers (rearm-labeled) and closes. Timer starts
- * on `agent_settled`, never mid-work; any keystroke resets it (the next
- * settle restarts it). Default 15 min (`idle_rearm_minutes`);
- * PI_HERDR_IDLE_REARM_MS is stamped by the parent and overridable (tests).
- * Read per settle, like errorExitGraceMs.
- */
-export function idleRearmMs(): number {
-	const raw = Number(process.env[ENV_IDLE_REARM_MS]);
-	return Number.isFinite(raw) && raw >= 0 ? raw : 15 * 60_000;
-}
 
 /**
  * The child-side activity recorder (v0.6 issue 07): mirrors this pi's
@@ -464,7 +450,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 
 	// Activity recorder (issue 07) — independent of the rest of the
 	// extension's lifecycle logic, so the sidecar stays truthful even when
-	// takeover/error-grace branches early-return below.
+	// error-grace branches early-return below.
 	const activityPath = process.env[ENV_ACTIVITY_FILE];
 	if (activityPath) {
 		const recorder = new ActivityRecorder(activityPath);
@@ -484,11 +470,46 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 	const sidecarPath = `${sessionFile}.exit`;
 	let runStart = 0;
 
-	/** Write the completion sidecar. Best-effort: a failed write must not
-	 * break the exit path (the session JSONL remains the readable truth).
-	 * `rearm` marks an idle-re-arm exit (issue 06) — the parent labels the
-	 * delivery "auto-delivered after user steer". */
-	let completionEventId = resetCompletionEvent(session);
+	/** Persist a completion declaration before allowing autonomous shutdown.
+	 * A persistence-error sidecar is a governance signal, not a task failure. */
+	let identity = {
+		agentId: process.env.PI_HERDR_AGENT_ID,
+		runId: process.env.PI_HERDR_RUN_ID,
+		sequence: Number(process.env.PI_HERDR_SEQUENCE ?? 1),
+	};
+	let completionEventId = identity.runId ?? resetCompletionEvent(session);
+	let completionSaved = false;
+
+	function scheduleRecycle(): void {
+		const paneId = process.env.HERDR_PANE_ID;
+		if (!paneId || !identity.runId || !identity.agentId) return;
+		const intentPath = `${session}.recycle.json`;
+		writeDurable(intentPath, JSON.stringify({ ...identity, eventId: completionEventId, sessionPath: session, name: childName, paneId, ownerSession: process.env.PI_HERDR_OWNER_SESSION, pending: true }));
+		const worker = spawn(process.execPath, [fileURLToPath(new URL("./recycle-worker.mjs", import.meta.url)), intentPath, resolveHerdrBin()], { detached: true, stdio: "ignore" });
+		worker.on("error", error => {
+			writeFileSync(intentPath, JSON.stringify({ ...identity, eventId: completionEventId, sessionPath: session, name: childName, paneId, ownerSession: process.env.PI_HERDR_OWNER_SESSION, pending: true, error: String(error) }));
+		});
+		worker.unref();
+	}
+
+	// Windows file fsync uses FlushFileBuffers, not a parent-directory flush.
+	// Keep publication recoverable across process restart without claiming
+	// directory-entry survival across power loss on that platform.
+	const directorySyncSupported = process.platform !== "win32";
+
+	function syncDirectory(path: string): void {
+		if (!directorySyncSupported) return;
+		const fd = openSync(dirname(path), "r");
+		try { fsyncSync(fd); } finally { closeSync(fd); }
+	}
+
+	function writeDurable(path: string, text: string): void {
+		const temporary = `${path}.${completionEventId}.tmp`;
+		const fd = openSync(temporary, "w", 0o600);
+		try { writeFileSync(fd, text); fsyncSync(fd); } finally { closeSync(fd); }
+		renameSync(temporary, path);
+		syncDirectory(path);
+	}
 
 	function writeSidecar(
 		payload:
@@ -499,9 +520,11 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 					stopReason: string;
 					text?: string;
 					eventId?: string;
-			  },
-		rearm = false,
-	): void {
+			  }
+			| { type: "persistence-error"; errorMessage: string; eventId?: string },
+		reportError?: (message: string) => void,
+	): boolean {
+		if (completionSaved) return true;
 		try {
 			// A schema'd child's captured payload rides the done sidecar (issue
 			// 14) — it IS the delivered result, ahead of the assistant text.
@@ -515,21 +538,55 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 			const eventField = {
 				eventId: completionEventId,
 			};
-			const text = finalAssistantText(session, runStart);
+			const text = finalAssistantText(session, runStart) || (payload.type === "error" ? `[completion error: ${payload.errorMessage}]` : "");
 			const bodyField = text.trim() ? { text } : {};
-			writeFileSync(
-				sidecarPath,
-				JSON.stringify({
-					...payload,
-					...bodyField,
-					...structuredField,
-					...rootField,
-					...eventField,
-					...(rearm ? { rearm: true } : {}),
-				}),
-			);
-		} catch {
-			/* best-effort */
+			if (payload.type !== "persistence-error" && !text.trim() && !payload.text?.trim() && !("structured" in structuredField)) {
+				throw new Error("missing required final body");
+			}
+			const encoded = JSON.stringify({
+				...payload,
+				...(payload.type === "persistence-error" ? {} : bodyField),
+				...structuredField,
+				...rootField,
+				...eventField,
+				...identity,
+				...(!directorySyncSupported ? { persistenceCapability: "file-flushed/process-restart" } : {}),
+			});
+			// Save the event first; the legacy bridge is never the only copy.
+			const eventPath = `${session}.completion-${completionEventId}.json`;
+			const temporary = `${eventPath}.${randomUUID()}.tmp`;
+			try {
+				const eventFd = openSync(temporary, "wx", 0o600);
+				try { writeFileSync(eventFd, encoded); fsyncSync(eventFd); } finally { closeSync(eventFd); }
+				// A same-directory hard link publishes the complete inode atomically
+				// without replacing another writer's already committed event.
+				try { linkSync(temporary, eventPath); } catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+					if (readFileSync(eventPath, "utf8") !== encoded) throw new Error("completion event is already committed with different content");
+				}
+			} finally {
+				try { unlinkSync(temporary); } catch { /* unpublished scratch is never a completion event */ }
+			}
+			syncDirectory(eventPath);
+			writeDurable(sidecarPath, encoded);
+			scheduleRecycle();
+			completionSaved = true;
+			return true;
+		} catch (error) {
+			if (payload.type === "persistence-error") return false;
+			const message = error instanceof Error ? error.message : String(error);
+			try {
+				const failurePath = `${sidecarPath}.${completionEventId}.tmp`;
+				writeFileSync(failurePath, JSON.stringify({
+					type: "persistence-error",
+					errorMessage: `completion persistence failed: ${message}`,
+					eventId: completionEventId,
+					...(rootSession ? { rootSession } : {}),
+				}));
+				renameSync(failurePath, sidecarPath);
+			} catch { /* UI/tool error remains visible even when diagnostic storage fails. */ }
+			reportError?.(`Completion persistence failed: ${message}; session remains open for recovery.`);
+			return false;
 		}
 	}
 
@@ -567,11 +624,13 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		label: "Agent done",
 		description:
 			"Call this tool when the overall task is complete — it reports completion to the orchestrator " +
-			"and closes this session. Your LAST assistant message before calling it is what gets delivered, " +
-			"so write the full final summary as a normal assistant message FIRST, then call agent_done. " +
+			"and closes this session. Your LAST assistant message before calling it is delivered in full, " +
+			"so write a concise conclusion with key evidence, limitations, and references to deliverables; " +
+			"put large reports in files and cite them. Then call agent_done. " +
 			"Never call it mid-task.",
 		parameters: Type.Object({}),
 		async execute(_id, _params, _signal, _onUpdate, ctx) {
+			if (ctx.hasPendingMessages?.()) return { content: [{ type: "text", text: "Submitted input is queued; finish it before declaring completion." }], details: {} };
 			const text = finalAssistantText(session, runStart);
 			const refusal = refuseBareDone(text);
 			// A validated StructuredOutput payload is itself the result (prose
@@ -583,7 +642,10 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 					details: {},
 				};
 			}
-			writeSidecar(refusal ? { type: "done" } : { type: "done", text });
+			const saved = writeSidecar(refusal ? { type: "done" } : { type: "done", text });
+			if (!saved) {
+				return { content: [{ type: "text", text: "Completion was not persisted; session remains open for recovery." }], isError: true, details: {} };
+			}
 			ctx.shutdown();
 			return {
 				content: [
@@ -616,94 +678,68 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		}
 	}
 
-	// User takeover (issue 06): a HUMAN typed into this pane. Splits two
-	// effects — auto-exit is disabled (a pane never slams shut on a human;
-	// the idle re-arm window governs the exit instead) while the result
-	// contract is never revoked (agent_done stays, the session file stays
-	// readable). The marker tells the parent to send its quiet
-	// `user took over <agent>` note and hold back mid-conversation pushes.
-	let takenOver = false;
-	function markTakeover(): void {
-		if (takenOver) return;
-		takenOver = true;
-		try {
-			writeFileSync(takeoverPathFor(session), JSON.stringify({ at: Date.now() }));
-		} catch {
-			/* best-effort — the rearm path still works child-side */
-		}
+	function resetStructured(): void {
+		if (!structured) return;
+		// The registered tool holds this object; reset it in place, not by replacement.
+		structured.json = undefined;
+		structured.lastError = undefined;
+		structured.called = false;
 	}
 
-	// The pending idle re-arm exit. Scheduled on agent_settled for a taken-
-	// over pane; any input cancels it (the next settle restarts it).
-	let rearmTimer: ReturnType<typeof setTimeout> | null = null;
-	function cancelRearm(): void {
-		if (rearmTimer) {
-			clearTimeout(rearmTimer);
-			rearmTimer = null;
+	let busy = false;
+	let started = false;
+	const queuedInputs = new Set<string>();
+	pi.on("input", (event) => {
+		if (event.source === "extension" && queuedInputs.delete(event.text)) return { action: "continue" };
+		if (busy) {
+			queuedInputs.add(event.text);
+			pi.sendUserMessage(event.images?.length ? [{ type: "text", text: event.text }, ...event.images] : event.text, { deliverAs: "followUp" });
+			return { action: "handled" };
 		}
-	}
-
-	/** True for input a HUMAN typed: interactive TTY input that is not the
-	 * parent's own steering echo (matched against the <session>.steer
-	 * watermark the parent stamps before driving this pane — herdr's agent
-	 * prompt and a human's typing are otherwise indistinguishable). */
-	function isHumanInput(event: { source?: unknown; text?: unknown }): boolean {
-		const watermark = readSteerWatermark(session);
-		const text = typeof event.text === "string" ? event.text : undefined;
-		if (inputMatchesSteer(text, watermark)) {
-			clearSteerWatermark(session);
-			return false; // our orchestrator steering itself
-		}
-		const source = typeof event.source === "string" ? event.source : undefined;
-		// "interactive" = typed; "rpc"/"extension" = programmatic, never a
-		// human. An absent source (older pi) is treated as human — missing a
-		// takeover would let the pane slam shut on someone reading it.
-		return source === undefined || source === "interactive";
-	}
-
-	pi.on("agent_start", () => {
-		completionEventId = resetCompletionEvent(session);
+		// Any input stops a pending error-exit: the pane is about to be busy
+		// again, and the next settle reschedules.
+		cancelErrorExit();
+	});
+	// SDK followUp replays input when enqueuing, not when consuming it, and
+	// may drain within the same agent_start. Bind only at the real user boundary.
+	pi.on("message_start", (event) => {
+		if (event.message.role !== "user") return;
+		const content = event.message.content;
+		const text = typeof content === "string" ? content : content.filter(part => part.type === "text").map(part => part.text).join("\n");
+		const followup = parseTriggerTurn(text);
+		if (!followup || followup.runId === identity.runId) return;
+		identity = { ...identity, runId: followup.runId, sequence: 1 };
+		completionEventId = followup.runId;
+		completionSaved = false;
+		resetStructured();
 		latestMessages = undefined;
 		runStart = completionEntries(session).length;
-		// pi started (re)running — a retry survived the grace window decision,
-		// and a taken-over pane has new work; any pending re-arm is moot.
 		cancelErrorExit();
-		cancelRearm();
+		try { writeFileSync(`${session}.completion-event`, completionEventId, { mode: 0o600 }); } catch { /* durable declaration carries identity */ }
 	});
-
-	pi.on("input", (event) => {
-		// Any input stops a pending exit (error-grace or re-arm): the pane is
-		// about to be busy again, and the next settle reschedules.
-		cancelErrorExit();
-		cancelRearm();
-		if (isHumanInput(event)) {
-			markTakeover();
+	pi.on("agent_start", () => {
+		busy = true;
+		if (started && completionSaved) {
+			completionEventId = randomUUID();
+			identity = { ...identity, runId: completionEventId, sequence: 1 };
+			completionSaved = false;
+			resetStructured();
 		}
+		started = true;
+		if (!identity.runId) { completionEventId = resetCompletionEvent(session); completionSaved = false; resetStructured(); }
+		else { try { writeFileSync(`${session}.completion-event`, completionEventId, { mode: 0o600 }); } catch { /* durable declaration carries identity */ } }
+		latestMessages = undefined;
+		runStart = completionEntries(session).length;
+		cancelErrorExit();
 	});
 
 	pi.on("session_shutdown", () => {
 		cancelErrorExit();
-		cancelRearm();
 	});
 
 	pi.on("agent_settled", (_event, ctx) => {
-		if (takenOver) {
-			// A human has this pane: never slam it shut, whatever the stance or
-			// the settle's mood. The idle re-arm window governs the exit (and
-			// the rearm-labeled delivery); any keystroke resets it via input,
-			// every fresh settle restarts it. An aborted run stays open with no
-			// timer at all — the human interrupted, they're driving.
-			cancelErrorExit();
-			cancelRearm();
-			if (!shouldAutoExitOnSettle(latestMessages)) return;
-			rearmTimer = setTimeout(() => {
-				rearmTimer = null;
-				writeSidecar(buildCompletionSidecar(latestMessages, completionEventId), true);
-				ctx.shutdown();
-			}, idleRearmMs());
-			rearmTimer.unref?.();
-			return;
-		}
+		busy = false;
+		if (ctx.hasPendingMessages?.()) return;
 		if (!autoExit) return; // interactive stance — the pane stays open
 		if (!shouldAutoExitOnSettle(latestMessages)) {
 			// aborted → open for inspection (and no stale error-exit pending)
@@ -714,8 +750,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		if (!failed) {
 			// Clean completion: the definitive settle. Sidecar + exit.
 			cancelErrorExit();
-			writeSidecar(buildCompletionSidecar(latestMessages, completionEventId));
-			ctx.shutdown();
+			if (writeSidecar(buildCompletionSidecar(latestMessages, completionEventId), message => ctx.ui.notify(message, "error"))) ctx.shutdown();
 			return;
 		}
 		// Settled on an error: NOT yet exhaustion. Give pi's retry machine a
@@ -724,8 +759,7 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 		cancelErrorExit();
 		errorExitTimer = setTimeout(() => {
 			errorExitTimer = null;
-			writeSidecar(buildCompletionSidecar(latestMessages, completionEventId));
-			ctx.shutdown();
+			if (writeSidecar(buildCompletionSidecar(latestMessages, completionEventId), message => ctx.ui.notify(message, "error"))) ctx.shutdown();
 		}, errorExitGraceMs());
 		errorExitTimer.unref?.();
 	});
@@ -733,5 +767,6 @@ export function registerChildExtension(pi: ExtensionAPI): void {
 
 /** Default factory — the `-e` entry point. */
 export default function (pi: ExtensionAPI): void {
+	registerQueueOnlyReceiver(pi);
 	registerChildExtension(pi);
 }

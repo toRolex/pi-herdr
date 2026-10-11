@@ -1,0 +1,327 @@
+{
+  "source": "/Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t7/.agents/evidence/spec43-t7",
+  "destination": "/tmp/spec43-notes/evidence/spec43-t7",
+  "operation": "copy-originals-retained",
+  "files": [
+    {
+      "path": "full-suite.log",
+      "sha256": "c1672ca778ca60fb762bc547f8edb3e617e7f21cbfa00e94fb366522572cb903"
+    },
+    {
+      "path": "sdk-agent-end-counterexample-parent.jsonl",
+      "sha256": "67939c55971599f816e121bbb36262d031c0ef3f28bf8fee0f7cec1f50cf459d"
+    },
+    {
+      "path": "sdk-agent-end-counterexample-provider.json",
+      "sha256": "f62daf8ea4474090b589f8c12126bf079cb42029b01d581bf27437028864fc08"
+    },
+    {
+      "path": "sdk-closing-followup-counterexample-parent.jsonl",
+      "sha256": "d35c12fe28931c2a1a4c7953d62c0e46a0721b831776b36fa2df0c25871d5eaf"
+    },
+    {
+      "path": "sdk-closing-followup-counterexample-provider.json",
+      "sha256": "ea3c1101dad58501852c261a9dfa8a9a19857d1cf5f0a54fdd3fdd001bfe5431"
+    },
+    {
+      "path": "sdk-nextturn-natural-run-parent.jsonl",
+      "sha256": "f7e1054a8af0fcaf65e7b34e79ffc5ccffa205d610ba894adf93b36337127251"
+    },
+    {
+      "path": "sdk-nextturn-natural-run-provider.json",
+      "sha256": "60a8e35cd818e4499027876ef3e099a052604815e2740fd72e71cf3c51537e79"
+    },
+    {
+      "path": "sdk-production-closing-finished-natural-parent.jsonl",
+      "sha256": "4fbfdf4670970603bfc9ad123cf5c90da4a3bb0687319288a95b9d37c9ca40a6"
+    },
+    {
+      "path": "sdk-production-closing-finished-natural-provider.json",
+      "sha256": "9bb453605aa79050907e76f433ae55092e18dc00371c4f8f91b24e6be1c9cffd"
+    },
+    {
+      "path": "sdk-production-gate-closing-parent.jsonl",
+      "sha256": "815a7ae91091a85be03ac388cd4c4ede7d72e3f21872e8448ec60b2bc51f1a7a"
+    },
+    {
+      "path": "sdk-production-gate-closing-provider.json",
+      "sha256": "9c1ab377161179817d67f70690ff49c4d7fda5c17d37aad495a2b645c8533d23"
+    },
+    {
+      "path": "sdk-production-gate-old-run-parent.jsonl",
+      "sha256": "17fe7d8e38b10934c5170ce5cc5720258c4587166866d31af945008826c3b6d0"
+    },
+    {
+      "path": "sdk-production-gate-old-run-provider.json",
+      "sha256": "1621ac06ca0945b7f8971b0f830d3dffdaf239601041b2f4507f52d4be98e295"
+    },
+    {
+      "path": "sdk-production-gate-policy-none-parent.jsonl",
+      "sha256": "778a88f38b3f925e24cb0a84aa4050b7c55fb802bbdb348e76d6903ba58d096a"
+    },
+    {
+      "path": "sdk-production-gate-policy-none-provider.json",
+      "sha256": "47e7e799404c1c40272024f80b8cde7405ff7087102896ac34722b09408c525c"
+    },
+    {
+      "path": "sdk-production-tool-held-false-parent.jsonl",
+      "sha256": "20b07325e95187a6122a4b6ed4185c783568ac69369d58392e979763afd19101"
+    },
+    {
+      "path": "sdk-production-tool-held-false-provider.json",
+      "sha256": "87a1c03eca46cc4a4933942b9baf21e91e8aa758e1f6c6b426b18441007b25a6"
+    },
+    {
+      "path": "sdk-production-tool-held-true-parent.jsonl",
+      "sha256": "778ccaadd57eea1fedddc994d1e81ec40c83e8871dc04dc2284fd0548fcbc9ea"
+    },
+    {
+      "path": "sdk-production-tool-held-true-provider.json",
+      "sha256": "5b4fba4e17ca6a0b9bf09e9def0474886e10537bffba94e6a54b3fa299e3f206"
+    },
+    {
+      "path": "sdk-production-tool-safe-boundary-parent.jsonl",
+      "sha256": "9dca9dfd99a0cf2bfc657e00ef032ba21492308bb91d53a6b4a02d0e718b4fcc"
+    },
+    {
+      "path": "sdk-production-tool-safe-boundary-provider.json",
+      "sha256": "babbd1d99bdee3ee0a8be3053aaa8e30091d577b0645eac31ba8faab94adedef"
+    },
+    {
+      "path": "sdk-research.md",
+      "sha256": "bc7987689c12d3238ae136fade9e5eb55cf55b8b981f5ea8bcc8db9aaabd85df"
+    },
+    {
+      "path": "sdk-summary.json",
+      "sha256": "f98cb50d5353b24208ca4930680488c9babc28cb974654e89a2c97972dac4ea2"
+    },
+    {
+      "path": "sdk-test.log",
+      "sha256": "0441fef8af5b671d0be2573bed1c2c5cedf3c268156c30400ea99d86d6de4cd8"
+    },
+    {
+      "path": "sdk-tool-followup-noninterrupt-parent.jsonl",
+      "sha256": "c8d7f1c9eb732703ef70ad604bc1368475bd83ca88afc5a5181151008999bccc"
+    },
+    {
+      "path": "sdk-tool-followup-noninterrupt-provider.json",
+      "sha256": "a1f001d740f33c3f5ad989af215e94a0d82f47228cb445ca737332c4636b01e2"
+    },
+    {
+      "path": "sdk-tui-report.md",
+      "sha256": "354762dea35f7a33ed1557f1384072f47829592c16bcbdf4526bb83afa6bbe44"
+    },
+    {
+      "path": "tui-20261007-093338-43522/children/1.jsonl",
+      "sha256": "d9cace79054d5ffb96712f2083c8c08b44a5f27af744d4a851a1fc8811b15a58"
+    },
+    {
+      "path": "tui-20261007-093338-43522/cleanup-commands.jsonl",
+      "sha256": "74aeead6e40f85c2e52c11c3a8e7633fb450772aa31bda4527c9186adbdcea2d"
+    },
+    {
+      "path": "tui-20261007-093338-43522/cleanup.json",
+      "sha256": "ec54fd645d368f00e4d2be40546f053ee502e6dd55a6ca35d63fffac7f428ea2"
+    },
+    {
+      "path": "tui-20261007-093338-43522/doctor-commands.jsonl",
+      "sha256": "34a1bda263adc58acbb137f75776e1d60f97ed9ad2e86813687e803a7496d1ce"
+    },
+    {
+      "path": "tui-20261007-093338-43522/doctor.json",
+      "sha256": "3fbb6e125c1f3631926a49989dddfa209ff3ce143d9c6781edd2c48387c29d5c"
+    },
+    {
+      "path": "tui-20261007-093338-43522/drive-commands.jsonl",
+      "sha256": "5cf0115ab832d75ce3599c1249f57050b2838b0415dff8248fb2553cf0f9ee0b"
+    },
+    {
+      "path": "tui-20261007-093338-43522/drive.mjs",
+      "sha256": "3c0165f1b61e7c89b78d136e5a7632b468e066d8737dc30ffb4efd041294cd58"
+    },
+    {
+      "path": "tui-20261007-093338-43522/evidence.json",
+      "sha256": "2e2901e6bbb07d947b742e9b8d2bae97ebf18efa04a6669ad26ee8def99e8a88"
+    },
+    {
+      "path": "tui-20261007-093338-43522/input-events.jsonl",
+      "sha256": "90b0b323afc800053a73e9c345b01fe1ad5f69b04c59bcdd2e21b4c4462e58b8"
+    },
+    {
+      "path": "tui-20261007-093338-43522/launch-commands.jsonl",
+      "sha256": "5bd5f3fa7f3e90f98d08379c41b54514ba5ca430fbcb3ba8e0db20ce4f3c8886"
+    },
+    {
+      "path": "tui-20261007-093338-43522/parent.jsonl",
+      "sha256": "b1b826da79251a7192632b30be8cc9674d1734a7fcfd444cc19b7e22c27c1f67"
+    },
+    {
+      "path": "tui-20261007-093338-43522/run.json",
+      "sha256": "5c3bf58106621a76346bacefbb535fd2b00371af18dc88ea5f8690907f6e43b5"
+    },
+    {
+      "path": "tui-20261007-093338-43522/terminal.json",
+      "sha256": "30ac9352ff2906d002c2baa3e741ae7095731038c424f30d95c4589aafb9a242"
+    },
+    {
+      "path": "tui-20261007-093338-43522/transport.jsonl",
+      "sha256": "4a627d17b4971f4a416f5d5091607d8eb41fe004e6da92b2c19f6465471806a8"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/cleanup-commands.jsonl",
+      "sha256": "5a91467c6f6a435720d44bd62e7149a6920673a7ebe4fcaa4aec38f56f8374da"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/cleanup.json",
+      "sha256": "7166c36656353a2950c2d675e964e96b3735e1d6f0fc97c38dba459500fdf4ee"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/doctor-commands.jsonl",
+      "sha256": "8b9e85cff6cbd6c25d472dd93512b7f92e5a9d48d57329e22ee05aaf8486c49a"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/doctor.json",
+      "sha256": "8cce14cca37d82491bf84daf8bb29efa3fd37e52908d8ee9efa48b3b184a98d1"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/evidence.json",
+      "sha256": "54da5e7109d6ad50480eb12b277dd60f54539b516428e68336f56c63cf412cf9"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/launch-commands.jsonl",
+      "sha256": "6b5248abea329ee1726b1d68c24b3db164a609267359803a3b614d5e3346aa5f"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/parent.jsonl",
+      "sha256": "32804916fa8b0375fc3267a7113024ae90012f1ad37310694970fc9a74243f6f"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/result.json",
+      "sha256": "ddf77765f1cc66af318dc3563ab7382f81794f43478642a40929d658a4462367"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/run.json",
+      "sha256": "87d4ee77207b6d9150dd39fd0497ea3e2ff50e27a38b7b0cafad451331659fcd"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/t7-provider.jsonl",
+      "sha256": "e11f4c14af74417a3bf21f684f82c52081a3475c333697459e8c513c0942a310"
+    },
+    {
+      "path": "tui-governance-20261007-093621-53327/transport.jsonl",
+      "sha256": "31c9aac2620ac36a272c48f1e43a208820cb751766e879b13dad5dae920b25af"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/cleanup-commands.jsonl",
+      "sha256": "402593bfeb126bda6ac182d6640b731a1a07e43343fd0c8e993cd737cbb0f48d"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/cleanup.json",
+      "sha256": "c2727f7f11daccbacb10a1d0d4cc40f1b43f0e210e564dd04b640979888764ba"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/doctor-commands.jsonl",
+      "sha256": "0d5df38446619b7ca4391a3304eb1ae320f727644a27085d86ff8e7f484103a9"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/doctor.json",
+      "sha256": "d10da19645ea68a07ffea96c4a22a45185dae4e823910337d6bb008010b70dcf"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/evidence.json",
+      "sha256": "ab6b446c56cb6649272566070e127e89f6a15dfed9f4ced4ce0b32e55e8a071b"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/launch-commands.jsonl",
+      "sha256": "e6633e6616c868fdb1279de2d552e7bbb8ce8eca8f2fb4fff94413fba61f718a"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/parent.jsonl",
+      "sha256": "07cfd22fc8eb94a35d91434287ce55326e3ac7c253339aee2221df5f3aa1a44d"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/provider-contexts.jsonl",
+      "sha256": "e9b1ced5d9a0fdd62e39b4989dbb4568ece6a30f3076c3bcb93903f9acfe22ff"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/result.json",
+      "sha256": "f1be2fad727712ea858f858ac17e72aa85f1ff3e2cc5b57d40f64fd2013ce5ef"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/run.json",
+      "sha256": "3f3f373e72981655330e74e134e939107fdb114471dcf69ad45ee2037a649cac"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/t7-provider.jsonl",
+      "sha256": "e9b1ced5d9a0fdd62e39b4989dbb4568ece6a30f3076c3bcb93903f9acfe22ff"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/terminal.json",
+      "sha256": "70a39eb223cb986a0c8e5a9e03a8683c24ab6495b35a2d55bf7c2401173f672c"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/transport.jsonl",
+      "sha256": "1bb6ca34eae4641e0777dc74430fa7420e0486c0009992f69ea61a0b0667f180"
+    },
+    {
+      "path": "tui-governance-20261007-093655-55422/tui-actions.jsonl",
+      "sha256": "1bb6ca34eae4641e0777dc74430fa7420e0486c0009992f69ea61a0b0667f180"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/cleanup-commands.jsonl",
+      "sha256": "22493d5f47667d31e35dff1df0f5a4a0f23b5feb1ee02614180ebb180924001c"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/cleanup.json",
+      "sha256": "4bba187e09a3c38a42df017ab30959751a8fea399f047bce30b819e4b9d1454e"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/doctor-commands.jsonl",
+      "sha256": "47a30ba28ee3d649e502aee42243f6433ca7ea0306f04bebf7316e6b5742608b"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/doctor.json",
+      "sha256": "add53c8f1fb12987957f2ab1a53a662ed5d4a39484ad23a1103e0d912a9e9f82"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/evidence.json",
+      "sha256": "dabfd4419834813e8f908909023b17971e29bc9b61b01bea0139ca7ea5c7e099"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/launch-commands.jsonl",
+      "sha256": "a0db895c27c7b57ac33371b6516abb54f3644f832f293867527af21998659427"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/parent.jsonl",
+      "sha256": "323afb71beed824e60b043daaf6aa584339fa8e2cbfe477eb942fa969006d636"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/provider-contexts.jsonl",
+      "sha256": "7728e1b1ccfe91af36485678cd3bbacf623d3f936a550f67640b7aa77027e346"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/result.json",
+      "sha256": "48f8b7f010812d99646f0d67a4d504491d7fe1a2ff4573ceee85c844a430efe9"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/run.json",
+      "sha256": "585dda82deb54d8588c921a92a2af9e9d600e93d35a4e8bbf99ef534f5a40613"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/t7-provider.jsonl",
+      "sha256": "7728e1b1ccfe91af36485678cd3bbacf623d3f936a550f67640b7aa77027e346"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/terminal.json",
+      "sha256": "d4e6f99973f3effa54c112dea654a755ab60744b801a46a2b3ac4cad5e87b43c"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/transport.jsonl",
+      "sha256": "7a29af497f7d5f9f2d3a9a2807d5c7c49d10cb344cdf227e26eacd85640eef60"
+    },
+    {
+      "path": "tui-governance-hold-20261007-094033-66219/tui-actions.jsonl",
+      "sha256": "7a29af497f7d5f9f2d3a9a2807d5c7c49d10cb344cdf227e26eacd85640eef60"
+    }
+  ]
+}

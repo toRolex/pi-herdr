@@ -1,0 +1,91 @@
+{
+  "cases": [
+    {
+      "mode": "autonomous",
+      "command": "HERDR_ENV=1 node tests/spec43-t2-live.mjs",
+      "rawEvidence": ".agents/evidence/spec43-t2/7dc656d5-fdef-424c-a605-341584e43ba2",
+      "runId": "t2-7dc656d5-fdef-424c-a605-341584e43ba2",
+      "agentId": "agent-7dc656d5-fdef-424c-a605-341584e43ba2",
+      "sequence": 1,
+      "pane": "wA9:p1",
+      "childSha256": "ad1ed9a2ed4c862bca4e1e30608bf78ecc533fbb2ffd76921cd57131dce00a76",
+      "recycleSha256": "1795789dd33258ce33c4d8c8d6be3c8fbb61f20269398d325ab638c4202b0e52",
+      "finalBytes": 10171,
+      "finalBodySha256": "91d2715d6c63784c950399feed60f02e9ec729bbd9ce504f3414244fd16178ef",
+      "declarationSha256": "30a93f74a9c4330d77f0f17c9b3b76afcf0e93d18e8a4a6857f324ac43b4b528",
+      "sessionSha256": "52c34a2ddde768456c56a4d91bb8691e4dd2fddb169f5db783330a44fe289d33",
+      "deliveryPasses": 0,
+      "ackWrites": 0,
+      "childExitedBeforePaneDisappearance": true,
+      "paneGoneBeforeFixtureCleanup": true,
+      "paneListProof": {
+        "args": [
+          "pane",
+          "list"
+        ],
+        "status": 0,
+        "response": {
+          "id": "cli:pane:list",
+          "result": {
+            "panes": [],
+            "type": "pane_list"
+          }
+        }
+      },
+      "recycleReceipt": {
+        "pending": false,
+        "runId": "t2-7dc656d5-fdef-424c-a605-341584e43ba2",
+        "paneId": "wA9:p1"
+      },
+      "immutableEventAndSessionRetainFullRecoveredBody": true,
+      "success": true
+    },
+    {
+      "mode": "restart-after-version-failure",
+      "command": "HERDR_ENV=1 T2_RESTART_WORKER=1 node tests/spec43-t2-live.mjs",
+      "rawEvidence": ".agents/evidence/spec43-t2/894cb542-58d1-486c-809f-238c9d20ce16",
+      "runId": "t2-894cb542-58d1-486c-809f-238c9d20ce16",
+      "agentId": "agent-894cb542-58d1-486c-809f-238c9d20ce16",
+      "sequence": 1,
+      "pane": "wAA:p1",
+      "childSha256": "ad1ed9a2ed4c862bca4e1e30608bf78ecc533fbb2ffd76921cd57131dce00a76",
+      "recycleSha256": "1795789dd33258ce33c4d8c8d6be3c8fbb61f20269398d325ab638c4202b0e52",
+      "finalBytes": 10171,
+      "finalBodySha256": "91d2715d6c63784c950399feed60f02e9ec729bbd9ce504f3414244fd16178ef",
+      "declarationSha256": "3207335590aaeb25ebb1b5dc42fcc2adacbb3927a8b23fd6c3ea0a6cd0a73cb7",
+      "sessionSha256": "1555edd60f8f626080740b95e4904a3d7521122acbf563d582179ccc2a0e8bd3",
+      "deliveryPasses": 0,
+      "ackWrites": 0,
+      "childExitedBeforePaneDisappearance": true,
+      "paneGoneBeforeFixtureCleanup": true,
+      "paneListProof": {
+        "args": [
+          "pane",
+          "list"
+        ],
+        "status": 0,
+        "response": {
+          "id": "cli:pane:list",
+          "result": {
+            "panes": [],
+            "type": "pane_list"
+          }
+        }
+      },
+      "recycleReceipt": {
+        "pending": false,
+        "runId": "t2-894cb542-58d1-486c-809f-238c9d20ce16",
+        "paneId": "wAA:p1"
+      },
+      "immutableEventAndSessionRetainFullRecoveredBody": true,
+      "restartStatus": 0,
+      "failedWorkerCommands": [
+        [
+          "--version"
+        ]
+      ],
+      "failedWorkerPendingAssertionPassed": true,
+      "success": true
+    }
+  ]
+}

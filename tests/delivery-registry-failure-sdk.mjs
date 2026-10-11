@@ -32,7 +32,6 @@ try {
 				sessionPath: root,
 				load: () => ({ notifications: "normal" }),
 				fleet: { ok: true, data: [{ paneId: child.paneId, agentStatus: "done" }] },
-				readTakeover: () => ({ taken: false }),
 				push: () => { pushes++; },
 				closePane: async () => { closes++; return { ok: true }; },
 				writeRegistry: (path, records) => {

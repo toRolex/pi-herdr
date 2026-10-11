@@ -76,8 +76,8 @@ const DESCRIPTION =
 	"`auto_exit: false` keeps the pane open. Always returns immediately: accepted as `starting` " +
 	"(the child is not promised to have booted), or `queued` when the fleet is at max_parallel_agents " +
 	"(no pane until a slot frees). There is no wait parameter — a caller-supplied wait is ignored and " +
-	"cannot block this call. The result arrives later by push-on-completion (the notifications setting) " +
-	"or by herdr_get_agent_result. " +
+	"cannot block this call. The result arrives later by push-on-completion (the notifications setting), " +
+	"by herdr_wait_agent_event (wait for the event reference), or by herdr_get_agent_result (consume the final body). " +
 	"`isolated: true` runs the agent in a fresh auto-created herdr-side git worktree " +
 	"(worktree stays after the agent — remove it yourself with `herdr worktree remove` or git). " +
 	"Gates, checked in order before any side effect: kill-switch, spawn depth, parallel cap. " +
@@ -248,6 +248,7 @@ export function registerAgents(
 		promptGuidelines: [
 			"Use herdr_spawn_agent to fan out background work: it spawns the pane, submits the prompt, and returns a handle you address later.",
 			"For herdr_spawn_agent, choose an agent by matching the task to the responsibilities in the current roster.",
+			"For herdr_spawn_agent: spawn only starts the work — wait with herdr_wait_agent_event, then consume with herdr_get_agent_result; correspondence rides herdr_send_agent, further dispatch rides herdr_trigger_turn.",
 		],
 		parameters: Type.Object({
 			prompt: Type.String({

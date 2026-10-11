@@ -1,0 +1,9 @@
+{
+  "exitCode": 0,
+  "realAgentSession": true,
+  "busyToolContinues": true,
+  "idleNoModelCall": true,
+  "nextTurnConsumed": true,
+  "mailboxAcknowledged": true,
+  "streams": 3
+}

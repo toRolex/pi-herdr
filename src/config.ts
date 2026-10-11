@@ -1,39 +1,10 @@
 // Configuration: resolve the herdr binary.
 // No pi settings.json API exists for extensions, so config is via env + PATH.
 
-import { existsSync } from "node:fs";
-import { delimiter, join } from "node:path";
 import { herdr } from "./herdr.js";
+import { resolveHerdrBin } from "./herdr-transport.mjs";
 
-const IS_WIN = process.platform === "win32";
-
-/**
- * Resolve the herdr binary path.
- * 1. HERDR_BIN env override.
- * 2. PATH walk (honoring PATHEXT on Windows) for herdr(.exe/.cmd/...).
- * 3. Fall back to the bare name "herdr" (spawn ENOENT -> HERDR_UNAVAILABLE).
- */
-export function resolveHerdrBin(): string {
-	const override = process.env.HERDR_BIN;
-	if (override) return override;
-
-	const name = "herdr";
-	const exts = IS_WIN
-		? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM").split(";")
-		: [""];
-	const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
-	for (const dir of dirs) {
-		for (const ext of exts) {
-			const candidate = join(dir, ext ? name + ext : name);
-			try {
-				if (existsSync(candidate)) return candidate;
-			} catch {
-				/* ignore unreadable dirs */
-			}
-		}
-	}
-	return name;
-}
+export { resolveHerdrBin };
 
 // ---- agent-kind validation (`agent start --kind`) ----------------------------
 // The `agent` param is a free string validated against the LIVE kind list

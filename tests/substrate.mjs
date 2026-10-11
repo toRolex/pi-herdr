@@ -38,6 +38,12 @@ function eq(a, b) {
 	return JSON.stringify(a) === JSON.stringify(b);
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const baselineEnv = Object.fromEntries(Object.keys(process.env).filter(k => k.startsWith('PI_HERDR_') || k === 'HERDR_PANE_ID').map(k => [k, process.env[k]]));
+function restoreBaselineEnv() {
+	for (const key of Object.keys(process.env)) if ((key.startsWith('PI_HERDR_') || key === 'HERDR_PANE_ID') && !(key in baselineEnv)) delete process.env[key];
+	Object.assign(process.env, baselineEnv);
+}
+for (const key of Object.keys(process.env)) if (key.startsWith('PI_HERDR_') || key === 'HERDR_PANE_ID') delete process.env[key];
 
 const sf = await jiti.import(join(ROOT, "src/sessionfile.ts"), {
 	parent: ROOT,
@@ -369,6 +375,11 @@ console.log("\n[7] Child extension — registration against a mock pi");
 		on: (ev, h) => (registered.handlers[ev] ??= []).push(h),
 	};
 	// no env → no-op
+	restoreBaselineEnv();
+	const savedSession = process.env.PI_HERDR_SESSION;
+	const savedRoot = process.env.PI_HERDR_ROOT_SESSION;
+	delete process.env.PI_HERDR_SESSION;
+	delete process.env.PI_HERDR_ROOT_SESSION;
 	child.registerChildExtension(mockPi);
 	assert(
 		registered.tools.length === 0 && registered.shortcuts.length === 0,
@@ -522,12 +533,16 @@ console.log("\n[7] Child extension — registration against a mock pi");
 		await sleep(80);
 		assert(shut === 0, "aborted run does NOT auto-exit");
 	} finally {
-		delete process.env.PI_HERDR_SESSION;
+		if (savedSession === undefined) delete process.env.PI_HERDR_SESSION;
+		else process.env.PI_HERDR_SESSION = savedSession;
+		if (savedRoot === undefined) delete process.env.PI_HERDR_ROOT_SESSION;
+		else process.env.PI_HERDR_ROOT_SESSION = savedRoot;
 		delete process.env.PI_HERDR_NAME;
 		delete process.env.PI_HERDR_AGENT;
 		delete process.env.PI_HERDR_AUTO_EXIT;
 		delete process.env.PI_HERDR_DENIED_TOOLS;
 		delete process.env.PI_HERDR_ERROR_EXIT_GRACE_MS;
+		restoreBaselineEnv();
 		rmSync(dir, { recursive: true, force: true });
 	}
 
@@ -557,8 +572,7 @@ console.log("\n[7] Child extension — registration against a mock pi");
 			"interactive children never auto-close nor write a settle sidecar",
 		);
 	} finally {
-		delete process.env.PI_HERDR_SESSION;
-		delete process.env.PI_HERDR_AUTO_EXIT;
+		restoreBaselineEnv();
 		rmSync(dir2, { recursive: true, force: true });
 	}
 }
@@ -566,6 +580,7 @@ console.log("\n[7] Child extension — registration against a mock pi");
 // ---------------------------------------------------------------------------
 console.log("\n[8] Launch plan — --session + -e injection and registry growth");
 {
+	restoreBaselineEnv();
 	const dir = mkdtempSync(join(tmpdir(), "pi-herdr-plan-"));
 	const started = [];
 	const deps = {

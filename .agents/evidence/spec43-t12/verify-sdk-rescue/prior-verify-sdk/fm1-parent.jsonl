@@ -1,0 +1,2 @@
+{"type":"session","version":3,"id":"01a11676-6b4d-7569-ac50-884099ff73a6","timestamp":"2026-10-07T13:03:41.903Z","cwd":"/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t12-sdk-1UN2sx/fm1-accepted-uncommitted"}
+{"type":"message","id":"4000471b","parentId":null,"timestamp":"2026-10-07T13:03:41.907Z","message":{"role":"user","content":[{"type":"text","text":"seed"}],"timestamp":1}}

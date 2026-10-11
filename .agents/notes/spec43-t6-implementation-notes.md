@@ -1,0 +1,7 @@
+# spec43 T6 (#49) implementation notes
+
+- Added `herdr_wait_agent_event`, separate from result retrieval. It resolves durable completion event sidecars (`.completion-<eventId>.json`) and legacy `.exit`, returning only status and identity references; body fields are never copied.
+- Wait is read-only. Per-call AbortSignal and deadline exit without changing child/run state or event files. Listener set is broadcast, not a queue, so waiters and repeat calls can observe the same event.
+- Added injectable watcher hook plus polling fallback; the persisted event is rechecked on every wake, so reload/reentry recovers from durable storage rather than volatile wait state.
+- TDD: `tests/spec43-t6.mjs` first failed because the wait module did not exist, then exercised arrival, cancellation, timeout, non-body response and multiple waiters.
+- Live host demo now closes the former acceptance gap. `node tests/spec43-t6-live.mjs` used the actual `herdr` CLI and three autonomous pi children: event-first (result finished before wait; persisted completion was then observed), wait-first (wait returned `available` on event arrival), and cancellation (aborted a pending wait against a nonmatching event ID, then independently retrieved the child's result and observed the real event). All seven assertions passed. The CLI's transient result lookup can show a completed child before the spawn receipt includes a paneId; cleanup therefore tracks only pane IDs actually returned/observed, plus removes its dedicated temp cwd. Prior host limitation is resolved.

@@ -30,6 +30,7 @@ try {
  await tools.get('agent_done').execute('done',{},undefined,undefined,{shutdown(){}});
  const sidecar = JSON.parse(readFileSync(session+'.exit','utf8'));
  assert.equal(sidecar.eventId,sent.data.eventId,'sidecar and terminal envelope share event ID');
+ assert.equal(typeof sidecar.text,'string','durable completion includes full final body');
  const { registerAgentMessageInput } = await jiti.import('../src/agent-message.ts');
  for (const busy of [false,true]) for (const reverse of [false,true]) {
   const rows=[], sinks=[], renderers=new Map(); let input;

@@ -1,0 +1,27 @@
+{
+  "feature": "spec43-t12-sdk",
+  "total": 3,
+  "failed": 0,
+  "cases": [
+    {
+      "name": "FM1 SDK-accept-without-host-commit stays pending, no duplicate send",
+      "status": "queued",
+      "retryRefused": true,
+      "result": "pending retained"
+    },
+    {
+      "name": "FM2 host-commit + ledger-ACK-write-loss repairs to delivered after restart",
+      "secondClaimRefused": true,
+      "result": "no duplicate, no loss"
+    },
+    {
+      "name": "FM3 legacy unknown pending survives reload; durable evidence resolves it",
+      "token": "legacy-token-fm3",
+      "finalStatus": "delivered",
+      "result": "pending retained then resolved"
+    }
+  ],
+  "baseline": "spec43-integration 6e9e5dc",
+  "namespace": "verify",
+  "boundary": "Real AgentSession/SessionManager persistence; only model output deterministic. Not a crash-atomicity (fsync) proof: the SDK does not fsync JSONL appends, so exactly-once across power loss is NOT claimed."
+}

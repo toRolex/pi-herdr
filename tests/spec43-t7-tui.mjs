@@ -1,0 +1,60 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+const artifacts = resolve(process.argv[2]);
+const run = JSON.parse(readFileSync(join(artifacts, 'run.json'), 'utf8'));
+const root = run.root, scratch = run.scratch;
+const record = value => writeFileSync(join(artifacts, 'transport.jsonl'), JSON.stringify(value) + '\n', { flag: 'a' });
+const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(?:HERDR|PI_HERDR)/.test(key)));
+// Keep only the shared-server capability and this owned workspace, never inherited agent identity.
+for (const key of ['HERDR_ENV', 'HERDR_SOCKET_PATH', 'HERDR_BIN_PATH']) if (process.env[key]) cleanEnv[key] = process.env[key];
+cleanEnv.HERDR_WORKSPACE_ID = run.workspace;
+const cli = args => {
+ const result = spawnSync('herdr', args, { cwd: root, env: cleanEnv, encoding: 'utf8', timeout: 15000 });
+ record({ command: ['herdr', ...args], exitCode: result.status, stdout: result.stdout, stderr: result.stderr });
+ assert.equal(result.status, 0);
+ if (args[0] === 'pane' && args[1] === 'read') return result.stdout;
+ const parsed = JSON.parse(result.stdout); assert(!parsed.error, JSON.stringify(parsed.error)); return parsed.result;
+};
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const requestLog = join(scratch, 't7-provider.jsonl');
+const requests = () => existsSync(requestLog) ? readFileSync(requestLog, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
+const entries = () => existsSync(join(scratch, 'parent.jsonl')) ? readFileSync(join(scratch, 'parent.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse) : [];
+const until = async (check, description) => { const deadline = Date.now() + 15000; while (Date.now() < deadline) { if (check()) return; await sleep(100); } throw new Error(description); };
+writeFileSync(join(scratch, '.pi/herdr.json'), JSON.stringify({ notifications: 'normal', max_spawn_depth: 4 }));
+const tab = cli(['tab', 'create', '--workspace', run.workspace, '--cwd', scratch, '--label', 't7-tui-proof', '--no-focus', '--env', 'PI_HERDR_SPAWN_DEPTH=0', '--env', 'PI_HERDR_AGENT=', '--env', 'PI_HERDR_NAME=', '--env', 'PI_HERDR_SESSION=', '--env', `T7_TUI_REQUEST_LOG=${requestLog}`]);
+assert.equal(tab.tab.workspace_id, run.workspace);
+const pane = tab.root_pane.pane_id;
+let outcome;
+try {
+ cli(['agent', 'start', `t7-tui-${run.token.slice(0, 8)}`, '--kind', 'pi', '--pane', pane, '--timeout', '10000', '--', '-ne', '-ns', '-e', join(root, 'tests/fixtures/spec43-t7-tui.ts'), '--model', 't7-tui/deterministic', '--thinking', 'off', '--session', join(scratch, 'parent.jsonl')]);
+ cli(['agent', 'prompt', pane, 't7-initial']);
+ await until(() => entries().some(row => row.message?.role === 'assistant'), 'initial final answer');
+ assert.equal(requests().length, 1);
+ cli(['agent', 'prompt', pane, '/t7-late']);
+ await sleep(900);
+ assert.equal(requests().length, 1, 'finished late arrival must not wake TUI model');
+ assert.equal(entries().some(row => row.type === 'custom_message' && row.content === 'T7_TUI_FINISHED_BODY'), false);
+ const pending = JSON.parse(readFileSync(join(scratch, 'parent.jsonl.herdr-parent-notify.json'), 'utf8'));
+ assert.equal(pending.messages.some(row => row.message.content === 'T7_TUI_FINISHED_BODY'), true);
+ cli(['agent', 'prompt', pane, 't7-natural']);
+ await until(() => entries().some(row => row.message?.role === 'assistant' && JSON.stringify(row.message.content).includes('T7_TUI_NATURAL_CONSUMED')), 'natural consumption');
+ assert.equal(requests().length, 2);
+ assert.equal(requests()[1].messages.filter(message => JSON.stringify(message.content).includes('T7_TUI_FINISHED_BODY')).length, 1);
+ cli(['agent', 'prompt', pane, 't7-arm']);
+ await until(() => entries().some(row => row.message?.role === 'toolResult' && row.message.toolName === 'herdr_wake_subscription'), 'real subscription model tool');
+ await until(() => requests().length === 4 && entries().filter(row => row.message?.role === 'assistant').length >= 4, 'subscription response settled');
+ cli(['agent', 'prompt', pane, '/t7-explicit']);
+ await until(() => entries().some(row => row.message?.role === 'assistant' && JSON.stringify(row.message.content).includes('T7_TUI_EXPLICIT_CONSUMED')), 'explicit wake consumed');
+ assert.equal(requests().length, 5, 'scoped explicit wake starts exactly one request');
+ const consumed = JSON.parse(readFileSync(join(scratch, 'parent.jsonl.herdr-parent-notify.json'), 'utf8'));
+ assert.equal(consumed.subscriptions.length, 0);
+ outcome = { feature: 't7-parent-governance', exitCode: 0, pane, providerRequests: 5, finishedLateRequests: 1, naturalRunRequests: 2, explicitWakeRequests: 1, oneShotConsumed: true, realTUI: true, realHerdrCLI: true, fullCheckoutExtension: true, deterministicProvider: true, noChildSpawnClaim: true };
+ writeFileSync(join(artifacts, 'result.json'), JSON.stringify(outcome, null, 2) + '\n');
+ run.feature = 't7-parent-governance'; run.phase = 'driven'; writeFileSync(join(artifacts, 'run.json'), JSON.stringify(run, null, 2) + '\n');
+ console.log('GREEN T7 finished hold, natural consumption and real model-tool scoped wake through pi TUI');
+} finally {
+ writeFileSync(join(artifacts, 'terminal.json'), JSON.stringify(cli(['pane', 'read', pane, '--source', 'recent', '--lines', '160', '--format', 'text']), null, 2) + '\n');
+ if (!outcome) writeFileSync(join(artifacts, 't7-failure.json'), JSON.stringify({ pane, requests: requests().length, phase: 'drive-failed' }, null, 2) + '\n');
+}

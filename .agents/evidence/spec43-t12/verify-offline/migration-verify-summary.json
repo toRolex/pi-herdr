@@ -1,0 +1,73 @@
+{
+  "feature": "spec43-t12-migration-verify",
+  "total": 16,
+  "failed": 0,
+  "results": [
+    {
+      "name": "AC1a message_agent legacy wake/inject semantics kept (not QueueOnly remap)",
+      "pass": true
+    },
+    {
+      "name": "AC1b message_agent cannot restore takeover (no marker, no takenOver field)",
+      "pass": true
+    },
+    {
+      "name": "AC1c message_agent cannot bypass completion arbitration for a second body",
+      "pass": true
+    },
+    {
+      "name": "AC1d default guidance points at the new tool surface",
+      "pass": true
+    },
+    {
+      "name": "AC2a mid-flight result returns status only, no draft body",
+      "pass": true
+    },
+    {
+      "name": "AC2b no infinite re-read: normal repeat is a reference, reread is explicit",
+      "pass": true
+    },
+    {
+      "name": "AC3 resume stays a maintenance entry; followup restores the session internally with a distinct run",
+      "pass": true
+    },
+    {
+      "name": "AC4a identity-unknown registry records are held for review, not turned into completions",
+      "pass": true
+    },
+    {
+      "name": "AC4b already-delivered historical notifications are not replayed after reload",
+      "pass": true
+    },
+    {
+      "name": "AC4c unknown pending recovers via migratePending and reload keeps it pending (no retry, no loss)",
+      "pass": true
+    },
+    {
+      "name": "AC4d committed body repairs a ledger ACK write failure after restart",
+      "pass": true
+    },
+    {
+      "name": "AC4e queued Push is re-arbitrated before drain, not owned at enqueue time",
+      "pass": true
+    },
+    {
+      "name": "AC5a notifications normal does not accidentally wake a finished parent",
+      "pass": true
+    },
+    {
+      "name": "AC5b quiet and none are preserved (no reset to normal)",
+      "pass": true
+    },
+    {
+      "name": "AC5c legacy idle_rearm config loads without error and is inert",
+      "pass": true
+    },
+    {
+      "name": "AC5d old takeover marker files are tolerated (read, ignored, no error)",
+      "pass": true
+    }
+  ],
+  "baseline": "integration bab5d20",
+  "namespace": "verify-offline"
+}

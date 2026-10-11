@@ -25,7 +25,7 @@ Spawn an agent named summ to summarize README.md in three bullets.
 Give me its result when the completion notification arrives.
 ```
 
-`herdr_spawn_agent` returns acceptance immediately as `starting` or `queued`. It does not guarantee boot completion. `herdr_get_agent_result` with `{ "target": "summ" }` returns one current snapshot. Neither tool accepts `wait`. Background workflows return a run ID immediately and report one aggregated result later.
+`herdr_spawn_agent` returns acceptance immediately with stable agent/run identity as `starting` or `queued`. It does not guarantee boot completion. `herdr_wait_agent_event` with `{ "target": "summ" }` waits for the completion event reference; `herdr_get_agent_result` then consumes the final body as one snapshot. Neither spawn nor result accepts `wait`. Background workflows return a run ID immediately and report one aggregated result later.
 
 ## Current reference
 

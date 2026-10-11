@@ -85,11 +85,14 @@ The commands the tools use (all current-surface, no legacy fallbacks):
   `<agent-message from="…" to="…">…</agent-message>` (spawner-declared
   identity, never verified; no child-side parsing — the receiving model
   recognizes the tag).
-- **`herdr_get_agent_result`** — reads the child's session JSONL (the exact
-  last assistant message) and `<session>.exit` (the typed completion sidecar)
-  directly; `agent read` only as the pane-tail fallback for panes this session
-  did not spawn. `wait` races nothing: it polls sidecar → pane status until a
-  terminal state.
+- **`herdr_get_agent_result`** — consumes a durable completion event: reads
+  the child's session JSONL (the exact last assistant message) and the typed
+  completion sidecar directly; `agent read` only as the pane-tail fallback for
+  panes this session did not spawn. It never waits and never blocks — a
+  mid-flight call reports status only, without reading drafts or consuming.
+  Waiting is `herdr_wait_agent_event`'s job (event reference only, no body).
+  Spec 43 note: this tool used to be the inspection tool with bounded waits;
+  the wait/inspect pair of that contract is now separated.
 
 ## Pane surface vs agent surface
 
@@ -150,7 +153,7 @@ honors an `AbortSignal` (the pi tool `signal`). On timeout or abort the child pr
 is killed and the call resolves `{ ok:false, error:{ code:"TIMEOUT", … } }` rather
 than hanging — "Timeouts everywhere" per [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 Several tools also expose their own timeout parameter (`herdr_get_agent_result`'s
-`wait` ms form, `herdr_wait_output`'s `timeoutMs`).
+`herdr_wait_agent_event`'s `timeout`, `herdr_wait_output`'s `timeoutMs`).
 
 ## Agent kinds
 

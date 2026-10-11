@@ -36,7 +36,7 @@ export function registerResultInputWake(pi: ExtensionAPI): void {
 		scopes.delete(scope);
 		scope.advance();
 	};
-	pi.on("input", () => { scope.advance(); });
+	// Only host lifecycle retirement releases a legacy wait; ordinary input never interrupts it.
 	pi.on("session_start", () => {
 		retire();
 		scope = createInputWake();

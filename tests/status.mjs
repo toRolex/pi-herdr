@@ -921,6 +921,16 @@ console.log("\n[5] herdr_list_agents — projected rows, queued rows, consumed r
 		);
 	}
 
+	// Failed starts remain attributed to the accepted run and discoverable.
+	{
+		const failedRecord = lrec({ paneId: undefined, agentId: "a-fail", runId: "r-fail", sequence: 1, startError: "binary missing" });
+		const r = await orch.listAgentsView(ldeps({ records: [failedRecord], fleet: [] }));
+		const row = r.data.rows.find((entry) => entry.runId === "r-fail");
+		assert(row?.agentId === "a-fail" && row.state === "gone", "failed start remains visible under its original run identity");
+		const delivered = await orch.listAgentsView(ldeps({ records: [{ ...failedRecord, delivery: { kind: "start-error", at: NOW } }], fleet: [] }));
+		assert(delivered.data.rows.some((entry) => entry.runId === "r-fail"), "delivered start failure remains discoverable in the list");
+	}
+
 	// queued record: a row without a pane
 	{
 		const r = await orch.listAgentsView(

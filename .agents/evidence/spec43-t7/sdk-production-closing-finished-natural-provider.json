@@ -1,0 +1,228 @@
+[
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-closing-finished-natural\n</cwd>"
+        },
+        "timestamp": 1791362536778
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "production final answer"
+          }
+        ],
+        "timestamp": 1791362536778
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-closing-finished-natural\n</cwd>"
+        },
+        "timestamp": 1791362536778
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "production final answer"
+          }
+        ],
+        "timestamp": 1791362536778
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "finished"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791362536778,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "production natural next run"
+          }
+        ],
+        "timestamp": 1791362536820
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "PRODUCTION CLOSING BODY"
+          }
+        ],
+        "timestamp": 1791362536825
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "PRODUCTION FINISHED BODY"
+          }
+        ],
+        "timestamp": 1791362536830
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "",
+        "sections": {
+          "preamble": "T7 deterministic SDK proof",
+          "cwd": "<cwd>\n/var/folders/d9/_0gbv97x6332wsrqhr4fcyj80000gn/T/spec43-t7-sdk-HWkTL6/production-closing-finished-natural\n</cwd>"
+        },
+        "timestamp": 1791362536778
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "production final answer"
+          }
+        ],
+        "timestamp": 1791362536778
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "finished"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791362536778,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "production natural next run"
+          }
+        ],
+        "timestamp": 1791362536820
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "PRODUCTION CLOSING BODY"
+          }
+        ],
+        "timestamp": 1791362536825
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "PRODUCTION FINISHED BODY"
+          }
+        ],
+        "timestamp": 1791362536830
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "extra provider request"
+          }
+        ],
+        "stopReason": "stop",
+        "timestamp": 1791362536830,
+        "api": "t7-offline",
+        "provider": "t7-offline",
+        "model": "deterministic",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "thinkingLevel": "off"
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "PRODUCTION EXPLICIT BODY"
+          }
+        ],
+        "timestamp": 1791362536895
+      }
+    ]
+  }
+]

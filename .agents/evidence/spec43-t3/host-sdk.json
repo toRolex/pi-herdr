@@ -1,0 +1,125 @@
+{
+  "sdkVersion": "1.0.2",
+  "realSDK": true,
+  "realSessionManager": true,
+  "network": false,
+  "checks": [
+    {
+      "case": "extension-only",
+      "preciseCancellation": false,
+      "beforeDrain": false
+    },
+    {
+      "case": "idle-wake",
+      "status": "rejected-before-run",
+      "wakeEnqueue": "busy-only"
+    },
+    {
+      "case": "precise-cancel-steer",
+      "removed": 1,
+      "unrelatedPreserved": 2
+    },
+    {
+      "case": "precise-cancel-followUp",
+      "removed": 1,
+      "unrelatedPreserved": 2
+    },
+    {
+      "case": "precise-cancel-nextTurn",
+      "removed": 1,
+      "unrelatedPreserved": 2
+    },
+    {
+      "case": "last-moment-sdk-drain",
+      "lateDecisionRejected": true,
+      "asyncDecisionFailsClosed": true,
+      "throwLeavesQueue": true
+    },
+    {
+      "case": "dequeue-before-append-crash-window",
+      "dequeued": 1,
+      "receipt": "absent",
+      "cancel": "not-queued",
+      "reopenedHasMessage": false,
+      "duplicateTokenRejected": true,
+      "processKilled": false
+    },
+    {
+      "case": "actual-sdk-natural-prompt",
+      "rejectedBeforeConsume": true,
+      "arrayReplacementRepatched": true
+    },
+    {
+      "case": "real-sdk-loop-and-reopen",
+      "receiptBefore": "absent",
+      "receiptAfter": "persisted",
+      "afterDequeueCancel": "not-queued"
+    },
+    {
+      "case": "real-tool-pipeline-persistence-boundary",
+      "observations": [
+        {
+          "boundary": "tool_result",
+          "receipt": "absent"
+        },
+        {
+          "boundary": "message_end-extension",
+          "receipt": "absent"
+        },
+        {
+          "boundary": "message_end-public",
+          "receipt": "absent"
+        }
+      ],
+      "afterRun": "persisted"
+    },
+    {
+      "case": "real-filesystem-failure",
+      "failure": "EISDIR",
+      "branchHasResult": true,
+      "diskHasResult": false,
+      "receiptOnFailure": "unknown",
+      "receiptAfterRestoringDisk": "absent",
+      "reopenedHasResult": false,
+      "partialTail": "unknown"
+    },
+    {
+      "case": "public-message-end-real-extension-runner",
+      "publicSendMessageBinding": true,
+      "queuedDecisionChanged": true,
+      "sameObjectStateAndDisk": true,
+      "oldBodyInModel": false,
+      "oldBodyInDisk": false,
+      "foreignBodyPreserved": true,
+      "arbiterExceptionRedacted": true,
+      "messageStartObservedOldBody": true,
+      "reopenedWithdrawnRecords": 2,
+      "withdrawalMetadataWhitelisted": true,
+      "withdrawalReceiptNotBodyAck": true,
+      "allowedBodyCommitMarker": true,
+      "actualProviderRequestsIntercepted": 6,
+      "awaitedArbitrationBeforeProvider": true,
+      "immediateAppendBypassProven": true,
+      "unsafeDispatchOptionsRejected": true
+    }
+  ],
+  "limitations": [
+    "Private queue seam requires explicit AgentSession injection; public ExtensionAPI has no per-message cancel or pre-drain hook.",
+    "Re-arbitration is synchronous only; a Promise is rejected before draining.",
+    "Idle wake bypasses queue arbitration and is explicitly rejected by this adapter; wake enqueue is busy-only.",
+    "Arbiter false withdraws the owned queue item, not a hold; caller durable outbox must drive fallback/retry.",
+    "Cancellation after dequeue is not-queued, never proof of retraction.",
+    "Dequeue to message_end persistence is a process-crash window; caller needs durable outbox retry.",
+    "tool_result hook and message_end listeners run before SessionManager append; they are not durable acknowledgement.",
+    "SessionManager mutates branch before disk append; filesystem error leaves branch-only false acknowledgement.",
+    "SDK appendFileSync has no fsync; JSONL readback is not power-loss-safe durability.",
+    "Public message_end gate withdraws body before model request/persistence, not dequeue; message_start/UI may already have observed body.",
+    "Public message_end handlers compose in registration order; a later trusted extension can undo replacement. Ownership matcher must be total and reliably recognize owned details."
+  ],
+  "result": "passed",
+  "cleanup": {
+    "temporaryDirectoryRemoved": true,
+    "spawnedPanes": 0,
+    "otherSessionsTouched": false
+  }
+}

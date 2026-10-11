@@ -1,0 +1,26 @@
+{
+  "feature": "spec43-t12-offline-migration-acceptance",
+  "baseline": "integration bab5d20",
+  "commands": [
+    {
+      "command": "node tests/spec43-t12-migration-verify.mjs",
+      "exitCode": 0,
+      "summary": "16/16 acceptance checks passed"
+    },
+    {
+      "command": "node tests/t12-migration.mjs",
+      "exitCode": 0,
+      "summary": "23 passed, 0 failed; identity-unknown pending remains pending and cannot be ACKed into a fabricated completion"
+    },
+    {
+      "command": "npm run typecheck",
+      "exitCode": 0
+    },
+    {
+      "command": "npm test",
+      "exitCode": 0,
+      "summary": "Full configured test suite completed; no test failures. Final suite: 99 passed, 0 failed. Other emitted suite summaries included 193, 123, 22, 71, 27, 119, 22, 89, 88, 134, and 61 passed with 0 failed."
+    }
+  ],
+  "note": "The existing migration evidence previously recorded AC1d failing on an older integration baseline; the current bab5d20 worktree passes it without weakening the assertion."
+}

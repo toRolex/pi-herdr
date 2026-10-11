@@ -1,0 +1,9 @@
+{
+  "runId": "wf_fa80a78c1970",
+  "content": "Workflow \"t12-live-aggregate\" finished — 1/1 agents · 5s.\nReturn value: {\"childCompleted\":true}\nScript: /Users/rolex/Documents/Codes/githubProject/MyProject/pi-herdr.spec43-t12-live-rescue/.agents/evidence/spec43-t12/verify-live-rescue/7a923cd9-48ef-43c9-80b7-f5650cb1d15f/project/.pi/workflows/t12-live-aggregate.js",
+  "details": {
+    "kind": "workflow",
+    "runId": "wf_fa80a78c1970",
+    "status": "completed"
+  }
+}
